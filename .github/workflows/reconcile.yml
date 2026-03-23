@@ -1,0 +1,34 @@
+name: Reconcile Yelp Async Workflows
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: reconcile-yelp-async
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Call internal reconcile endpoint
+        env:
+          RECONCILE_URL: ${{ secrets.RECONCILE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$RECONCILE_URL" ]; then
+            echo "RECONCILE_URL secret is not configured."
+            exit 1
+          fi
+
+          if [ -z "$CRON_SECRET" ]; then
+            echo "CRON_SECRET secret is not configured."
+            exit 1
+          fi
+
+          curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$RECONCILE_URL"

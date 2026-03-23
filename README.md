@@ -88,7 +88,7 @@ Useful optional values:
 
 - `DEMO_MODE=true` to seed and operate with local demo behavior when live Yelp APIs are disabled
 - `DEFAULT_TENANT_SLUG=default`
-- `CRON_SECRET` to secure the internal reconciliation endpoint used by Vercel Cron
+- `CRON_SECRET` to secure the internal reconciliation endpoint used by GitHub Actions or any external scheduler
 - `SEED_ADMIN_EMAIL` and `SEED_ADMIN_NAME` to control the initial seeded admin identity
 - `YELP_*_BASE_URL` overrides for different environments
 
@@ -155,13 +155,17 @@ pnpm build
 
 - Use PostgreSQL in the target environment.
 - Set strong production values for `SESSION_SECRET` and `APP_ENCRYPTION_KEY`.
-- Set a strong `CRON_SECRET` and keep Vercel Cron enabled for `/api/internal/reconcile`.
+- Set a strong `CRON_SECRET` and keep an external scheduler enabled for `/api/internal/reconcile`.
 - Save credentials per tenant through the admin UI after deployment.
 - Keep all Yelp credentials server-side only.
 - Review audit logs regularly for destructive actions and failed jobs.
 - Use separate databases, or at minimum separate tenants plus secrets, for preview and production environments.
 - Ensure your deployment process runs `pnpm prisma:migrate:deploy` before serving traffic.
 - Use a pooled PostgreSQL connection strategy for Vercel serverless runtime.
+- This repository includes [`.github/workflows/reconcile.yml`](/Users/ilias_iangurazov/Commercial/irbishvac-yelp-ads-api/.github/workflows/reconcile.yml) to call the internal reconcile endpoint every 5 minutes from GitHub Actions.
+- Configure these GitHub repository secrets:
+  - `RECONCILE_URL`: your deployed URL plus `/api/internal/reconcile`
+  - `CRON_SECRET`: the same value configured in Vercel
 
 ## Known live-account TODOs
 
