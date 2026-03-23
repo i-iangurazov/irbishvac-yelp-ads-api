@@ -1,0 +1,88 @@
+import "server-only";
+
+import type { CredentialKind } from "@prisma/client";
+
+import { getCredentialSet } from "@/lib/db/credentials-repository";
+import { getSystemSetting } from "@/lib/db/settings-repository";
+import { decryptSecret } from "@/lib/utils/crypto";
+import { getServerEnv } from "@/lib/utils/env";
+import { YelpMissingAccessError } from "@/lib/yelp/errors";
+
+export type YelpCapabilityFlags = {
+  adsApiEnabled: boolean;
+  programFeatureApiEnabled: boolean;
+  reportingApiEnabled: boolean;
+  dataIngestionApiEnabled: boolean;
+  businessMatchApiEnabled: boolean;
+  demoModeEnabled: boolean;
+};
+
+export type YelpCredentialConfig = {
+  label: string;
+  baseUrl: string;
+  isEnabled: boolean;
+  username?: string;
+  secret?: string;
+  metadata?: Record<string, unknown> | null;
+};
+
+const defaultCapabilities: YelpCapabilityFlags = {
+  adsApiEnabled: false,
+  programFeatureApiEnabled: false,
+  reportingApiEnabled: false,
+  dataIngestionApiEnabled: false,
+  businessMatchApiEnabled: false,
+  demoModeEnabled: false
+};
+
+export async function getCapabilityFlags(tenantId: string) {
+  const stored = await getSystemSetting<Partial<YelpCapabilityFlags>>(tenantId, "yelpCapabilities");
+  return { ...defaultCapabilities, ...stored };
+}
+
+export async function getCredentialConfig(tenantId: string, kind: CredentialKind): Promise<YelpCredentialConfig | null> {
+  const credential = await getCredentialSet(tenantId, kind);
+
+  if (!credential) {
+    return null;
+  }
+
+  const env = getServerEnv();
+
+  const fallbackBaseUrl =
+    kind === "REPORTING_FUSION"
+      ? env.YELP_REPORTING_BASE_URL
+      : kind === "BUSINESS_MATCH"
+        ? env.YELP_BUSINESS_MATCH_BASE_URL
+        : kind === "DATA_INGESTION"
+          ? env.YELP_DATA_INGESTION_BASE_URL
+          : env.YELP_ADS_BASE_URL;
+
+  return {
+    label: credential.label,
+    baseUrl: credential.baseUrl || fallbackBaseUrl,
+    isEnabled: credential.isEnabled,
+    username: credential.usernameEncrypted ? decryptSecret(credential.usernameEncrypted) : undefined,
+    secret: credential.secretEncrypted ? decryptSecret(credential.secretEncrypted) : undefined,
+    metadata: (credential.metadataJson as Record<string, unknown> | null) ?? null
+  };
+}
+
+export async function ensureYelpAccess(params: {
+  tenantId: string;
+  capabilityKey: keyof YelpCapabilityFlags;
+  credentialKind: CredentialKind;
+}) {
+  const capabilities = await getCapabilityFlags(params.tenantId);
+  const credential = await getCredentialConfig(params.tenantId, params.credentialKind);
+
+  if (!capabilities[params.capabilityKey]) {
+    throw new YelpMissingAccessError("Not enabled by Yelp / missing capability flag.");
+  }
+
+  if (!credential?.isEnabled || !credential.secret) {
+    throw new YelpMissingAccessError("Not enabled by Yelp / missing credentials.");
+  }
+
+  return { capabilities, credential };
+}

@@ -1,0 +1,379 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RoleCode {
+  ADMIN
+  OPERATOR
+  ANALYST
+  VIEWER
+}
+
+enum CredentialKind {
+  ADS_BASIC_AUTH
+  REPORTING_FUSION
+  BUSINESS_MATCH
+  DATA_INGESTION
+}
+
+enum ConnectionTestStatus {
+  UNTESTED
+  SUCCESS
+  FAILED
+}
+
+enum ProgramType {
+  BP
+  EP
+  CPC
+  RCA
+  CTA
+  SLIDESHOW
+  BH
+  VL
+  LOGO
+  PORTFOLIO
+}
+
+enum ProgramStatus {
+  DRAFT
+  QUEUED
+  PROCESSING
+  ACTIVE
+  SCHEDULED
+  ENDED
+  FAILED
+  PARTIAL
+}
+
+enum JobType {
+  CREATE_PROGRAM
+  EDIT_PROGRAM
+  END_PROGRAM
+  SYNC_JOB
+  REQUEST_REPORT
+  FETCH_REPORT
+  TEST_CONNECTION
+}
+
+enum JobStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  PARTIAL
+  FAILED
+}
+
+enum FeatureType {
+  LINK_TRACKING
+  NEGATIVE_KEYWORD_TARGETING
+  STRICT_CATEGORY_TARGETING
+  AD_SCHEDULING
+  CUSTOM_LOCATION_TARGETING
+  AD_GOAL
+  CALL_TRACKING
+  BUSINESS_HIGHLIGHTS
+  VERIFIED_LICENSE
+  CUSTOM_RADIUS_TARGETING
+  CUSTOM_AD_TEXT
+  CUSTOM_AD_PHOTO
+  BUSINESS_LOGO
+  YELP_PORTFOLIO
+}
+
+enum ReportGranularity {
+  DAILY
+  MONTHLY
+}
+
+enum ReportStatus {
+  REQUESTED
+  PROCESSING
+  READY
+  FAILED
+}
+
+enum AuditStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+model Tenant {
+  id             String              @id @default(cuid())
+  name           String
+  slug           String              @unique
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  users          User[]
+  credentialSets CredentialSet[]
+  businesses     Business[]
+  programs       Program[]
+  programJobs    ProgramJob[]
+  programFeatureSnapshots ProgramFeatureSnapshot[]
+  reportRequests ReportRequest[]
+  reportResults  ReportResult[]
+  auditEvents    AuditEvent[]
+  settings       SystemSetting[]
+}
+
+model Role {
+  id              String   @id @default(cuid())
+  code            RoleCode @unique
+  name            String
+  description     String
+  permissionsJson Json
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  users           User[]
+}
+
+model User {
+  id           String       @id @default(cuid())
+  tenantId     String
+  roleId       String
+  email        String       @unique
+  name         String
+  passwordHash String
+  isActive     Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  role         Role         @relation(fields: [roleId], references: [id])
+  reportRuns   ReportRequest[] @relation("ReportCreatedBy")
+  auditEvents  AuditEvent[] @relation("AuditActor")
+
+  @@index([tenantId])
+  @@index([roleId])
+}
+
+model CredentialSet {
+  id                 String               @id @default(cuid())
+  tenantId           String
+  kind               CredentialKind
+  label              String
+  usernameEncrypted  String?
+  secretEncrypted    String
+  baseUrl            String?
+  isEnabled          Boolean              @default(false)
+  lastTestStatus     ConnectionTestStatus @default(UNTESTED)
+  lastTestedAt       DateTime?
+  lastErrorMessage   String?
+  metadataJson       Json?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  tenant             Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, kind])
+  @@index([tenantId])
+}
+
+model Business {
+  id                      String    @id @default(cuid())
+  tenantId                String
+  name                    String
+  encryptedYelpBusinessId String
+  city                    String?
+  state                   String?
+  country                 String?
+  categoriesJson          Json      @default("[]")
+  readinessJson           Json      @default("{}")
+  rawSnapshotJson         Json?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+  tenant                  Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  mappings                YelpBusinessMapping[]
+  programs                Program[]
+  programJobs             ProgramJob[]
+  featureSnapshots        ProgramFeatureSnapshot[]
+  reportRequests          ReportRequest[]
+  reportResults           ReportResult[]
+  auditEvents             AuditEvent[]
+
+  @@unique([tenantId, encryptedYelpBusinessId])
+  @@index([tenantId, name])
+}
+
+model YelpBusinessMapping {
+  id                 String   @id @default(cuid())
+  tenantId           String
+  businessId         String
+  source             String
+  externalBusinessId String
+  isPrimary          Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  business           Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, externalBusinessId])
+  @@index([tenantId])
+}
+
+model Program {
+  id                String         @id @default(cuid())
+  tenantId          String
+  businessId        String
+  type              ProgramType
+  status            ProgramStatus  @default(DRAFT)
+  upstreamProgramId String?
+  currency          String         @default("USD")
+  budgetCents       Int?
+  maxBidCents       Int?
+  isAutobid         Boolean?
+  pacingMethod      String?
+  feePeriod         String?
+  startDate         DateTime?
+  endDate           DateTime?
+  adCategoriesJson  Json?
+  configurationJson Json          @default("{}")
+  summaryJson       Json?
+  lastSyncedAt      DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  tenant            Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  business          Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  jobs              ProgramJob[]
+  featureSnapshots  ProgramFeatureSnapshot[]
+  auditEvents       AuditEvent[]
+
+  @@index([tenantId, businessId])
+  @@index([tenantId, type, status])
+}
+
+model ProgramJob {
+  id                String     @id @default(cuid())
+  tenantId          String
+  businessId        String
+  programId         String?
+  type              JobType
+  status            JobStatus  @default(QUEUED)
+  correlationId     String     @unique
+  upstreamJobId     String?
+  requestJson       Json?
+  responseJson      Json?
+  errorJson         Json?
+  attempts          Int        @default(0)
+  submittedAt       DateTime   @default(now())
+  lastPolledAt      DateTime?
+  completedAt       DateTime?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+  tenant            Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  business          Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  program           Program?   @relation(fields: [programId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status])
+  @@index([programId])
+  @@index([businessId])
+}
+
+model ProgramFeatureSnapshot {
+  id                String      @id @default(cuid())
+  tenantId          String
+  businessId        String
+  programId         String
+  type              FeatureType
+  isDeleted         Boolean     @default(false)
+  valueJson         Json
+  capturedAt        DateTime    @default(now())
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  tenant            Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  business          Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  program           Program     @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, programId, type])
+}
+
+model ReportRequest {
+  id                      String            @id @default(cuid())
+  tenantId                String
+  businessId              String?
+  createdById             String?
+  granularity             ReportGranularity
+  status                  ReportStatus      @default(REQUESTED)
+  startDate               DateTime
+  endDate                 DateTime
+  upstreamRequestId       String?
+  requestedBusinessIdsJson Json             @default("[]")
+  filtersJson             Json?
+  errorJson               Json?
+  createdAt               DateTime          @default(now())
+  updatedAt               DateTime          @updatedAt
+  tenant                  Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  business                Business?         @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  createdBy               User?             @relation("ReportCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  results                 ReportResult[]
+  auditEvents             AuditEvent[]
+
+  @@index([tenantId, status, granularity])
+  @@index([businessId])
+}
+
+model ReportResult {
+  id                 String      @id @default(cuid())
+  tenantId           String
+  reportRequestId    String
+  businessId         String?
+  granularity        ReportGranularity
+  cacheKey           String      @unique
+  payloadJson        Json
+  metricsSummaryJson Json?
+  rawStatus          String?
+  fetchedAt          DateTime    @default(now())
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+  tenant             Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  reportRequest      ReportRequest @relation(fields: [reportRequestId], references: [id], onDelete: Cascade)
+  business           Business?   @relation(fields: [businessId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, reportRequestId])
+}
+
+model AuditEvent {
+  id                    String      @id @default(cuid())
+  tenantId              String
+  actorId               String?
+  businessId            String?
+  programId             String?
+  reportRequestId       String?
+  actionType            String
+  status                AuditStatus @default(PENDING)
+  correlationId         String?
+  upstreamReference     String?
+  requestSummaryJson    Json?
+  responseSummaryJson   Json?
+  beforeJson            Json?
+  afterJson             Json?
+  rawPayloadSummaryJson Json?
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
+  tenant                Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  actor                 User?       @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  business              Business?   @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  program               Program?    @relation(fields: [programId], references: [id], onDelete: SetNull)
+  reportRequest         ReportRequest? @relation(fields: [reportRequestId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+  @@index([actorId])
+  @@index([businessId])
+  @@index([programId])
+}
+
+model SystemSetting {
+  id        String   @id @default(cuid())
+  tenantId  String
+  key       String
+  valueJson Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, key])
+  @@index([tenantId])
+}

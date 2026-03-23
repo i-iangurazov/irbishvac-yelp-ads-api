@@ -1,0 +1,13 @@
+{
+  "totals": {
+    "impressions": 4200,
+    "clicks": 290,
+    "adSpendCents": 128900,
+    "calls": 42,
+    "websiteLeads": 18
+  },
+  "rows": [
+    { "date": "2026-03-01", "impressions": 600, "clicks": 44, "adSpendCents": 18000, "calls": 5, "websiteLeads": 3 },
+    { "date": "2026-03-02", "impressions": 575, "clicks": 37, "adSpendCents": 17400, "calls": 4, "websiteLeads": 2 }
+  ]
+}
