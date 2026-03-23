@@ -1,13 +1,21 @@
 import "server-only";
 
-import { findBusinessByEncryptedYelpBusinessId, getBusinessById, listBusinesses, upsertBusiness } from "@/lib/db/businesses-repository";
+import {
+  deleteBusinessRecord,
+  findBusinessByEncryptedYelpBusinessId,
+  getBusinessById,
+  getBusinessDeleteImpact,
+  listBusinesses,
+  upsertBusiness
+} from "@/lib/db/businesses-repository";
 import { ensureYelpAccess, getCapabilityFlags } from "@/lib/yelp/runtime";
 import { normalizeYelpCategories } from "@/lib/yelp/categories";
 import { YelpBusinessMatchClient } from "@/lib/yelp/business-match-client";
 import { YelpDataIngestionClient } from "@/lib/yelp/data-ingestion-client";
 import { yelpBusinessMatchResponseSchema } from "@/lib/yelp/schemas";
-import { businessSearchSchema, readinessPatchSchema } from "@/features/businesses/schemas";
+import { businessSearchSchema, deleteBusinessFormSchema, readinessPatchSchema } from "@/features/businesses/schemas";
 import { recordAuditEvent } from "@/features/audit/service";
+import { normalizeUnknownError, YelpValidationError } from "@/lib/yelp/errors";
 
 type ReadinessState = {
   hasAboutText: boolean;
@@ -70,12 +78,21 @@ export async function getBusinessesIndex(tenantId: string, search?: string) {
 }
 
 export async function getBusinessDetail(tenantId: string, businessId: string) {
-  const business = await getBusinessById(businessId, tenantId);
+  const [business, deleteImpact] = await Promise.all([getBusinessById(businessId, tenantId), getBusinessDeleteImpact(businessId, tenantId)]);
 
   return {
     ...business,
     categories: normalizeYelpCategories(business.categoriesJson),
-    readiness: buildCpcReadiness(business.readinessJson, business.categoriesJson)
+    readiness: buildCpcReadiness(business.readinessJson, business.categoriesJson),
+    deleteImpact: {
+      mappings: deleteImpact._count.mappings,
+      programs: deleteImpact._count.programs,
+      programJobs: deleteImpact._count.programJobs,
+      featureSnapshots: deleteImpact._count.featureSnapshots,
+      reportRequests: deleteImpact._count.reportRequests,
+      reportResults: deleteImpact._count.reportResults,
+      auditEvents: deleteImpact._count.auditEvents
+    }
   };
 }
 
@@ -184,4 +201,89 @@ export async function patchBusinessReadinessFields(tenantId: string, actorId: st
     status: "SUCCESS",
     requestSummary: data as never
   });
+}
+
+const blockingBusinessDeletionStatuses = new Set(["ACTIVE", "SCHEDULED", "QUEUED", "PROCESSING"]);
+
+export async function deleteBusinessWorkflow(tenantId: string, actorId: string, input: unknown) {
+  const data = deleteBusinessFormSchema.parse(input);
+  const [business, deleteImpact] = await Promise.all([getBusinessById(data.businessId, tenantId), getBusinessDeleteImpact(data.businessId, tenantId)]);
+  const normalizedConfirmation = data.confirmationText.trim();
+
+  if (normalizedConfirmation !== business.name) {
+    throw new YelpValidationError(`Type the exact business name "${business.name}" to confirm deletion.`);
+  }
+
+  const blockingPrograms = business.programs.filter((program) => blockingBusinessDeletionStatuses.has(program.status));
+
+  if (blockingPrograms.length > 0) {
+    throw new YelpValidationError(
+      "This business still has active or pending programs. End or resolve those programs before deleting the business from the console."
+    );
+  }
+
+  const deleteSummary = {
+    deletedBusinessId: business.id,
+    deletedBusinessName: business.name,
+    deletedPrograms: deleteImpact._count.programs,
+    deletedProgramJobs: deleteImpact._count.programJobs,
+    deletedFeatureSnapshots: deleteImpact._count.featureSnapshots,
+    deletedMappings: deleteImpact._count.mappings,
+    detachedReportRequests: deleteImpact._count.reportRequests,
+    detachedReportResults: deleteImpact._count.reportResults,
+    detachedAuditEvents: deleteImpact._count.auditEvents
+  };
+
+  try {
+    const result = await deleteBusinessRecord(business.id, tenantId);
+
+    if (result.count !== 1) {
+      throw new YelpValidationError("The selected business could not be deleted.");
+    }
+
+    await recordAuditEvent({
+      tenantId,
+      actorId,
+      actionType: "business.delete",
+      status: "SUCCESS",
+      requestSummary: {
+        businessId: business.id,
+        businessName: business.name,
+        confirmation: "matched"
+      },
+      responseSummary: deleteSummary as never,
+      before: {
+        id: business.id,
+        name: business.name,
+        encryptedYelpBusinessId: business.encryptedYelpBusinessId,
+        location: [business.city, business.state, business.country].filter(Boolean).join(", "),
+        deleteImpact: deleteSummary
+      } as never
+    });
+
+    return {
+      deleted: true,
+      businessId: business.id,
+      summary: deleteSummary
+    };
+  } catch (error) {
+    const normalized = normalizeUnknownError(error);
+
+    await recordAuditEvent({
+      tenantId,
+      actorId,
+      actionType: "business.delete",
+      status: "FAILED",
+      requestSummary: {
+        businessId: business.id,
+        businessName: business.name
+      },
+      responseSummary: {
+        message: normalized.message
+      } as never,
+      rawPayloadSummary: normalized.details as never
+    });
+
+    throw normalized;
+  }
 }

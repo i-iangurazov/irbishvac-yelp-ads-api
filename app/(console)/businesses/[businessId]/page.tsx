@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { BusinessDeleteForm } from "@/components/forms/business-delete-form";
 import { AuditTimeline } from "@/components/shared/audit-timeline";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusChip } from "@/components/shared/status-chip";
@@ -26,12 +27,29 @@ export default async function BusinessDetailPage({ params }: { params: Promise<{
   const user = await requireUser();
   const { businessId } = await params;
   const business = await getBusinessDetail(user.tenantId, businessId);
+  const hasBlockingPrograms = business.programs.some((program) =>
+    ["ACTIVE", "SCHEDULED", "QUEUED", "PROCESSING"].includes(program.status)
+  );
+  const deleteDisabledReason =
+    user.role.code !== "ADMIN"
+      ? "Only Admin users can delete businesses."
+      : hasBlockingPrograms
+        ? "Terminate or resolve active and pending programs before deleting this business."
+        : undefined;
 
   return (
     <div>
       <PageHeader
         title={business.name}
         description="Review business identifiers, readiness, current program inventory, recent reports, and the audit trail for this account."
+        actions={
+          <BusinessDeleteForm
+            businessId={business.id}
+            businessName={business.name}
+            deleteImpact={business.deleteImpact}
+            disabledReason={deleteDisabledReason}
+          />
+        }
       />
 
       <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">

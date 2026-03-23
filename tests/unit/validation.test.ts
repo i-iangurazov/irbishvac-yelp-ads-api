@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { createProgramFormSchema, currentBudgetOperationSchema, scheduledBudgetOperationSchema } from "@/features/ads-programs/schemas";
+import { deleteBusinessFormSchema } from "@/features/businesses/schemas";
 import { reportRequestFormSchema } from "@/features/reporting/schemas";
 
 describe("validation", () => {
@@ -62,6 +63,15 @@ describe("validation", () => {
       operation: "SCHEDULED_BUDGET",
       scheduledBudgetDollars: "30.00",
       scheduledBudgetEffectiveDate: "2026-03-01"
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("requires confirmation text for business deletion", () => {
+    const result = deleteBusinessFormSchema.safeParse({
+      businessId: "business_1",
+      confirmationText: ""
     });
 
     expect(result.success).toBe(false);

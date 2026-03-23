@@ -43,3 +43,8 @@ export const readinessPatchSchema = z.object({
   categories: z.array(z.string().min(1)).max(20).default([]),
   aboutThisBusiness: z.string().max(2_000).optional()
 });
+
+export const deleteBusinessFormSchema = z.object({
+  businessId: z.string().min(1),
+  confirmationText: z.string().min(1).max(160)
+});

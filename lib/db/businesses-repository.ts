@@ -43,6 +43,27 @@ export async function getBusinessById(id: string, tenantId: string) {
   });
 }
 
+export async function getBusinessDeleteImpact(id: string, tenantId: string) {
+  return prisma.business.findFirstOrThrow({
+    where: { id, tenantId },
+    select: {
+      id: true,
+      name: true,
+      _count: {
+        select: {
+          mappings: true,
+          programs: true,
+          programJobs: true,
+          featureSnapshots: true,
+          reportRequests: true,
+          reportResults: true,
+          auditEvents: true
+        }
+      }
+    }
+  });
+}
+
 export async function findBusinessByEncryptedYelpBusinessId(tenantId: string, encryptedYelpBusinessId: string) {
   return prisma.business.findUnique({
     where: {
@@ -97,6 +118,15 @@ export async function upsertBusiness(
       categoriesJson: toJsonValue(data.categoriesJson),
       readinessJson: toJsonValue(data.readinessJson),
       rawSnapshotJson: data.rawSnapshotJson ? toJsonValue(data.rawSnapshotJson) : undefined
+    }
+  });
+}
+
+export async function deleteBusinessRecord(id: string, tenantId: string) {
+  return prisma.business.deleteMany({
+    where: {
+      id,
+      tenantId
     }
   });
 }
