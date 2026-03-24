@@ -118,4 +118,38 @@ describe("job status summary", () => {
     expect(result?.code).toBe("UNSUPPORTED_CATEGORIES");
     expect(result?.title).toContain("not eligible");
   });
+
+  it("surfaces the failing path for status payload parse errors", () => {
+    const result = summarizeYelpJobIssue({
+      code: "UPSTREAM_RESPONSE_INVALID",
+      message: "Yelp returned a response format this console could not parse.",
+      details: {
+        issues: [
+          {
+            code: "invalid_union",
+            path: ["business_results", 0, "update_results", "program_added", "ad_categories"],
+            message: "Invalid input",
+            unionErrors: [
+              {
+                issues: [
+                  {
+                    code: "invalid_type",
+                    path: ["business_results", 0, "update_results", "program_added", "ad_categories"],
+                    message: "Expected object, received array"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        rawResponse: {
+          status: "PROCESSING"
+        }
+      }
+    });
+
+    expect(result?.code).toBe("UPSTREAM_RESPONSE_INVALID");
+    expect(result?.description).toContain("business_results[0].update_results.program_added.ad_categories");
+    expect(result?.rawMessage).toContain("PROCESSING");
+  });
 });

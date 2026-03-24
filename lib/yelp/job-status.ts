@@ -16,6 +16,14 @@ type YelpStoredError = {
   details?: unknown;
 };
 
+type StoredZodIssue = {
+  message?: string;
+  path?: Array<string | number>;
+  unionErrors?: Array<{
+    issues?: StoredZodIssue[];
+  }>;
+};
+
 const errorPriority: Record<string, number> = {
   CATEGORY_ALIAS_NOT_RECOGNIZED: 100,
   INVALID_LIST_INDEXES: 90,
@@ -70,6 +78,77 @@ function getStoredError(payload: unknown): YelpStoredError | null {
     message: typeof source.message === "string" ? source.message : undefined,
     details: source.details
   };
+}
+
+function formatIssuePath(path: Array<string | number> | undefined): string | undefined {
+  if (!Array.isArray(path) || path.length === 0) {
+    return undefined;
+  }
+
+  return path.reduce<string>((result, segment) => {
+    if (typeof segment === "number") {
+      return `${result}[${segment}]`;
+    }
+
+    return result ? `${result}.${segment}` : segment;
+  }, "");
+}
+
+function extractLeafZodIssue(issue: StoredZodIssue | null | undefined): StoredZodIssue | null {
+  if (!issue) {
+    return null;
+  }
+
+  for (const unionError of issue.unionErrors ?? []) {
+    for (const nestedIssue of unionError.issues ?? []) {
+      const leaf = extractLeafZodIssue(nestedIssue);
+
+      if (leaf) {
+        return leaf;
+      }
+    }
+  }
+
+  return issue;
+}
+
+function getStoredZodIssue(details: unknown): { message?: string; path?: string } | null {
+  if (typeof details !== "object" || details === null) {
+    return null;
+  }
+
+  const issues = (details as { issues?: unknown }).issues;
+
+  if (!Array.isArray(issues) || issues.length === 0) {
+    return null;
+  }
+
+  const firstIssue = extractLeafZodIssue((issues[0] as StoredZodIssue) ?? null);
+
+  if (!firstIssue) {
+    return null;
+  }
+
+  return {
+    message: typeof firstIssue.message === "string" ? firstIssue.message : undefined,
+    path: formatIssuePath(firstIssue.path)
+  };
+}
+
+function getStoredRawResponseStatus(details: unknown) {
+  if (typeof details !== "object" || details === null) {
+    return undefined;
+  }
+
+  const rawResponse = (details as { rawResponse?: unknown }).rawResponse;
+
+  if (typeof rawResponse !== "object" || rawResponse === null) {
+    return undefined;
+  }
+
+  return typeof (rawResponse as { status?: unknown }).status === "string"
+    ? ((rawResponse as { status: string }).status)
+    : undefined;
 }
 
 function collectNestedErrors(value: unknown, collected: YelpJobError[] = [], depth = 0): YelpJobError[] {
@@ -216,12 +295,21 @@ export function summarizeYelpJobIssue(payload: unknown): YelpJobIssueSummary | n
     }
 
     if (storedError?.code === "UPSTREAM_RESPONSE_INVALID") {
+      const invalidIssue = getStoredZodIssue(storedError.details);
+      const rawResponseStatus = getStoredRawResponseStatus(storedError.details);
+
       return {
         title: "Yelp returned a job status format this console could not read",
         description:
-          "The status request reached Yelp, but the response shape did not match the format this console expected. The raw technical details are available below for investigation.",
+          invalidIssue?.path
+            ? `The status request reached Yelp, but the response shape was unexpected at ${invalidIssue.path}. This is a parser mismatch in the console, not a confirmed Yelp business rejection.`
+            : "The status request reached Yelp, but the response shape did not match the format this console expected. The raw technical details are available below for investigation.",
         code: storedError.code,
-        rawMessage: storedError.message
+        rawMessage: rawResponseStatus
+          ? `Yelp status was ${rawResponseStatus} when parsing failed.`
+          : invalidIssue?.path && invalidIssue?.message
+            ? `${invalidIssue.path}: ${invalidIssue.message}`
+            : storedError.message
       };
     }
 

@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getBusinessDetail } from "@/features/businesses/service";
 import { requireUser } from "@/lib/auth/service";
+import { formatCurrency, titleCase } from "@/lib/utils/format";
 import { formatYelpCategory } from "@/lib/yelp/categories";
 
 const eligibilityVariantMap = {
@@ -116,6 +117,92 @@ export default async function BusinessDetailPage({ params }: { params: Promise<{
           <Card>
             <CardHeader>
               <CardTitle>Programs</CardTitle>
+              <CardDescription>Live Yelp inventory merged with local console tracking.</CardDescription>
+            </CardHeader>
+            <CardContent className="p-0">
+              {business.liveProgramInventory.programs.length > 0 ? (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Upstream</TableHead>
+                      <TableHead>Budget / categories</TableHead>
+                      <TableHead>Features</TableHead>
+                      <TableHead>Console</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {business.liveProgramInventory.programs.map((program) => (
+                      <TableRow key={program.program_id}>
+                        <TableCell>
+                          <div className="font-medium">{program.program_type}</div>
+                          <div className="text-xs text-muted-foreground font-mono">{program.program_id}</div>
+                        </TableCell>
+                        <TableCell>
+                          <StatusChip status={program.program_status} />
+                          {program.program_pause_status ? (
+                            <div className="mt-1 text-xs text-muted-foreground">{titleCase(program.program_pause_status)}</div>
+                          ) : null}
+                        </TableCell>
+                        <TableCell className="space-y-1 text-sm">
+                          <div>
+                            {program.program_metrics?.budget != null
+                              ? formatCurrency(program.program_metrics.budget, program.program_metrics.currency ?? "USD")
+                              : program.page_upgrade_info?.monthly_rate != null
+                                ? `${formatCurrency(Math.round(program.page_upgrade_info.monthly_rate * 100), "USD")} / mo`
+                                : "Not set"}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {program.ad_categories.length > 0 ? program.ad_categories.join(", ") : "No ad categories"}
+                          </div>
+                        </TableCell>
+                        <TableCell className="space-y-2">
+                          <div className="flex flex-wrap gap-1">
+                            {program.active_features.length > 0 ? (
+                              program.active_features.map((feature) => (
+                                <Badge key={`${program.program_id}-${feature}`} variant="success">
+                                  {titleCase(feature)}
+                                </Badge>
+                              ))
+                            ) : (
+                              <span className="text-xs text-muted-foreground">No active features</span>
+                            )}
+                          </div>
+                          {program.available_features.length > 0 ? (
+                            <div className="text-xs text-muted-foreground">
+                              Available: {program.available_features.map(titleCase).join(", ")}
+                            </div>
+                          ) : null}
+                        </TableCell>
+                        <TableCell>
+                          {program.localProgramId ? (
+                            <div className="space-y-1">
+                              <Link className="font-medium hover:underline" href={`/programs/${program.localProgramId}`}>
+                                Open local program
+                              </Link>
+                              {program.localProgramStatus ? <StatusChip status={program.localProgramStatus} /> : null}
+                            </div>
+                          ) : (
+                            <Badge variant="outline">Upstream only</Badge>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              ) : (
+                <div className="space-y-2 p-6 text-sm text-muted-foreground">
+                  <div>No live Yelp program inventory is available for this business yet.</div>
+                  {business.liveProgramInventory.message ? <div>{business.liveProgramInventory.message}</div> : null}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Local console records</CardTitle>
+              <CardDescription>Programs saved in this console, including queued or upstream-unmatched records.</CardDescription>
             </CardHeader>
             <CardContent className="p-0">
               <Table>

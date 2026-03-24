@@ -4,6 +4,8 @@ export const DEFAULT_YELP_ENDPOINTS = {
     editProgram: "/v1/reseller/program/{programId}/edit",
     endProgram: "/v1/reseller/program/{programId}/end",
     jobStatus: "/v1/reseller/status/{jobId}",
+    listPrograms: "/v1/programs/list/{businessId}",
+    getProgramInfo: "/v1/programs/info/{programId}",
     testConnection: ""
   },
   features: {

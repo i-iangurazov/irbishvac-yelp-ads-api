@@ -29,8 +29,8 @@ export function LoginForm() {
   } = useForm<Values>({
     resolver: zodResolver(schema),
     defaultValues: {
-      email: "admin@yelp-console.local",
-      password: "ChangeMe123!"
+      email: "",
+      password: ""
     }
   });
 
@@ -56,15 +56,22 @@ export function LoginForm() {
         <CardDescription>Use an internal staff account to access the Yelp Ads Console.</CardDescription>
       </CardHeader>
       <CardContent>
-        <form className="space-y-4" onSubmit={onSubmit}>
+        <form className="space-y-4" onSubmit={onSubmit} autoComplete="off">
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
-            <Input id="email" {...register("email")} />
+            <Input id="email" {...register("email")} autoComplete="off" data-1p-ignore="true" data-lpignore="true" />
             {errors.email ? <p className="text-sm text-destructive">{errors.email.message}</p> : null}
           </div>
           <div className="space-y-2">
             <Label htmlFor="password">Password</Label>
-            <Input id="password" type="password" {...register("password")} />
+            <Input
+              id="password"
+              type="password"
+              {...register("password")}
+              autoComplete="new-password"
+              data-1p-ignore="true"
+              data-lpignore="true"
+            />
             {errors.password ? <p className="text-sm text-destructive">{errors.password.message}</p> : null}
           </div>
           {error ? <p className="text-sm text-destructive">{error}</p> : null}

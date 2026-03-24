@@ -67,7 +67,9 @@ const yelpJobReceiptValueSchema = z
   })
   .passthrough();
 
-const yelpJobReceiptUpdateEntrySchema = z.union([yelpJobReceiptValueSchema, yelpJobReceiptPrimitiveSchema]);
+const yelpJobReceiptUpdateEntrySchema: z.ZodTypeAny = z.lazy(() =>
+  z.union([yelpJobReceiptValueSchema, yelpJobReceiptPrimitiveSchema, z.array(yelpJobReceiptUpdateEntrySchema)])
+);
 
 const yelpJobReceiptUpdateGroupSchema = z
   .object({
@@ -91,6 +93,70 @@ export const yelpJobStatusResponseSchema = z
     created_at: z.string().optional().nullable(),
     completed_at: z.string().optional().nullable(),
     business_results: z.array(yelpBusinessResultSchema).default([])
+  })
+  .passthrough();
+
+const yelpProgramMetricsSchema = z
+  .object({
+    budget: z.number().optional().nullable(),
+    currency: z.string().optional().nullable(),
+    is_autobid: z.boolean().optional().nullable(),
+    max_bid: z.number().optional().nullable(),
+    fee_period: z.string().optional().nullable(),
+    billed_impressions: z.number().optional().nullable(),
+    billed_clicks: z.number().optional().nullable(),
+    ad_cost: z.number().optional().nullable()
+  })
+  .passthrough();
+
+const yelpPageUpgradeInfoSchema = z
+  .object({
+    cost: z.number().optional().nullable(),
+    monthly_rate: z.number().optional().nullable()
+  })
+  .passthrough();
+
+export const yelpUpstreamProgramSchema = z
+  .object({
+    active_features: z.array(z.string()).default([]),
+    available_features: z.array(z.string()).default([]),
+    end_date: z.string().optional().nullable(),
+    program_id: z.string(),
+    program_pause_status: z.string().optional(),
+    program_status: z.string(),
+    program_type: z.string(),
+    start_date: z.string().optional().nullable(),
+    ad_campaign_id: z.string().optional().nullable(),
+    ad_categories: z.array(z.string()).default([]),
+    program_metrics: yelpProgramMetricsSchema.optional(),
+    future_budget_changes: z.array(z.unknown()).default([]),
+    yelp_business_id: z.string().optional().nullable(),
+    partner_business_id: z.string().optional().nullable(),
+    page_upgrade_info: yelpPageUpgradeInfoSchema.optional()
+  })
+  .passthrough();
+
+const yelpProgramListBusinessSchema = z
+  .object({
+    yelp_business_id: z.string(),
+    advertiser_status: z.string().optional().nullable(),
+    partner_business_id: z.string().optional().nullable(),
+    destination_yelp_business_id: z.string().optional().nullable(),
+    programs: z.array(yelpUpstreamProgramSchema).default([])
+  })
+  .passthrough();
+
+export const yelpProgramListResponseSchema = z
+  .object({
+    businesses: z.array(yelpProgramListBusinessSchema).default([]),
+    errors: z.array(z.unknown()).default([])
+  })
+  .passthrough();
+
+export const yelpProgramInfoResponseSchema = z
+  .object({
+    programs: z.array(yelpUpstreamProgramSchema).default([]),
+    errors: z.array(z.unknown()).default([])
   })
   .passthrough();
 
@@ -269,6 +335,9 @@ export type YelpEditProgramRequestDto = z.infer<typeof yelpEditProgramRequestSch
 export type YelpTerminateProgramRequestDto = z.infer<typeof yelpTerminateProgramRequestSchema>;
 export type YelpJobSubmissionResponseDto = z.infer<typeof yelpJobSubmissionResponseSchema>;
 export type YelpJobStatusResponseDto = z.infer<typeof yelpJobStatusResponseSchema>;
+export type YelpProgramListResponseDto = z.infer<typeof yelpProgramListResponseSchema>;
+export type YelpProgramInfoResponseDto = z.infer<typeof yelpProgramInfoResponseSchema>;
+export type YelpUpstreamProgramDto = z.infer<typeof yelpUpstreamProgramSchema>;
 export type YelpProgramFeatureDto = z.infer<typeof yelpProgramFeatureSchema>;
 export type YelpReportRequestDto = z.infer<typeof yelpReportRequestSchema>;
 export type YelpReportResponseDto = z.infer<typeof yelpReportResponseSchema>;

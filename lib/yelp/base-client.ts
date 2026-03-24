@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import { fetchWithRetry } from "@/lib/utils/fetch";
 import { logInfo } from "@/lib/utils/logging";
-import { normalizeYelpError, YelpUpstreamUnavailableError } from "@/lib/yelp/errors";
+import { normalizeYelpError, YelpApiError, YelpUpstreamUnavailableError } from "@/lib/yelp/errors";
 import type { YelpCredentialConfig } from "@/lib/yelp/runtime";
 
 type YelpRequestOptions<TSchema extends z.ZodTypeAny> = {
@@ -108,9 +108,17 @@ export async function requestYelp<TSchema extends z.ZodTypeAny>({
   }
 
   const json = await response.json();
+  const parsed = schema.safeParse(json);
+
+  if (!parsed.success) {
+    throw new YelpApiError("Yelp returned a response format this console could not parse.", "UPSTREAM_RESPONSE_INVALID", 502, {
+      issues: parsed.error.issues,
+      rawResponse: json
+    });
+  }
 
   return {
     correlationId,
-    data: schema.parse(json)
+    data: parsed.data
   } as const;
 }

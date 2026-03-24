@@ -6,6 +6,8 @@ import {
   yelpEditProgramRequestSchema,
   yelpJobSubmissionResponseSchema,
   yelpJobStatusResponseSchema,
+  yelpProgramInfoResponseSchema,
+  yelpProgramListResponseSchema,
   yelpTerminateProgramRequestSchema,
   type YelpCreateProgramRequestDto,
   type YelpEditProgramRequestDto,
@@ -59,6 +61,30 @@ export class YelpAdsClient {
       method: "GET",
       path: resolveEndpoint(DEFAULT_YELP_ENDPOINTS.ads.jobStatus, { jobId }),
       schema: yelpJobStatusResponseSchema
+    });
+  }
+
+  async listPrograms(businessId: string, options?: { start?: number; limit?: number }) {
+    return requestYelp({
+      credential: this.credential,
+      authType: "basic",
+      method: "GET",
+      path: resolveEndpoint(DEFAULT_YELP_ENDPOINTS.ads.listPrograms, { businessId }),
+      query: {
+        start: options?.start ?? 0,
+        limit: options?.limit ?? 20
+      },
+      schema: yelpProgramListResponseSchema
+    });
+  }
+
+  async getProgramInfo(programId: string) {
+    return requestYelp({
+      credential: this.credential,
+      authType: "basic",
+      method: "GET",
+      path: resolveEndpoint(DEFAULT_YELP_ENDPOINTS.ads.getProgramInfo, { programId }),
+      schema: yelpProgramInfoResponseSchema
     });
   }
 

@@ -2,6 +2,7 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 
+import { findConflictingCpcPrograms, normalizeProgramCategoryAliases } from "@/features/ads-programs/conflicts";
 import {
   createProgramFormSchema,
   editProgramFormSchema,
@@ -93,6 +94,34 @@ function isDemoAdsMode(capabilities: Awaited<ReturnType<typeof getCapabilityFlag
   return capabilities.demoModeEnabled && !capabilities.adsApiEnabled;
 }
 
+function describeCategoryScope(categories: unknown) {
+  const aliases = normalizeProgramCategoryAliases(categories);
+  return aliases.length > 0 ? aliases.join(", ") : "all categories inferred by Yelp";
+}
+
+function assertNoConflictingCpcPrograms(
+  programs: Awaited<ReturnType<typeof listPrograms>>,
+  requestedCategories: unknown,
+  excludeProgramId?: string
+) {
+  const conflicts = findConflictingCpcPrograms(programs, requestedCategories, excludeProgramId);
+
+  if (conflicts.length === 0) {
+    return;
+  }
+
+  const conflictReferences = conflicts
+    .map((program) => {
+      const reference = program.upstreamProgramId ?? program.id;
+      return `${reference} (${describeCategoryScope(program.adCategoriesJson)})`;
+    })
+    .join(", ");
+
+  throw new YelpValidationError(
+    `A CPC program already exists for this business with overlapping category targeting. Existing program(s): ${conflictReferences}. Edit the existing program or terminate it before creating another.`
+  );
+}
+
 function assertProgramCanBeTerminated(program: Awaited<ReturnType<typeof getProgramById>>) {
   if (program.status === "ENDED") {
     throw new YelpValidationError("This program is already ended.");
@@ -140,6 +169,12 @@ export async function getProgramDetail(tenantId: string, programId: string) {
 export async function createProgramWorkflow(tenantId: string, actorId: string, input: unknown) {
   const values = createProgramFormSchema.parse(input);
   const business = await getBusinessById(values.businessId, tenantId);
+
+  if (values.programType === "CPC") {
+    const existingPrograms = await listPrograms(tenantId, business.id);
+    assertNoConflictingCpcPrograms(existingPrograms, values.adCategories);
+  }
+
   const requestPayload = mapCreateProgramFormToDto(values, business.encryptedYelpBusinessId);
   const draftProgram = await createProgramRecord(tenantId, business.id, {
     type: values.programType,
@@ -262,6 +297,12 @@ export async function editProgramWorkflow(tenantId: string, actorId: string, inp
   const values = editProgramFormSchema.parse(input);
   const program = await getProgramById(values.programId, tenantId);
   const business = await getBusinessById(program.businessId, tenantId);
+
+  if (values.programType === "CPC") {
+    const existingPrograms = await listPrograms(tenantId, business.id);
+    assertNoConflictingCpcPrograms(existingPrograms, values.adCategories, program.id);
+  }
+
   const requestPayload = mapEditProgramFormToDto(values);
   const correlationId = randomUUID();
 

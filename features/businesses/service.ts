@@ -10,9 +10,10 @@ import {
 } from "@/lib/db/businesses-repository";
 import { ensureYelpAccess, getCapabilityFlags } from "@/lib/yelp/runtime";
 import { normalizeYelpCategories } from "@/lib/yelp/categories";
+import { YelpAdsClient } from "@/lib/yelp/ads-client";
 import { YelpBusinessMatchClient } from "@/lib/yelp/business-match-client";
 import { YelpDataIngestionClient } from "@/lib/yelp/data-ingestion-client";
-import { yelpBusinessMatchResponseSchema } from "@/lib/yelp/schemas";
+import { yelpBusinessMatchResponseSchema, type YelpUpstreamProgramDto } from "@/lib/yelp/schemas";
 import { businessSearchSchema, deleteBusinessFormSchema, readinessPatchSchema } from "@/features/businesses/schemas";
 import { recordAuditEvent } from "@/features/audit/service";
 import { normalizeUnknownError, YelpValidationError } from "@/lib/yelp/errors";
@@ -24,6 +25,17 @@ type ReadinessState = {
   isReadyForCpc: boolean;
   adsEligibilityStatus: "UNKNOWN" | "ELIGIBLE" | "BLOCKED";
   adsEligibilityMessage?: string;
+};
+
+type LiveProgramInventoryState = {
+  enabled: boolean;
+  message: string | null;
+  programs: Array<
+    YelpUpstreamProgramDto & {
+      localProgramId: string | null;
+      localProgramStatus: string | null;
+    }
+  >;
 };
 
 export function buildCpcReadiness(readinessJson: unknown, categoriesJson: unknown): ReadinessState {
@@ -79,11 +91,79 @@ export async function getBusinessesIndex(tenantId: string, search?: string) {
 
 export async function getBusinessDetail(tenantId: string, businessId: string) {
   const [business, deleteImpact] = await Promise.all([getBusinessById(businessId, tenantId), getBusinessDeleteImpact(businessId, tenantId)]);
+  const capabilities = await getCapabilityFlags(tenantId);
+  let liveProgramInventory: LiveProgramInventoryState = {
+    enabled: capabilities.adsApiEnabled,
+    message: capabilities.adsApiEnabled ? null : "Not enabled by Yelp / missing credentials.",
+    programs: []
+  };
+
+  if (capabilities.adsApiEnabled) {
+    try {
+      const { credential } = await ensureYelpAccess({
+        tenantId,
+        capabilityKey: "adsApiEnabled",
+        credentialKind: "ADS_BASIC_AUTH"
+      });
+      const client = new YelpAdsClient(credential);
+      const response = await client.listPrograms(business.encryptedYelpBusinessId);
+      const upstreamPrograms =
+        response.data.businesses.find(
+          (entry: (typeof response.data.businesses)[number]) => entry.yelp_business_id === business.encryptedYelpBusinessId
+        )?.programs ?? [];
+      const localProgramMap = new Map(
+        business.programs
+          .filter((program) => Boolean(program.upstreamProgramId))
+          .map((program) => [program.upstreamProgramId as string, program])
+      );
+      const statusOrder = new Map([
+        ["ACTIVE", 0],
+        ["SCHEDULED", 1],
+        ["QUEUED", 2],
+        ["PROCESSING", 3],
+        ["PARTIAL", 4],
+        ["FAILED", 5],
+        ["INACTIVE", 6],
+        ["ENDED", 7]
+      ]);
+
+      liveProgramInventory = {
+        enabled: true,
+        message: null,
+        programs: [...upstreamPrograms]
+          .sort((left, right) => {
+            const statusRank = (statusOrder.get(left.program_status) ?? 99) - (statusOrder.get(right.program_status) ?? 99);
+
+            if (statusRank !== 0) {
+              return statusRank;
+            }
+
+            return String(right.start_date ?? "").localeCompare(String(left.start_date ?? ""));
+          })
+          .map((program) => {
+            const localProgram = localProgramMap.get(program.program_id);
+            return {
+              ...program,
+              localProgramId: localProgram?.id ?? null,
+              localProgramStatus: localProgram?.status ?? null
+            };
+          })
+      };
+    } catch (error) {
+      const normalized = normalizeUnknownError(error);
+      liveProgramInventory = {
+        enabled: false,
+        message: normalized.message,
+        programs: []
+      };
+    }
+  }
 
   return {
     ...business,
     categories: normalizeYelpCategories(business.categoriesJson),
     readiness: buildCpcReadiness(business.readinessJson, business.categoriesJson),
+    liveProgramInventory,
     deleteImpact: {
       mappings: deleteImpact._count.mappings,
       programs: deleteImpact._count.programs,

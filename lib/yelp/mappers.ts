@@ -72,7 +72,10 @@ function findUpstreamProgramId(receipt: YelpJobStatusResponseDto) {
     }
 
     for (const updateGroup of Object.values(businessResult.update_results ?? {})) {
-      const programIdValue = updateGroup.program_id;
+      const programIdValue =
+        typeof updateGroup === "object" && updateGroup !== null && "program_id" in updateGroup
+          ? (updateGroup as { program_id?: unknown }).program_id
+          : undefined;
 
       if (typeof programIdValue === "string" && programIdValue.length > 0) {
         return programIdValue;

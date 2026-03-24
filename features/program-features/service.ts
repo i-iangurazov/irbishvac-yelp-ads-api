@@ -1,10 +1,11 @@
 import "server-only";
 
-import { featureFormSchema } from "@/features/program-features/schemas";
+import { featureCatalog, featureFormSchema } from "@/features/program-features/schemas";
 import { recordAuditEvent } from "@/features/audit/service";
 import { createProgramFeatureSnapshot, getProgramById, listProgramFeatures } from "@/lib/db/programs-repository";
 import { mapFeatureFormToDto } from "@/lib/yelp/mappers";
 import { ensureYelpAccess, getCapabilityFlags } from "@/lib/yelp/runtime";
+import { YelpAdsClient } from "@/lib/yelp/ads-client";
 import { YelpFeaturesClient } from "@/lib/yelp/features-client";
 import { normalizeUnknownError, YelpValidationError } from "@/lib/yelp/errors";
 
@@ -44,10 +45,47 @@ export async function getProgramFeatureOverview(tenantId: string, programId: str
     listProgramFeatures(programId, tenantId),
     getCapabilityFlags(tenantId)
   ]);
+  const enabledSnapshotTypes = getLatestFeatureState(featureSnapshots)
+    .filter((feature) => !feature.isDeleted)
+    .map((feature) => feature.type);
+  let liveFeatureState = {
+    loaded: false,
+    message: capabilities.adsApiEnabled ? null : "Live Yelp feature visibility requires Ads API access."
+  };
+  let enabledFeatureTypes: string[] = [];
+
+  if (capabilities.adsApiEnabled && program.upstreamProgramId) {
+    try {
+      const { credential } = await ensureYelpAccess({
+        tenantId,
+        capabilityKey: "adsApiEnabled",
+        credentialKind: "ADS_BASIC_AUTH"
+      });
+      const client = new YelpAdsClient(credential);
+      const response = await client.getProgramInfo(program.upstreamProgramId);
+      enabledFeatureTypes = response.data.programs[0]?.active_features ?? [];
+      liveFeatureState = {
+        loaded: true,
+        message: null
+      };
+    } catch (error) {
+      const normalized = normalizeUnknownError(error);
+      liveFeatureState = {
+        loaded: false,
+        message: normalized.message
+      };
+    }
+  }
+
+  const visibleFeatureTypes = Array.from(
+    new Set((liveFeatureState.loaded ? enabledFeatureTypes : enabledSnapshotTypes).filter((type) => type in featureCatalog))
+  ) as Array<keyof typeof featureCatalog>;
 
   return {
     program,
     features: getLatestFeatureState(featureSnapshots),
+    enabledFeatureTypes: visibleFeatureTypes,
+    liveFeatureState,
     capabilityState: {
       enabled: capabilities.programFeatureApiEnabled,
       message: capabilities.programFeatureApiEnabled ? null : "Not enabled by Yelp / missing credentials."
