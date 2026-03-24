@@ -4,6 +4,15 @@ import { randomUUID } from "node:crypto";
 
 import { findConflictingCpcPrograms, normalizeProgramCategoryAliases } from "@/features/ads-programs/conflicts";
 import {
+  buildSynchronizedProgramConfiguration,
+  parseSynchronizedProgramDate,
+  resolveSynchronizedBudgetCents,
+  resolveSynchronizedIsAutobid,
+  resolveSynchronizedMaxBidCents,
+  resolveSynchronizedProgramStatus,
+  resolveSynchronizedProgramType
+} from "@/features/ads-programs/sync";
+import {
   createProgramFormSchema,
   editProgramFormSchema,
   programBudgetOperationSchema,
@@ -164,6 +173,157 @@ export async function getProgramsIndex(tenantId: string) {
 
 export async function getProgramDetail(tenantId: string, programId: string) {
   return getProgramById(programId, tenantId);
+}
+
+export async function syncBusinessProgramsFromYelpWorkflow(tenantId: string, actorId: string, businessId: string) {
+  const [business, capabilities] = await Promise.all([getBusinessById(businessId, tenantId), getCapabilityFlags(tenantId)]);
+
+  if (isDemoAdsMode(capabilities)) {
+    throw new YelpValidationError("Program sync is unavailable while Yelp Ads is running in demo mode.");
+  }
+
+  const { credential } = await ensureYelpAccess({
+    tenantId,
+    capabilityKey: "adsApiEnabled",
+    credentialKind: "ADS_BASIC_AUTH"
+  });
+  const client = new YelpAdsClient(credential);
+  const response = await client.listPrograms(business.encryptedYelpBusinessId);
+  const upstreamPrograms =
+    response.data.businesses.find(
+      (entry: (typeof response.data.businesses)[number]) => entry.yelp_business_id === business.encryptedYelpBusinessId
+    )?.programs ?? [];
+  const syncedAt = new Date();
+  const existingProgramsByUpstreamId = new Map(
+    business.programs
+      .filter((program) => Boolean(program.upstreamProgramId))
+      .map((program) => [program.upstreamProgramId as string, program])
+  );
+  let createdPrograms = 0;
+  let updatedPrograms = 0;
+  let skippedPrograms = 0;
+
+  for (const upstreamProgram of upstreamPrograms) {
+    const programType = resolveSynchronizedProgramType(upstreamProgram.program_type);
+
+    if (!programType) {
+      skippedPrograms += 1;
+      continue;
+    }
+
+    const existingProgram = existingProgramsByUpstreamId.get(upstreamProgram.program_id);
+    const budgetCents = resolveSynchronizedBudgetCents(upstreamProgram) ?? existingProgram?.budgetCents ?? null;
+    const maxBidCents = resolveSynchronizedMaxBidCents(upstreamProgram) ?? existingProgram?.maxBidCents ?? null;
+    const isAutobid = resolveSynchronizedIsAutobid(upstreamProgram) ?? existingProgram?.isAutobid ?? null;
+    const feePeriod = upstreamProgram.program_metrics?.fee_period ?? existingProgram?.feePeriod ?? null;
+    const nextConfiguration = buildSynchronizedProgramConfiguration(
+      upstreamProgram,
+      existingProgram?.configurationJson,
+      {
+        budgetCents,
+        maxBidCents,
+        isAutobid,
+        feePeriod,
+        syncedAt
+      }
+    );
+    const synchronizedProgramData = {
+      type: programType,
+      status: resolveSynchronizedProgramStatus(upstreamProgram.program_status),
+      upstreamProgramId: upstreamProgram.program_id,
+      currency: upstreamProgram.program_metrics?.currency ?? existingProgram?.currency ?? "USD",
+      budgetCents,
+      maxBidCents,
+      isAutobid,
+      pacingMethod: existingProgram?.pacingMethod ?? null,
+      feePeriod,
+      startDate: parseSynchronizedProgramDate(upstreamProgram.start_date) ?? existingProgram?.startDate ?? null,
+      endDate: parseSynchronizedProgramDate(upstreamProgram.end_date),
+      adCategoriesJson: toJsonValue(upstreamProgram.ad_categories),
+      configurationJson: toJsonValue(nextConfiguration),
+      summaryJson: toJsonValue(upstreamProgram),
+      lastSyncedAt: syncedAt
+    };
+
+    if (existingProgram) {
+      await updateProgramRecord(existingProgram.id, tenantId, synchronizedProgramData);
+      updatedPrograms += 1;
+      continue;
+    }
+
+    const createdProgram = await createProgramRecord(tenantId, business.id, synchronizedProgramData);
+    createdPrograms += 1;
+
+    await recordAuditEvent({
+      tenantId,
+      actorId,
+      businessId: business.id,
+      programId: createdProgram.id,
+      actionType: "program.sync.import",
+      status: "SUCCESS",
+      upstreamReference: upstreamProgram.program_id,
+      requestSummary: toJsonValue({
+        source: "yelp_program_list",
+        businessId: business.encryptedYelpBusinessId
+      }),
+      responseSummary: toJsonValue({
+        programType: upstreamProgram.program_type,
+        programStatus: upstreamProgram.program_status
+      }),
+      after: synchronizedProgramData as never
+    });
+  }
+
+  const nextRawSnapshot =
+    typeof business.rawSnapshotJson === "object" && business.rawSnapshotJson !== null
+      ? {
+          ...(business.rawSnapshotJson as Record<string, unknown>),
+          liveProgramSync: {
+            syncedAt: syncedAt.toISOString(),
+            upstreamProgramCount: upstreamPrograms.length,
+            programs: upstreamPrograms
+          }
+        }
+      : {
+          liveProgramSync: {
+            syncedAt: syncedAt.toISOString(),
+            upstreamProgramCount: upstreamPrograms.length,
+            programs: upstreamPrograms
+          }
+        };
+
+  await updateBusinessRecord(business.id, tenantId, {
+    rawSnapshotJson: nextRawSnapshot
+  });
+
+  await recordAuditEvent({
+    tenantId,
+    actorId,
+    businessId: business.id,
+    actionType: "business.programs.sync",
+    status: "SUCCESS",
+    requestSummary: toJsonValue({
+      source: "yelp_program_list",
+      businessId: business.encryptedYelpBusinessId
+    }),
+    responseSummary: toJsonValue({
+      createdPrograms,
+      updatedPrograms,
+      skippedPrograms,
+      totalPrograms: upstreamPrograms.length
+    }),
+    after: nextRawSnapshot as never
+  });
+
+  return {
+    businessId: business.id,
+    createdPrograms,
+    updatedPrograms,
+    skippedPrograms,
+    totalPrograms: upstreamPrograms.length,
+    syncedAt: syncedAt.toISOString(),
+    message: `Imported ${createdPrograms} and refreshed ${updatedPrograms} Yelp programs for this business.`
+  };
 }
 
 export async function createProgramWorkflow(tenantId: string, actorId: string, input: unknown) {

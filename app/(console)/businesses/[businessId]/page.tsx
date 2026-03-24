@@ -46,7 +46,7 @@ export default async function BusinessDetailPage({ params }: { params: Promise<{
         description="Review business identifiers, readiness, current program inventory, recent reports, and the audit trail for this account."
         actions={
           <div className="flex flex-wrap items-start gap-3">
-            <YelpSyncButton />
+            <YelpSyncButton label="Sync programs from Yelp" syncPath={`/api/businesses/${business.id}/programs/sync`} />
             <BusinessDeleteForm
               businessId={business.id}
               businessName={business.name}
