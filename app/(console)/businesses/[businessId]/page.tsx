@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { BusinessDeleteForm } from "@/components/forms/business-delete-form";
+import { YelpSyncButton } from "@/components/forms/yelp-sync-button";
 import { AuditTimeline } from "@/components/shared/audit-timeline";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusChip } from "@/components/shared/status-chip";
@@ -44,12 +45,15 @@ export default async function BusinessDetailPage({ params }: { params: Promise<{
         title={business.name}
         description="Review business identifiers, readiness, current program inventory, recent reports, and the audit trail for this account."
         actions={
-          <BusinessDeleteForm
-            businessId={business.id}
-            businessName={business.name}
-            deleteImpact={business.deleteImpact}
-            disabledReason={deleteDisabledReason}
-          />
+          <div className="flex flex-wrap items-start gap-3">
+            <YelpSyncButton />
+            <BusinessDeleteForm
+              businessId={business.id}
+              businessName={business.name}
+              deleteImpact={business.deleteImpact}
+              disabledReason={deleteDisabledReason}
+            />
+          </div>
         }
       />
 

@@ -1,4 +1,5 @@
 import { FeatureFormCard } from "@/components/forms/feature-form-card";
+import { YelpSyncButton } from "@/components/forms/yelp-sync-button";
 import { CapabilityState } from "@/components/shared/capability-state";
 import { PageHeader } from "@/components/shared/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +21,7 @@ export default async function ProgramFeaturesPage({ params }: { params: Promise<
       <PageHeader
         title={`Program features · ${overview.program.business.name}`}
         description="Update individual feature settings with contextual descriptions, explicit save actions, and delete handling where Yelp expects DELETE semantics."
+        actions={<YelpSyncButton label="Refresh live features" />}
       />
 
       <CapabilityState enabled={overview.capabilityState.enabled} message={overview.capabilityState.message} />
