@@ -28,42 +28,46 @@ export default async function ProgramsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Program inventory</CardTitle>
-          <CardDescription>The latest 10 saved programs for the current tenant.</CardDescription>
+          <CardDescription>The latest 10 active or pending programs for the current tenant.</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Business</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Budget</TableHead>
-                <TableHead>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {programs.map((program) => (
-                <TableRow key={program.id}>
-                  <TableCell>{program.business.name}</TableCell>
-                  <TableCell>{program.type}</TableCell>
-                  <TableCell><StatusChip status={program.status} /></TableCell>
-                  <TableCell>{formatCurrency(program.budgetCents, program.currency)}</TableCell>
-                  <TableCell>
-                    <div className="flex gap-3">
-                      <Link className="font-medium hover:underline" href={`/programs/${program.id}`}>
-                        Open
-                      </Link>
-                      {program.type === "CPC" ? (
-                        <Link className="text-sm text-muted-foreground hover:underline" href={`/programs/${program.id}#budget-operations`}>
-                          Budget ops
-                        </Link>
-                      ) : null}
-                    </div>
-                  </TableCell>
+          {programs.length > 0 ? (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Business</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Budget</TableHead>
+                  <TableHead>Actions</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {programs.map((program) => (
+                  <TableRow key={program.id}>
+                    <TableCell>{program.business.name}</TableCell>
+                    <TableCell>{program.type}</TableCell>
+                    <TableCell><StatusChip status={program.status} /></TableCell>
+                    <TableCell>{formatCurrency(program.budgetCents, program.currency)}</TableCell>
+                    <TableCell>
+                      <div className="flex gap-3">
+                        <Link className="font-medium hover:underline" href={`/programs/${program.id}`}>
+                          Open
+                        </Link>
+                        {program.type === "CPC" ? (
+                          <Link className="text-sm text-muted-foreground hover:underline" href={`/programs/${program.id}#budget-operations`}>
+                            Budget ops
+                          </Link>
+                        ) : null}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          ) : (
+            <div className="p-6 text-sm text-muted-foreground">No active programs are currently available in the console.</div>
+          )}
         </CardContent>
       </Card>
     </div>

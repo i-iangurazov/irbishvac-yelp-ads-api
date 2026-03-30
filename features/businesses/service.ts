@@ -1,5 +1,6 @@
 import "server-only";
 
+import { isCurrentLocalProgramStatus, isCurrentUpstreamProgramStatus } from "@/features/ads-programs/status";
 import {
   deleteBusinessRecord,
   findBusinessByEncryptedYelpBusinessId,
@@ -148,14 +149,21 @@ export async function getBusinessDetail(tenantId: string, businessId: string) {
           .filter((program) => Boolean(program.upstreamProgramId))
           .map((program) => [program.upstreamProgramId as string, program])
       );
+      const currentUpstreamPrograms = sortProgramsByMostRecentActivity(
+        upstreamPrograms.filter((program: (typeof upstreamPrograms)[number]) => isCurrentUpstreamProgramStatus(program.program_status))
+      );
 
       liveProgramInventory = {
         enabled: true,
         message:
-          upstreamPrograms.length > LIVE_PROGRAM_DISPLAY_LIMIT
-            ? `Showing the latest ${LIVE_PROGRAM_DISPLAY_LIMIT} of ${upstreamPrograms.length} Yelp programs.`
+          currentUpstreamPrograms.length === 0
+            ? upstreamPrograms.length > 0
+              ? "No active Yelp programs."
+              : null
+            : currentUpstreamPrograms.length > LIVE_PROGRAM_DISPLAY_LIMIT
+              ? `Showing the latest ${LIVE_PROGRAM_DISPLAY_LIMIT} of ${currentUpstreamPrograms.length} active Yelp programs.`
             : null,
-        programs: sortProgramsByMostRecentActivity(upstreamPrograms)
+        programs: currentUpstreamPrograms
           .slice(0, LIVE_PROGRAM_DISPLAY_LIMIT)
           .map((program) => {
             const localProgram = localProgramMap.get(program.program_id);
@@ -178,6 +186,9 @@ export async function getBusinessDetail(tenantId: string, businessId: string) {
 
   return {
     ...business,
+    currentPrograms: business.programs.filter(
+      (program: (typeof business.programs)[number]) => isCurrentLocalProgramStatus(program.status)
+    ),
     categories: normalizeYelpCategories(business.categoriesJson),
     readiness: buildCpcReadiness(business.readinessJson, business.categoriesJson),
     liveProgramInventory,

@@ -122,7 +122,7 @@ export default async function BusinessDetailPage({ params }: { params: Promise<{
             <CardHeader>
               <CardTitle>Programs</CardTitle>
               <CardDescription>
-                {business.liveProgramInventory.message ?? "The latest 10 live Yelp programs, merged with local console tracking."}
+                {business.liveProgramInventory.message ?? "The latest 10 active Yelp programs, merged with local console tracking."}
               </CardDescription>
             </CardHeader>
             <CardContent className="p-0">
@@ -208,31 +208,35 @@ export default async function BusinessDetailPage({ params }: { params: Promise<{
           <Card>
             <CardHeader>
               <CardTitle>Local console records</CardTitle>
-              <CardDescription>Programs saved in this console, including queued or upstream-unmatched records.</CardDescription>
+              <CardDescription>Current active or pending programs saved in this console.</CardDescription>
             </CardHeader>
             <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Details</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {business.programs.map((program) => (
-                    <TableRow key={program.id}>
-                      <TableCell>{program.type}</TableCell>
-                      <TableCell><StatusChip status={program.status} /></TableCell>
-                      <TableCell>
-                        <Link className="font-medium hover:underline" href={`/programs/${program.id}`}>
-                          Open program
-                        </Link>
-                      </TableCell>
+              {business.currentPrograms.length > 0 ? (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Details</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {business.currentPrograms.map((program) => (
+                      <TableRow key={program.id}>
+                        <TableCell>{program.type}</TableCell>
+                        <TableCell><StatusChip status={program.status} /></TableCell>
+                        <TableCell>
+                          <Link className="font-medium hover:underline" href={`/programs/${program.id}`}>
+                            Open program
+                          </Link>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              ) : (
+                <div className="p-6 text-sm text-muted-foreground">No active local programs are currently tracked for this business.</div>
+              )}
             </CardContent>
           </Card>
 
