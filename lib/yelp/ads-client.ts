@@ -16,6 +16,9 @@ import {
 import { requestYelp } from "@/lib/yelp/base-client";
 import type { YelpCredentialConfig } from "@/lib/yelp/runtime";
 
+const YELP_PROGRAM_LIST_PAGE_SIZE = 40;
+const YELP_PROGRAM_LIST_MAX_PAGES = 25;
+
 export class YelpAdsClient {
   constructor(private readonly credential: YelpCredentialConfig) {}
 
@@ -64,7 +67,7 @@ export class YelpAdsClient {
     });
   }
 
-  async listPrograms(businessId: string, options?: { start?: number; limit?: number }) {
+  private async listProgramsPage(businessId: string, options?: { start?: number; limit?: number }) {
     return requestYelp({
       credential: this.credential,
       authType: "basic",
@@ -72,10 +75,66 @@ export class YelpAdsClient {
       path: resolveEndpoint(DEFAULT_YELP_ENDPOINTS.ads.listPrograms, { businessId }),
       query: {
         start: options?.start ?? 0,
-        limit: options?.limit ?? 20
+        limit: options?.limit ?? YELP_PROGRAM_LIST_PAGE_SIZE
       },
       schema: yelpProgramListResponseSchema
     });
+  }
+
+  async listPrograms(
+    businessId: string,
+    options?: {
+      pageSize?: number;
+      maxPages?: number;
+    }
+  ) {
+    const pageSize = Math.min(Math.max(options?.pageSize ?? YELP_PROGRAM_LIST_PAGE_SIZE, 1), YELP_PROGRAM_LIST_PAGE_SIZE);
+    const maxPages = Math.max(options?.maxPages ?? YELP_PROGRAM_LIST_MAX_PAGES, 1);
+    const aggregatedBusinesses = new Map<string, NonNullable<Awaited<ReturnType<typeof this.listProgramsPage>>["data"]["businesses"][number]>>();
+    const aggregatedErrors: Awaited<ReturnType<typeof this.listProgramsPage>>["data"]["errors"] = [];
+    let correlationId = "";
+
+    for (let pageIndex = 0; pageIndex < maxPages; pageIndex += 1) {
+      const start = pageIndex * pageSize;
+      const response = await this.listProgramsPage(businessId, {
+        start,
+        limit: pageSize
+      });
+      const pageBusinesses = response.data.businesses;
+      const currentBusiness = pageBusinesses.find(
+        (entry: (typeof pageBusinesses)[number]) => entry.yelp_business_id === businessId
+      );
+      const pagePrograms = currentBusiness?.programs ?? [];
+
+      correlationId = response.correlationId;
+      aggregatedErrors.push(...response.data.errors);
+
+      for (const business of pageBusinesses) {
+        const existing = aggregatedBusinesses.get(business.yelp_business_id);
+
+        if (!existing) {
+          aggregatedBusinesses.set(business.yelp_business_id, {
+            ...business,
+            programs: [...business.programs]
+          });
+          continue;
+        }
+
+        existing.programs.push(...business.programs);
+      }
+
+      if (pagePrograms.length < pageSize) {
+        break;
+      }
+    }
+
+    return {
+      correlationId,
+      data: {
+        businesses: [...aggregatedBusinesses.values()],
+        errors: aggregatedErrors
+      }
+    } as const;
   }
 
   async getProgramInfo(programId: string) {

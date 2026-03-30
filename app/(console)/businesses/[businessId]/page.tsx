@@ -121,7 +121,9 @@ export default async function BusinessDetailPage({ params }: { params: Promise<{
           <Card>
             <CardHeader>
               <CardTitle>Programs</CardTitle>
-              <CardDescription>Live Yelp inventory merged with local console tracking.</CardDescription>
+              <CardDescription>
+                {business.liveProgramInventory.message ?? "The latest 10 live Yelp programs, merged with local console tracking."}
+              </CardDescription>
             </CardHeader>
             <CardContent className="p-0">
               {business.liveProgramInventory.programs.length > 0 ? (

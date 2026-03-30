@@ -38,6 +38,38 @@ type LiveProgramInventoryState = {
   >;
 };
 
+const LIVE_PROGRAM_DISPLAY_LIMIT = 10;
+const liveProgramStatusOrder = new Map([
+  ["ACTIVE", 0],
+  ["SCHEDULED", 1],
+  ["QUEUED", 2],
+  ["PROCESSING", 3],
+  ["PARTIAL", 4],
+  ["FAILED", 5],
+  ["INACTIVE", 6],
+  ["ENDED", 7]
+]);
+
+function sortProgramsByMostRecentActivity(programs: YelpUpstreamProgramDto[]) {
+  return [...programs].sort((left, right) => {
+    const leftDate = left.end_date && left.end_date !== "9999-12-31" ? left.end_date : left.start_date ?? "";
+    const rightDate = right.end_date && right.end_date !== "9999-12-31" ? right.end_date : right.start_date ?? "";
+    const dateRank = String(rightDate).localeCompare(String(leftDate));
+
+    if (dateRank !== 0) {
+      return dateRank;
+    }
+
+    const statusRank = (liveProgramStatusOrder.get(left.program_status) ?? 99) - (liveProgramStatusOrder.get(right.program_status) ?? 99);
+
+    if (statusRank !== 0) {
+      return statusRank;
+    }
+
+    return right.program_id.localeCompare(left.program_id);
+  });
+}
+
 export function buildCpcReadiness(readinessJson: unknown, categoriesJson: unknown): ReadinessState {
   const categories = normalizeYelpCategories(categoriesJson);
   const readiness = typeof readinessJson === "object" && readinessJson !== null ? readinessJson : {};
@@ -116,30 +148,15 @@ export async function getBusinessDetail(tenantId: string, businessId: string) {
           .filter((program) => Boolean(program.upstreamProgramId))
           .map((program) => [program.upstreamProgramId as string, program])
       );
-      const statusOrder = new Map([
-        ["ACTIVE", 0],
-        ["SCHEDULED", 1],
-        ["QUEUED", 2],
-        ["PROCESSING", 3],
-        ["PARTIAL", 4],
-        ["FAILED", 5],
-        ["INACTIVE", 6],
-        ["ENDED", 7]
-      ]);
 
       liveProgramInventory = {
         enabled: true,
-        message: null,
-        programs: [...upstreamPrograms]
-          .sort((left, right) => {
-            const statusRank = (statusOrder.get(left.program_status) ?? 99) - (statusOrder.get(right.program_status) ?? 99);
-
-            if (statusRank !== 0) {
-              return statusRank;
-            }
-
-            return String(right.start_date ?? "").localeCompare(String(left.start_date ?? ""));
-          })
+        message:
+          upstreamPrograms.length > LIVE_PROGRAM_DISPLAY_LIMIT
+            ? `Showing the latest ${LIVE_PROGRAM_DISPLAY_LIMIT} of ${upstreamPrograms.length} Yelp programs.`
+            : null,
+        programs: sortProgramsByMostRecentActivity(upstreamPrograms)
+          .slice(0, LIVE_PROGRAM_DISPLAY_LIMIT)
           .map((program) => {
             const localProgram = localProgramMap.get(program.program_id);
             return {

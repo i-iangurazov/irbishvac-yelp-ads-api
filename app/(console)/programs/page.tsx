@@ -28,7 +28,7 @@ export default async function ProgramsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Program inventory</CardTitle>
-          <CardDescription>All saved programs for the current tenant.</CardDescription>
+          <CardDescription>The latest 10 saved programs for the current tenant.</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
           <Table>

@@ -168,7 +168,8 @@ function assertProgramCanBeMutated(program: Awaited<ReturnType<typeof getProgram
 }
 
 export async function getProgramsIndex(tenantId: string) {
-  return listPrograms(tenantId);
+  const programs = await listPrograms(tenantId);
+  return programs.slice(0, 10);
 }
 
 export async function getProgramDetail(tenantId: string, programId: string) {
