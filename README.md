@@ -1,6 +1,6 @@
-# Yelp Ads Console
+# Yelp Operations Console
 
-Internal admin platform for non-technical staff to operate Yelp Ads partner workflows through a safe UI. The app is a modular monolith built with Next.js App Router, TypeScript, Tailwind, shadcn-style UI primitives, Prisma/PostgreSQL, React Hook Form, TanStack Query, and server-only Yelp adapters.
+Internal admin platform for non-technical staff to operate Yelp Ads partner workflows, lead operations, reporting, and CRM enrichment through a safe UI. The app is a modular monolith built with Next.js App Router, TypeScript, Tailwind, shadcn-style UI primitives, Prisma/PostgreSQL, React Hook Form, TanStack Query, and server-only Yelp adapters.
 
 ## What it covers
 
@@ -8,6 +8,8 @@ Internal admin platform for non-technical staff to operate Yelp Ads partner work
 - Async ad program create, edit, terminate, and job polling workflows
 - Program feature management with dedicated feature forms and delete semantics
 - Daily and monthly reporting requests, polling, caching, charting, and CSV export
+- Operations-foundation models for Yelp leads, webhook deliveries, CRM mappings, sync runs, locations, and service categories
+- Unified top-level navigation for Ads, Leads, Reporting, Locations, Services, Integrations, and Audit / Sync Logs
 - Admin settings for credentials, capability flags, role-based access, and audit history
 - Environment-aware capability states that explicitly show `Not enabled by Yelp / missing credentials`
 
@@ -91,6 +93,9 @@ Useful optional values:
 - `CRON_SECRET` to secure the internal reconciliation endpoint used by GitHub Actions or any external scheduler
 - `SEED_ADMIN_EMAIL` and `SEED_ADMIN_NAME` to control the initial seeded admin identity
 - `YELP_*_BASE_URL` overrides for different environments
+- `YELP_API_KEY` if your team stores the Yelp reporting or Fusion key in env before copying it into Admin Settings
+- `YELP_CLIENT_ID`, `YELP_CLIENT_SECRET`, and `YELP_REDIRECT_URI` for future Yelp OAuth or business-access flows
+- `YELP_ALLOWED_BUSINESS_IDS` for future business-access allowlisting or subscription-coverage logic
 
 ## Credentials and capabilities
 
@@ -99,7 +104,14 @@ Admin Settings includes:
 - Partner API Basic Auth credentials
 - Fusion API key for reporting
 - Optional Business Match and Data Ingestion credentials
+- Env-var mapping guidance so teams can map existing values like `YELP_API_KEY` to the correct credential form
 - Capability flags:
+  - `hasAdsApi`
+  - `hasLeadsApi`
+  - `hasReportingApi`
+  - `hasConversionsApi`
+  - `hasPartnerSupportApi`
+  - `hasCrmIntegration`
   - `adsApiEnabled`
   - `programFeatureApiEnabled`
   - `reportingApiEnabled`
@@ -172,3 +184,12 @@ pnpm build
 - Confirm exact Yelp partner endpoint paths per enabled account if they differ from the default templates in `lib/yelp/endpoints.ts`.
 - Populate real Partner API and Fusion credentials in Admin Settings.
 - Enable the relevant Yelp capability flags per environment and tenant after Yelp confirms access.
+
+## Operations foundation
+
+Phase 1 extends the existing Ads console with additive operational models and top-level IA without replacing the existing Ads flows:
+
+- `Business` and `Program` remain the existing Yelp-native Ads tables.
+- New normalized models cover `Location`, `ServiceCategory`, `YelpLead`, `YelpLeadEvent`, `YelpWebhookEvent`, `YelpReportingJob`, `YelpReportingSnapshot`, `CrmLeadMapping`, `CrmStatusEvent`, `SyncRun`, and `SyncError`.
+- Yelp remains the source of truth for lead creation, interaction events, and delayed reporting payloads.
+- CRM remains the source of truth for downstream lifecycle states such as `Scheduled`, `Job in Progress`, and `Completed`.

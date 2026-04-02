@@ -53,6 +53,27 @@ export default async function SettingsPage() {
         description="Manage encrypted credentials, capability flags, tenant access roles, and the operational configuration surface."
       />
 
+      <Card className="mb-6 border-border/70 bg-muted/20">
+        <CardHeader>
+          <CardTitle>Env var mapping</CardTitle>
+          <CardDescription>Use this to map existing Yelp secrets into the current Admin Settings model.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm text-muted-foreground">
+          <div>
+            `YELP_API_KEY`: maps to the `Fusion API Key` form today and is the current reporting credential we support directly.
+          </div>
+          <div>
+            `YELP_CLIENT_ID`, `YELP_CLIENT_SECRET`, and `YELP_REDIRECT_URI`: OAuth or business-access values. They are not wired into a dedicated settings form yet, but they are the right inputs for the upcoming Yelp OAuth/business-access integration layer.
+          </div>
+          <div>
+            `YELP_ALLOWED_BUSINESS_IDS`: optional allowlist input for business-access scoping. It is recognized as an environment value now, but the enforcement or subscription-coverage UI has not been implemented yet.
+          </div>
+          <div>
+            Partner API Basic Auth, Business Match, and Data Ingestion still expect the Yelp-issued username and secret pairs from partner onboarding or support.
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
         <SettingsCapabilitiesForm defaultValues={settings.capabilities} />
 

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Route } from "next";
-import { BarChart3, BriefcaseBusiness, ClipboardList, FileStack, Home, Search, Settings, Shield } from "lucide-react";
+import { BarChart3, FileStack, Home, Inbox, MapPinned, Megaphone, PlugZap, Settings, Shield, Wrench } from "lucide-react";
 
 import { cn } from "@/lib/utils/cn";
 
@@ -14,12 +14,14 @@ const navigation: Array<{
   icon: typeof Home;
 }> = [
   { id: "dashboard", href: "/dashboard", label: "Dashboard", icon: Home },
-  { id: "businesses", href: "/businesses", label: "Businesses", icon: Search },
-  { id: "programs", href: "/programs", label: "Programs", icon: BriefcaseBusiness },
-  { id: "program-features", href: "/program-features", label: "Program Features", icon: ClipboardList },
+  { id: "ads", href: "/ads", label: "Ads", icon: Megaphone },
+  { id: "leads", href: "/leads", label: "Leads", icon: Inbox },
   { id: "reporting", href: "/reporting", label: "Reporting", icon: BarChart3 },
+  { id: "locations", href: "/locations", label: "Locations", icon: MapPinned },
+  { id: "services", href: "/services", label: "Services", icon: Wrench },
+  { id: "integrations", href: "/integrations", label: "Integrations", icon: PlugZap },
   { id: "settings", href: "/settings", label: "Admin Settings", icon: Settings },
-  { id: "audit", href: "/audit", label: "Audit Log", icon: Shield }
+  { id: "audit", href: "/audit", label: "Audit / Sync Logs", icon: Shield }
 ];
 
 export function AppSidebar() {
@@ -33,8 +35,8 @@ export function AppSidebar() {
             <FileStack className="h-6 w-6" />
           </div>
           <div>
-            <div className="font-semibold">Yelp Ads Console</div>
-            <div className="text-sm text-slate-400">Internal operations platform</div>
+            <div className="font-semibold">Yelp Operations Console</div>
+            <div className="text-sm text-slate-400">Ads, leads, reporting, CRM</div>
           </div>
         </div>
       </div>

@@ -1,5 +1,11 @@
 import type { ConnectionTestStatus, CredentialKind } from "@prisma/client";
 
+export {
+  capabilityFlagDefinitions,
+  capabilityFlagLabels,
+  getEnabledCapabilityLabels
+} from "@/features/settings/capabilities";
+
 type CredentialHealthInput = {
   kind: CredentialKind;
   isEnabled: boolean;
@@ -89,12 +95,3 @@ export function getCredentialHealthViewModel(credential: CredentialHealthInput) 
           : "Credentials are saved. Live verification is optional and can be configured in Settings."
   };
 }
-
-export const capabilityFlagLabels = {
-  adsApiEnabled: "Ads API",
-  programFeatureApiEnabled: "Program Features API",
-  reportingApiEnabled: "Reporting API",
-  dataIngestionApiEnabled: "Data Ingestion API",
-  businessMatchApiEnabled: "Business Match API",
-  demoModeEnabled: "Demo mode"
-} as const;

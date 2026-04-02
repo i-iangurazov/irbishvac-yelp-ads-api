@@ -25,7 +25,7 @@ export default async function ReportDetailPage({ params }: { params: Promise<{ r
     <div>
       <PageHeader
         title={`${report.granularity} report`}
-        description="Review summary metrics, chart trends, tabular output, exports, and raw payload details when needed."
+        description="Review the latest fetched Yelp reporting snapshot, chart trends, exports, and raw payload details without treating the batch result as real-time."
         actions={
           <Button asChild variant="outline">
             <Link href={`/api/reports/${report.id}/export`}>Export CSV</Link>

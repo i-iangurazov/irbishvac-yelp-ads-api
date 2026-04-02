@@ -3,6 +3,7 @@ import "server-only";
 import type { ConnectionTestStatus, CredentialKind, RoleCode } from "@prisma/client";
 
 import { recordAuditEvent } from "@/features/audit/service";
+import { normalizeCapabilityFlags, type CapabilityFlags } from "@/features/settings/capabilities";
 import { capabilityFlagsSchema, credentialFormSchema } from "@/features/settings/schemas";
 import { countActiveUsersByRole, getTenantUserById, updateUserRole } from "@/lib/db/users-repository";
 import {
@@ -46,18 +47,18 @@ function resolveFallbackBaseUrl(kind: CredentialKind) {
   return env.YELP_ADS_BASE_URL;
 }
 
-function getCapabilityKeysForCredential(kind: CredentialKind) {
+function getCapabilityKeysForCredential(kind: CredentialKind): Array<keyof CapabilityFlags> {
   switch (kind) {
     case "ADS_BASIC_AUTH":
-      return ["adsApiEnabled"] as const;
+      return ["adsApiEnabled", "hasAdsApi"];
     case "REPORTING_FUSION":
-      return ["reportingApiEnabled"] as const;
+      return ["reportingApiEnabled", "hasReportingApi"];
     case "BUSINESS_MATCH":
-      return ["businessMatchApiEnabled"] as const;
+      return ["businessMatchApiEnabled", "hasPartnerSupportApi"];
     case "DATA_INGESTION":
-      return ["dataIngestionApiEnabled"] as const;
+      return ["dataIngestionApiEnabled", "hasLeadsApi"];
     default:
-      return [] as const;
+      return [];
   }
 }
 
@@ -146,13 +147,13 @@ export async function saveCredentialSet(
 
   if (capabilityKeys.length > 0) {
     const currentCapabilities = await getCapabilityFlags(tenantId);
-    const nextCapabilities = { ...currentCapabilities };
+    const nextCapabilities: CapabilityFlags = { ...currentCapabilities };
 
     for (const key of capabilityKeys) {
       nextCapabilities[key] = nextRecord.isEnabled;
     }
 
-    await upsertSystemSetting(tenantId, "yelpCapabilities", nextCapabilities);
+    await upsertSystemSetting(tenantId, "yelpCapabilities", normalizeCapabilityFlags(nextCapabilities));
   }
 
   await recordAuditEvent({
@@ -184,7 +185,7 @@ export async function saveCredentialSet(
 }
 
 export async function saveCapabilityFlags(tenantId: string, actorId: string, input: unknown) {
-  const flags = capabilityFlagsSchema.parse(input);
+  const flags = normalizeCapabilityFlags(capabilityFlagsSchema.parse(input));
   const existing = await getSystemSetting(tenantId, "yelpCapabilities");
 
   const saved = await upsertSystemSetting(tenantId, "yelpCapabilities", flags);

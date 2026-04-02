@@ -104,6 +104,56 @@ enum AuditStatus {
   FAILED
 }
 
+enum RecordSourceSystem {
+  YELP
+  CRM
+  INTERNAL
+  DERIVED
+}
+
+enum YelpLeadReplyState {
+  UNKNOWN
+  UNREAD
+  READ
+  REPLIED
+}
+
+enum InternalLeadStatus {
+  UNMAPPED
+  NEW
+  BOOKED
+  SCHEDULED
+  JOB_IN_PROGRESS
+  COMPLETED
+  CANCELED
+  LOST
+}
+
+enum SyncRunType {
+  YELP_LEADS_WEBHOOK
+  YELP_LEADS_BACKFILL
+  YELP_REPORTING_REQUEST
+  YELP_REPORTING_POLL
+  CRM_LEAD_ENRICHMENT
+  LOCATION_MAPPING
+  SERVICE_MAPPING
+}
+
+enum SyncRunStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  PARTIAL
+  FAILED
+  SKIPPED
+}
+
+enum ReportingFreshnessState {
+  PENDING
+  INCOMPLETE
+  FINAL
+}
+
 model Tenant {
   id             String              @id @default(cuid())
   name           String
@@ -120,6 +170,17 @@ model Tenant {
   reportResults  ReportResult[]
   auditEvents    AuditEvent[]
   settings       SystemSetting[]
+  locations      Location[]
+  serviceCategories ServiceCategory[]
+  yelpLeads      YelpLead[]
+  yelpLeadEvents YelpLeadEvent[]
+  yelpWebhookEvents YelpWebhookEvent[]
+  yelpReportingJobs YelpReportingJob[]
+  yelpReportingSnapshots YelpReportingSnapshot[]
+  crmLeadMappings CrmLeadMapping[]
+  crmStatusEvents CrmStatusEvent[]
+  syncRuns       SyncRun[]
+  syncErrors     SyncError[]
 }
 
 model Role {
@@ -176,8 +237,10 @@ model CredentialSet {
 model Business {
   id                      String    @id @default(cuid())
   tenantId                String
+  locationId              String?
   name                    String
   encryptedYelpBusinessId String
+  sourceSystem            RecordSourceSystem @default(YELP)
   city                    String?
   state                   String?
   country                 String?
@@ -187,6 +250,7 @@ model Business {
   createdAt               DateTime  @default(now())
   updatedAt               DateTime  @updatedAt
   tenant                  Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  location                Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
   mappings                YelpBusinessMapping[]
   programs                Program[]
   programJobs             ProgramJob[]
@@ -194,9 +258,14 @@ model Business {
   reportRequests          ReportRequest[]
   reportResults           ReportResult[]
   auditEvents             AuditEvent[]
+  yelpLeads               YelpLead[]
+  yelpReportingJobs       YelpReportingJob[]
+  yelpReportingSnapshots  YelpReportingSnapshot[]
+  syncRuns                SyncRun[]
 
   @@unique([tenantId, encryptedYelpBusinessId])
   @@index([tenantId, name])
+  @@index([locationId])
 }
 
 model YelpBusinessMapping {
@@ -220,6 +289,7 @@ model Program {
   businessId        String
   type              ProgramType
   status            ProgramStatus  @default(DRAFT)
+  sourceSystem      RecordSourceSystem @default(YELP)
   upstreamProgramId String?
   currency          String         @default("USD")
   budgetCents       Int?
@@ -363,6 +433,309 @@ model AuditEvent {
   @@index([actorId])
   @@index([businessId])
   @@index([programId])
+}
+
+model Location {
+  id                  String             @id @default(cuid())
+  tenantId            String
+  name                String
+  code                String?
+  externalCrmLocationId String?
+  timezone            String?
+  city                String?
+  state               String?
+  country             String?
+  isActive            Boolean            @default(true)
+  sourceSystem        RecordSourceSystem @default(INTERNAL)
+  metadataJson        Json?
+  rawSnapshotJson     Json?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  tenant              Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  businesses          Business[]
+  yelpLeads           YelpLead[]
+  yelpReportingJobs   YelpReportingJob[]
+  yelpReportingSnapshots YelpReportingSnapshot[]
+  crmLeadMappings     CrmLeadMapping[]
+  crmStatusEvents     CrmStatusEvent[]
+  syncRuns            SyncRun[]
+
+  @@unique([tenantId, externalCrmLocationId])
+  @@index([tenantId, name])
+  @@index([tenantId, isActive])
+}
+
+model ServiceCategory {
+  id               String             @id @default(cuid())
+  tenantId         String
+  name             String
+  slug             String
+  sourceSystem     RecordSourceSystem @default(INTERNAL)
+  yelpAliasesJson  Json               @default("[]")
+  crmCodesJson     Json               @default("[]")
+  mappingRulesJson Json               @default("[]")
+  metadataJson     Json?
+  rawSnapshotJson  Json?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  tenant           Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  yelpLeads        YelpLead[]
+  yelpReportingSnapshots YelpReportingSnapshot[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId, name])
+}
+
+model YelpLead {
+  id                    String             @id @default(cuid())
+  tenantId              String
+  businessId            String?
+  locationId            String?
+  serviceCategoryId     String?
+  externalLeadId        String
+  externalBusinessId    String?
+  externalConversationId String?
+  sourceSystem          RecordSourceSystem @default(YELP)
+  customerName          String?
+  customerEmail         String?
+  customerPhone         String?
+  createdAtYelp         DateTime
+  latestInteractionAt   DateTime?
+  replyState            YelpLeadReplyState @default(UNKNOWN)
+  readAt                DateTime?
+  repliedAt             DateTime?
+  internalStatus        InternalLeadStatus @default(UNMAPPED)
+  mappedServiceLabel    String?
+  metadataJson          Json?
+  rawSnapshotJson       Json?
+  firstSeenAt           DateTime           @default(now())
+  lastSyncedAt          DateTime?
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+  tenant                Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  business              Business?          @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  location              Location?          @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  serviceCategory       ServiceCategory?   @relation(fields: [serviceCategoryId], references: [id], onDelete: SetNull)
+  events                YelpLeadEvent[]
+  webhookEvents         YelpWebhookEvent[]
+  crmLeadMappings       CrmLeadMapping[]
+  crmStatusEvents       CrmStatusEvent[]
+  syncRuns              SyncRun[]
+
+  @@unique([tenantId, externalLeadId])
+  @@index([tenantId, createdAtYelp])
+  @@index([tenantId, internalStatus])
+  @@index([businessId, locationId, serviceCategoryId])
+}
+
+model YelpLeadEvent {
+  id              String             @id @default(cuid())
+  tenantId        String
+  leadId          String
+  eventKey        String
+  externalEventId String?
+  eventType       String
+  actorType       String?
+  occurredAt      DateTime?
+  isRead          Boolean            @default(false)
+  isReply         Boolean            @default(false)
+  sourceSystem    RecordSourceSystem @default(YELP)
+  payloadJson     Json
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  tenant          Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lead            YelpLead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, eventKey])
+  @@index([tenantId, leadId, occurredAt])
+  @@index([tenantId, externalEventId])
+}
+
+model YelpWebhookEvent {
+  id                String             @id @default(cuid())
+  tenantId          String
+  leadId            String?
+  syncRunId         String?
+  eventKey          String
+  deliveryId        String?
+  topic             String
+  status            SyncRunStatus      @default(QUEUED)
+  signatureVerified Boolean            @default(false)
+  sourceSystem      RecordSourceSystem @default(YELP)
+  receivedAt        DateTime           @default(now())
+  processedAt       DateTime?
+  headersJson       Json?
+  payloadJson       Json
+  errorJson         Json?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lead              YelpLead?          @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  syncRun           SyncRun?           @relation(fields: [syncRunId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, eventKey])
+  @@index([tenantId, topic, receivedAt])
+  @@index([tenantId, deliveryId])
+}
+
+model YelpReportingJob {
+  id                  String                 @id @default(cuid())
+  tenantId            String
+  businessId          String?
+  locationId          String?
+  granularity         ReportGranularity
+  status              ReportStatus           @default(REQUESTED)
+  upstreamJobId       String?
+  sourceSystem        RecordSourceSystem     @default(YELP)
+  requestScopeJson    Json?
+  requestJson         Json?
+  responseJson        Json?
+  freshnessAsOf       DateTime?
+  lastSuccessfulSyncAt DateTime?
+  lastPolledAt        DateTime?
+  completedAt         DateTime?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+  tenant              Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  business            Business?              @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  location            Location?              @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  snapshots           YelpReportingSnapshot[]
+  syncRuns            SyncRun[]
+
+  @@unique([tenantId, upstreamJobId])
+  @@index([tenantId, status, granularity])
+  @@index([businessId, locationId])
+}
+
+model YelpReportingSnapshot {
+  id                  String                 @id @default(cuid())
+  tenantId            String
+  reportingJobId      String
+  businessId          String?
+  locationId          String?
+  serviceCategoryId   String?
+  sourceSystem        RecordSourceSystem     @default(YELP)
+  windowStart         DateTime
+  windowEnd           DateTime
+  freshnessState      ReportingFreshnessState @default(PENDING)
+  lastSuccessfulSyncAt DateTime?
+  payloadJson         Json
+  metricsSummaryJson  Json?
+  rawStatus           String?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+  tenant              Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  reportingJob        YelpReportingJob       @relation(fields: [reportingJobId], references: [id], onDelete: Cascade)
+  business            Business?              @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  location            Location?              @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  serviceCategory     ServiceCategory?       @relation(fields: [serviceCategoryId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, windowStart, windowEnd])
+  @@index([businessId, locationId, serviceCategoryId])
+}
+
+model CrmLeadMapping {
+  id                 String             @id @default(cuid())
+  tenantId           String
+  leadId             String
+  locationId         String?
+  externalCrmLeadId  String
+  externalOpportunityId String?
+  externalJobId      String?
+  matchMethod        String?
+  confidenceScore    Float?
+  sourceSystem       RecordSourceSystem @default(CRM)
+  matchedAt          DateTime           @default(now())
+  metadataJson       Json?
+  rawSnapshotJson    Json?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  tenant             Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lead               YelpLead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  location           Location?          @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  statusEvents       CrmStatusEvent[]
+
+  @@unique([leadId])
+  @@unique([tenantId, externalCrmLeadId])
+  @@index([tenantId, locationId])
+}
+
+model CrmStatusEvent {
+  id                  String             @id @default(cuid())
+  tenantId            String
+  leadId              String
+  crmLeadMappingId    String?
+  locationId          String?
+  externalStatusEventId String?
+  status              InternalLeadStatus
+  substatus           String?
+  sourceSystem        RecordSourceSystem @default(CRM)
+  occurredAt          DateTime
+  payloadJson         Json
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  tenant              Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lead                YelpLead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  crmLeadMapping      CrmLeadMapping?    @relation(fields: [crmLeadMappingId], references: [id], onDelete: SetNull)
+  location            Location?          @relation(fields: [locationId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, externalStatusEventId])
+  @@index([tenantId, leadId, occurredAt])
+  @@index([tenantId, status])
+}
+
+model SyncRun {
+  id                  String             @id @default(cuid())
+  tenantId            String
+  businessId          String?
+  locationId          String?
+  leadId              String?
+  reportingJobId      String?
+  type                SyncRunType
+  status              SyncRunStatus      @default(QUEUED)
+  sourceSystem        RecordSourceSystem
+  capabilityKey       String?
+  correlationId       String?
+  startedAt           DateTime           @default(now())
+  finishedAt          DateTime?
+  lastSuccessfulSyncAt DateTime?
+  statsJson           Json?
+  requestJson         Json?
+  responseJson        Json?
+  errorSummary        String?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  tenant              Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  business            Business?          @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  location            Location?          @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  lead                YelpLead?          @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  reportingJob        YelpReportingJob?  @relation(fields: [reportingJobId], references: [id], onDelete: SetNull)
+  webhookEvents       YelpWebhookEvent[]
+  errors              SyncError[]
+
+  @@index([tenantId, type, status])
+  @@index([tenantId, startedAt])
+  @@index([businessId, locationId, leadId, reportingJobId])
+}
+
+model SyncError {
+  id           String             @id @default(cuid())
+  tenantId     String
+  syncRunId    String
+  sourceSystem RecordSourceSystem
+  category     String
+  code         String?
+  message      String
+  isRetryable  Boolean            @default(true)
+  detailsJson  Json?
+  occurredAt   DateTime           @default(now())
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  tenant       Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  syncRun      SyncRun            @relation(fields: [syncRunId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, occurredAt])
+  @@index([syncRunId])
 }
 
 model SystemSetting {

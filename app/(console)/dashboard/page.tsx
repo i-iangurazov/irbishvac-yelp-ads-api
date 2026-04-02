@@ -12,7 +12,7 @@ import { getBusinessesIndex } from "@/features/businesses/service";
 import { getProgramsIndex } from "@/features/ads-programs/service";
 import { getReportingIndex } from "@/features/reporting/service";
 import { getSettingsOverview } from "@/features/settings/service";
-import { capabilityFlagLabels, getCredentialHealthViewModel } from "@/features/settings/view-models";
+import { getCredentialHealthViewModel, getEnabledCapabilityLabels } from "@/features/settings/view-models";
 import { requireUser } from "@/lib/auth/service";
 
 const eligibilityVariantMap = {
@@ -38,9 +38,7 @@ export default async function DashboardPage() {
 
   const failedJobs = programs.flatMap((program) => program.jobs).filter((job) => job.status === "FAILED" || job.status === "PARTIAL");
   const readinessIssues = businesses.filter((business) => !business.readiness.isReadyForCpc);
-  const enabledApis = Object.entries(settings.capabilities)
-    .filter(([, value]) => value)
-    .map(([key]) => capabilityFlagLabels[key as keyof typeof capabilityFlagLabels] ?? key);
+  const enabledApis = getEnabledCapabilityLabels(settings.capabilities);
 
   return (
     <div>
@@ -50,10 +48,10 @@ export default async function DashboardPage() {
         actions={
           <div className="flex gap-3">
             <Button asChild>
-              <Link href="/programs/new">Create program</Link>
+              <Link href="/ads">Open Ads workspace</Link>
             </Button>
             <Button asChild variant="outline">
-              <Link href="/reporting">Request report</Link>
+              <Link href="/leads">Review leads</Link>
             </Button>
           </div>
         }
@@ -113,7 +111,7 @@ export default async function DashboardPage() {
           </CardHeader>
           <CardContent className="grid gap-3">
             <Button asChild className="justify-start">
-              <Link href="/businesses">Search or onboard a business</Link>
+              <Link href="/ads">Open Ads workspace</Link>
             </Button>
             <Button asChild className="justify-start" variant="outline">
               <Link href="/programs/new">Create a new ad program</Link>
@@ -122,7 +120,7 @@ export default async function DashboardPage() {
               <Link href="/reporting">Request daily or monthly report</Link>
             </Button>
             <Button asChild className="justify-start" variant="outline">
-              <Link href="/settings">Manage credentials and roles</Link>
+              <Link href="/integrations">Check integrations and sync health</Link>
             </Button>
           </CardContent>
         </Card>

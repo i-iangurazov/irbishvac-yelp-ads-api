@@ -2,20 +2,12 @@ import "server-only";
 
 import type { CredentialKind } from "@prisma/client";
 
+import { normalizeCapabilityFlags, type CapabilityFlags as YelpCapabilityFlags } from "@/features/settings/capabilities";
 import { getCredentialSet } from "@/lib/db/credentials-repository";
 import { getSystemSetting } from "@/lib/db/settings-repository";
 import { decryptSecret } from "@/lib/utils/crypto";
 import { getServerEnv } from "@/lib/utils/env";
 import { YelpMissingAccessError } from "@/lib/yelp/errors";
-
-export type YelpCapabilityFlags = {
-  adsApiEnabled: boolean;
-  programFeatureApiEnabled: boolean;
-  reportingApiEnabled: boolean;
-  dataIngestionApiEnabled: boolean;
-  businessMatchApiEnabled: boolean;
-  demoModeEnabled: boolean;
-};
 
 export type YelpCredentialConfig = {
   label: string;
@@ -26,18 +18,9 @@ export type YelpCredentialConfig = {
   metadata?: Record<string, unknown> | null;
 };
 
-const defaultCapabilities: YelpCapabilityFlags = {
-  adsApiEnabled: false,
-  programFeatureApiEnabled: false,
-  reportingApiEnabled: false,
-  dataIngestionApiEnabled: false,
-  businessMatchApiEnabled: false,
-  demoModeEnabled: false
-};
-
 export async function getCapabilityFlags(tenantId: string) {
   const stored = await getSystemSetting<Partial<YelpCapabilityFlags>>(tenantId, "yelpCapabilities");
-  return { ...defaultCapabilities, ...stored };
+  return normalizeCapabilityFlags(stored);
 }
 
 export async function getCredentialConfig(tenantId: string, kind: CredentialKind): Promise<YelpCredentialConfig | null> {

@@ -15,7 +15,12 @@ const serverEnvSchema = z.object({
   YELP_FEATURES_BASE_URL: z.string().url().default("https://partner-api.yelp.com"),
   YELP_REPORTING_BASE_URL: z.string().url().default("https://api.yelp.com"),
   YELP_BUSINESS_MATCH_BASE_URL: z.string().url().default("https://partner-api.yelp.com"),
-  YELP_DATA_INGESTION_BASE_URL: z.string().url().default("https://partner-api.yelp.com")
+  YELP_DATA_INGESTION_BASE_URL: z.string().url().default("https://partner-api.yelp.com"),
+  YELP_CLIENT_ID: z.string().optional(),
+  YELP_CLIENT_SECRET: z.string().optional(),
+  YELP_API_KEY: z.string().optional(),
+  YELP_REDIRECT_URI: z.string().url().optional(),
+  YELP_ALLOWED_BUSINESS_IDS: z.string().optional()
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;

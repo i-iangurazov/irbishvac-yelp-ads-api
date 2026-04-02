@@ -18,7 +18,7 @@ export default async function ReportingPage() {
     <div>
       <PageHeader
         title="Reporting"
-        description="Request daily or monthly reports, monitor generation status, and review cached payloads with readable metrics."
+        description="Request daily or monthly Yelp reports, monitor batch generation status, and review delayed cached payloads without implying real-time finality."
       />
 
       <ReportRequestForm businesses={businesses.map((business) => ({ id: business.id, name: business.name }))} />

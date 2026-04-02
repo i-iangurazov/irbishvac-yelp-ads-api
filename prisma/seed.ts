@@ -16,10 +16,42 @@ const defaultPermissions = {
     "programs:terminate",
     "features:read",
     "features:write",
-    "reports:read"
+    "leads:read",
+    "leads:write",
+    "reports:read",
+    "reports:request",
+    "locations:read",
+    "services:read",
+    "integrations:read",
+    "sync:read",
+    "sync:retry",
+    "audit:read"
   ],
-  ANALYST: ["businesses:read", "programs:read", "features:read", "reports:read", "reports:request"],
-  VIEWER: ["businesses:read", "programs:read", "features:read", "reports:read", "audit:read"]
+  ANALYST: [
+    "businesses:read",
+    "programs:read",
+    "features:read",
+    "leads:read",
+    "reports:read",
+    "reports:request",
+    "locations:read",
+    "services:read",
+    "integrations:read",
+    "sync:read",
+    "audit:read"
+  ],
+  VIEWER: [
+    "businesses:read",
+    "programs:read",
+    "features:read",
+    "leads:read",
+    "reports:read",
+    "locations:read",
+    "services:read",
+    "integrations:read",
+    "sync:read",
+    "audit:read"
+  ]
 };
 
 async function main() {
@@ -83,6 +115,12 @@ async function main() {
     where: { tenantId_key: { tenantId: tenant.id, key: "yelpCapabilities" } },
     update: {
       valueJson: {
+        hasAdsApi: false,
+        hasLeadsApi: false,
+        hasReportingApi: false,
+        hasConversionsApi: false,
+        hasPartnerSupportApi: false,
+        hasCrmIntegration: false,
         adsApiEnabled: false,
         programFeatureApiEnabled: false,
         reportingApiEnabled: false,
@@ -95,6 +133,12 @@ async function main() {
       tenantId: tenant.id,
       key: "yelpCapabilities",
       valueJson: {
+        hasAdsApi: false,
+        hasLeadsApi: false,
+        hasReportingApi: false,
+        hasConversionsApi: false,
+        hasPartnerSupportApi: false,
+        hasCrmIntegration: false,
         adsApiEnabled: false,
         programFeatureApiEnabled: false,
         reportingApiEnabled: false,
@@ -141,6 +185,61 @@ async function main() {
         hasCategories: true,
         missingItems: []
       }
+    }
+  });
+
+  const location = await prisma.location.upsert({
+    where: {
+      tenantId_externalCrmLocationId: {
+        tenantId: tenant.id,
+        externalCrmLocationId: "st_location_sf_001"
+      }
+    },
+    update: {
+      name: "San Francisco Dispatch",
+      code: "SF",
+      city: "San Francisco",
+      state: "CA",
+      country: "US",
+      timezone: "America/Los_Angeles"
+    },
+    create: {
+      tenantId: tenant.id,
+      name: "San Francisco Dispatch",
+      code: "SF",
+      externalCrmLocationId: "st_location_sf_001",
+      city: "San Francisco",
+      state: "CA",
+      country: "US",
+      timezone: "America/Los_Angeles"
+    }
+  });
+
+  await prisma.business.update({
+    where: { id: business.id },
+    data: {
+      locationId: location.id
+    }
+  });
+
+  await prisma.serviceCategory.upsert({
+    where: {
+      tenantId_slug: {
+        tenantId: tenant.id,
+        slug: "hvac-repair"
+      }
+    },
+    update: {
+      name: "HVAC Repair",
+      yelpAliasesJson: ["heatingairconditioninghvac", "waterheaterinstallrepair"],
+      crmCodesJson: ["HVAC_REPAIR"]
+    },
+    create: {
+      tenantId: tenant.id,
+      slug: "hvac-repair",
+      name: "HVAC Repair",
+      yelpAliasesJson: ["heatingairconditioninghvac", "waterheaterinstallrepair"],
+      crmCodesJson: ["HVAC_REPAIR"]
     }
   });
 

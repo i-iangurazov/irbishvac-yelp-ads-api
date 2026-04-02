@@ -2,6 +2,12 @@ import { CredentialKind, RoleCode } from "@prisma/client";
 import { z } from "zod";
 
 export const capabilityFlagsSchema = z.object({
+  hasAdsApi: z.boolean().default(false),
+  hasLeadsApi: z.boolean().default(false),
+  hasReportingApi: z.boolean().default(false),
+  hasConversionsApi: z.boolean().default(false),
+  hasPartnerSupportApi: z.boolean().default(false),
+  hasCrmIntegration: z.boolean().default(false),
   adsApiEnabled: z.boolean().default(false),
   programFeatureApiEnabled: z.boolean().default(false),
   reportingApiEnabled: z.boolean().default(false),
