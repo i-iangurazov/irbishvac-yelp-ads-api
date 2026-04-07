@@ -3,6 +3,7 @@ import Link from "next/link";
 import { BusinessSearchForm } from "@/components/forms/business-search-form";
 import { ManualBusinessForm } from "@/components/forms/manual-business-form";
 import { EmptyState } from "@/components/shared/empty-state";
+import { MetricCard } from "@/components/shared/metric-card";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusChip } from "@/components/shared/status-chip";
 import { Badge } from "@/components/ui/badge";
@@ -26,17 +27,33 @@ const eligibilityLabelMap = {
 export default async function BusinessesPage() {
   const user = await requireUser();
   const businesses = await getBusinessesIndex(user.tenantId);
+  const launchReadyBusinesses = businesses.filter((business) => business.readiness.isReadyForCpc);
+  const blockedBusinesses = businesses.filter((business) => business.readiness.adsEligibilityStatus === "BLOCKED");
+  const activePrograms = businesses.reduce(
+    (sum, business) => sum + business.programs.filter((program) => ["ACTIVE", "SCHEDULED", "QUEUED", "PROCESSING"].includes(program.status)).length,
+    0
+  );
 
   return (
     <div>
       <PageHeader
         title="Businesses"
-        description="Search saved businesses, manually add businesses with encrypted Yelp IDs, and keep Yelp category aliases ready for CPC submission."
+        description="Find the right business, save it once, and move it into launch."
       />
 
-      <BusinessSearchForm />
-      <div className="mt-6">
-        <ManualBusinessForm />
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard title="Saved businesses" value={businesses.length} description="Accounts already staged for operators." />
+        <MetricCard title="Launch-ready" value={launchReadyBusinesses.length} description="Businesses that pass the current CPC readiness checks." />
+        <MetricCard title="Policy blocked" value={blockedBusinesses.length} description="Businesses Yelp has already marked as ineligible for ads." />
+        <MetricCard title="Current programs" value={activePrograms} description="Programs already tied to saved businesses." />
+      </div>
+
+      <div className="mt-6 rounded-2xl border border-border/80 bg-muted/15 px-5 py-4">
+        <div className="grid gap-3 text-sm text-muted-foreground md:grid-cols-3">
+          <div>Search first, then save the exact Yelp business you want operators to work from.</div>
+          <div>Keep category aliases clean so CPC targeting is predictable when it is needed.</div>
+          <div>Use the business detail page as the handoff into program launch and reporting.</div>
+        </div>
       </div>
 
       {businesses.length === 0 ? (
@@ -50,45 +67,95 @@ export default async function BusinessesPage() {
         <Card className="mt-6">
           <CardHeader>
             <CardTitle>Saved businesses</CardTitle>
-            <CardDescription>Businesses already available inside the console.</CardDescription>
+            <CardDescription>Scan readiness, alias coverage, and the next move from one table.</CardDescription>
           </CardHeader>
           <CardContent className="p-0">
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Business</TableHead>
-                  <TableHead>Location</TableHead>
+                  <TableHead>Eligibility</TableHead>
+                  <TableHead>Alias coverage</TableHead>
                   <TableHead>Programs</TableHead>
-                  <TableHead>Ad eligibility</TableHead>
                   <TableHead>Readiness</TableHead>
+                  <TableHead>Next action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {businesses.map((business) => (
-                  <TableRow key={business.id}>
-                    <TableCell>
-                      <Link className="font-medium hover:underline" href={`/businesses/${business.id}`}>
-                        {business.name}
-                      </Link>
-                      <div className="text-xs text-muted-foreground">{business.encryptedYelpBusinessId}</div>
-                    </TableCell>
-                    <TableCell>{[business.city, business.state].filter(Boolean).join(", ") || "Not set"}</TableCell>
-                    <TableCell>{business.programs.length}</TableCell>
-                    <TableCell>
-                      <Badge variant={eligibilityVariantMap[business.readiness.adsEligibilityStatus]}>
-                        {eligibilityLabelMap[business.readiness.adsEligibilityStatus]}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <StatusChip status={business.readiness.isReadyForCpc ? "READY" : "FAILED"} />
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {businesses.map((business) => {
+                  const aliasBackedCategories = business.categories.filter((category) => Boolean(category.alias)).length;
+
+                  return (
+                    <TableRow key={business.id}>
+                      <TableCell>
+                        <Link className="font-medium hover:underline" href={`/businesses/${business.id}`}>
+                          {business.name}
+                        </Link>
+                        <div className="text-xs text-muted-foreground">
+                          {[business.city, business.state].filter(Boolean).join(", ") || "Location not set"}
+                        </div>
+                        <div className="mt-2 text-xs text-muted-foreground">{business.encryptedYelpBusinessId}</div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-col gap-2">
+                          <Badge variant={eligibilityVariantMap[business.readiness.adsEligibilityStatus]}>
+                            {eligibilityLabelMap[business.readiness.adsEligibilityStatus]}
+                          </Badge>
+                          {business.readiness.adsEligibilityMessage ? (
+                            <div className="text-xs text-muted-foreground">
+                              {business.readiness.adsEligibilityMessage}
+                            </div>
+                          ) : null}
+                        </div>
+                      </TableCell>
+                      <TableCell>{aliasBackedCategories} / {business.categories.length}</TableCell>
+                      <TableCell>{business.programs.length}</TableCell>
+                      <TableCell>
+                        <div className="space-y-2">
+                          <StatusChip status={business.readiness.isReadyForCpc ? "READY" : "FAILED"} />
+                          {!business.readiness.isReadyForCpc ? (
+                            <div className="text-xs text-muted-foreground">
+                              {business.readiness.missingItems[0] ?? "Needs review"}
+                            </div>
+                          ) : null}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        {business.readiness.isReadyForCpc ? (
+                          <Link className="font-medium hover:underline" href={`/programs/new?businessId=${business.id}`}>
+                            Create program
+                          </Link>
+                        ) : (
+                          <Link className="text-sm text-muted-foreground hover:underline" href={`/businesses/${business.id}`}>
+                            Fix readiness
+                          </Link>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </CardContent>
         </Card>
       )}
+
+      <div className="mt-6 grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+        <div className="space-y-3">
+          <div>
+            <h2 className="text-lg font-semibold tracking-tight">Find a business</h2>
+            <p className="text-sm text-muted-foreground">Use this when you need to add a new business to the working set.</p>
+          </div>
+          <BusinessSearchForm />
+        </div>
+        <div className="space-y-3">
+          <div>
+            <h2 className="text-lg font-semibold tracking-tight">Manual fallback</h2>
+            <p className="text-sm text-muted-foreground">Use this only when Yelp already provided the encrypted business ID.</p>
+          </div>
+          <ManualBusinessForm />
+        </div>
+      </div>
     </div>
   );
 }

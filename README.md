@@ -93,7 +93,8 @@ Useful optional values:
 - `CRON_SECRET` to secure the internal reconciliation endpoint used by GitHub Actions or any external scheduler
 - `SEED_ADMIN_EMAIL` and `SEED_ADMIN_NAME` to control the initial seeded admin identity
 - `YELP_*_BASE_URL` overrides for different environments
-- `YELP_API_KEY` if your team stores the Yelp reporting or Fusion key in env before copying it into Admin Settings
+- `YELP_ACCESS_TOKEN` as the preferred bearer-token fallback for Yelp Leads and other bearer-auth Yelp Partner API reads
+- `YELP_API_KEY` as a legacy bearer-token fallback name if your team still stores the same token under that env var
 - `YELP_CLIENT_ID`, `YELP_CLIENT_SECRET`, and `YELP_REDIRECT_URI` for future Yelp OAuth or business-access flows
 - `YELP_ALLOWED_BUSINESS_IDS` for future business-access allowlisting or subscription-coverage logic
 
@@ -102,7 +103,7 @@ Useful optional values:
 Admin Settings includes:
 
 - Partner API Basic Auth credentials
-- Fusion API key for reporting
+- Yelp API bearer token for Leads and other bearer-auth Yelp APIs
 - Optional Business Match and Data Ingestion credentials
 - Env-var mapping guidance so teams can map existing values like `YELP_API_KEY` to the correct credential form
 - Capability flags:

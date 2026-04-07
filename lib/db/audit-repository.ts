@@ -42,7 +42,8 @@ export async function listAuditEvents(
     include: {
       actor: true,
       business: true,
-      program: true
+      program: true,
+      reportRequest: true
     },
     orderBy: { createdAt: "desc" }
   });

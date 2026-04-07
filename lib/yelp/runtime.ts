@@ -69,3 +69,35 @@ export async function ensureYelpAccess(params: {
 
   return { capabilities, credential };
 }
+
+export async function ensureYelpLeadsAccess(tenantId: string) {
+  const capabilities = await getCapabilityFlags(tenantId);
+
+  if (!capabilities.hasLeadsApi) {
+    throw new YelpMissingAccessError("Yelp Leads is not enabled for this tenant.");
+  }
+
+  const reportingCredential = await getCredentialConfig(tenantId, "REPORTING_FUSION");
+  const env = getServerEnv();
+  const secret =
+    (reportingCredential?.isEnabled && reportingCredential.secret ? reportingCredential.secret : undefined) ||
+    env.YELP_ACCESS_TOKEN ||
+    env.YELP_API_KEY;
+
+  if (!secret) {
+    throw new YelpMissingAccessError(
+      "A Yelp bearer token is required for Leads API reads. Save the Yelp API bearer token in Settings, or configure YELP_ACCESS_TOKEN."
+    );
+  }
+
+  return {
+    capabilities,
+    credential: {
+      label: reportingCredential?.label ?? "Yelp Leads bearer token",
+      baseUrl: reportingCredential?.baseUrl || env.YELP_REPORTING_BASE_URL,
+      isEnabled: true,
+      secret,
+      metadata: reportingCredential?.metadata ?? null
+    } satisfies YelpCredentialConfig
+  };
+}

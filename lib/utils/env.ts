@@ -18,9 +18,17 @@ const serverEnvSchema = z.object({
   YELP_DATA_INGESTION_BASE_URL: z.string().url().default("https://partner-api.yelp.com"),
   YELP_CLIENT_ID: z.string().optional(),
   YELP_CLIENT_SECRET: z.string().optional(),
+  YELP_ACCESS_TOKEN: z.string().optional(),
   YELP_API_KEY: z.string().optional(),
   YELP_REDIRECT_URI: z.string().url().optional(),
-  YELP_ALLOWED_BUSINESS_IDS: z.string().optional()
+  YELP_ALLOWED_BUSINESS_IDS: z.string().optional(),
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().positive().optional(),
+  SMTP_SECURE: z.enum(["true", "false"]).optional().default("false"),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASSWORD: z.string().optional(),
+  SMTP_FROM: z.string().email().optional(),
+  SMTP_REPLY_TO: z.string().email().optional()
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;

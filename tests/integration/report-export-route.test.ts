@@ -14,6 +14,8 @@ vi.mock("@/features/reporting/service", () => ({
     id: "report_1",
     results: [{ payloadJson: mockReport }]
   })),
+  getReportBreakdownView: vi.fn(),
+  exportReportBreakdownToCsv: vi.fn(),
   exportReportResultToCsv: vi.fn(() => "date,impressions\n2026-03-01,600")
 }));
 

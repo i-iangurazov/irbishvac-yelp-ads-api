@@ -48,7 +48,7 @@ export function ProgramTerminateForm({
         body: JSON.stringify(values)
       });
       setOpen(false);
-      toast.success("Termination submitted.");
+      toast.success("Terminate request submitted to Yelp.");
       router.push(`/programs/${programId}?jobId=${result.jobId}`);
       router.refresh();
     } catch (error) {
@@ -68,22 +68,22 @@ export function ProgramTerminateForm({
           <AlertDialogHeader>
             <AlertDialogTitle>Terminate this program?</AlertDialogTitle>
             <AlertDialogDescription>
-              This submits an end request to Yelp by program ID. The requested end date and reason are stored internally for audit review.
+              This sends Yelp a terminate request by program ID. The requested end date and reason below are stored as internal audit notes only and are not included in the upstream terminate payload.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <form className="space-y-4" onSubmit={submit}>
             <div className="space-y-2">
-              <Label htmlFor="endDate">Requested end date note</Label>
+              <Label htmlFor="endDate">Internal requested end date note</Label>
               <Input id="endDate" type="date" {...register("endDate")} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="reason">Internal reason note</Label>
+              <Label htmlFor="reason">Internal termination reason</Label>
               <Textarea id="reason" {...register("reason")} />
             </div>
             <AlertDialogFooter>
               <AlertDialogDismiss type="button">Cancel</AlertDialogDismiss>
               <Button type="submit" variant="destructive" disabled={isSubmitting}>
-                {isSubmitting ? "Submitting..." : "Confirm termination"}
+                {isSubmitting ? "Submitting..." : "Send terminate request"}
               </Button>
             </AlertDialogFooter>
           </form>

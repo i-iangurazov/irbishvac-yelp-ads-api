@@ -1,6 +1,6 @@
 import { EmptyState } from "@/components/shared/empty-state";
-import { MetricCard } from "@/components/shared/metric-card";
 import { PageHeader } from "@/components/shared/page-header";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getLocationsOverview } from "@/features/operations/service";
@@ -14,19 +14,21 @@ export default async function LocationsPage() {
     <div>
       <PageHeader
         title="Locations"
-        description="Internal locations will anchor Yelp business mappings, service ownership, and per-location reporting once the ingestion layers are connected."
+        description="Foundation-only location mapping inventory. This is not a primary operator surface in the current MVP."
+        actions={<Badge variant="outline">Beta</Badge>}
       />
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard title="Locations" value={overview.counts.locations} description="Internal locations available for Yelp business mapping." />
-        <MetricCard title="Mapped businesses" value={overview.counts.mappedBusinesses} description="Yelp businesses already assigned to an internal location." />
-        <MetricCard title="Normalized leads" value={overview.counts.totalLeads} description="Leads that can eventually roll up by location." />
-        <MetricCard
-          title="CRM enrichment"
-          value={overview.hasCrmIntegration ? "On" : "Off"}
-          description="Location-level operational status depends on CRM enrichment, not Yelp."
-        />
-      </div>
+      <Card className="border-border/70 bg-muted/20">
+        <CardHeader>
+          <CardTitle>Current state</CardTitle>
+          <CardDescription>This page stays intentionally lightweight until per-location enrichment and reporting are truly wired.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm text-muted-foreground">
+          <div>{overview.counts.locations} internal locations and {overview.counts.mappedBusinesses} mapped businesses are currently stored.</div>
+          <div>Location-level operational status still depends on CRM enrichment, not Yelp.</div>
+          <div>Per-location reporting is future work and is intentionally not presented as finished here.</div>
+        </CardContent>
+      </Card>
 
       <Card className="mt-6">
         <CardHeader>

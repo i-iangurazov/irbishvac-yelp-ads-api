@@ -6,6 +6,7 @@ import { AuditTimeline } from "@/components/shared/audit-timeline";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusChip } from "@/components/shared/status-chip";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getBusinessDetail } from "@/features/businesses/service";
@@ -43,10 +44,16 @@ export default async function BusinessDetailPage({ params }: { params: Promise<{
     <div>
       <PageHeader
         title={business.name}
-        description="Review business identifiers, readiness, current program inventory, recent reports, and the audit trail for this account."
+        description="Confirm the saved Yelp business, clear readiness blockers, and launch from here."
         actions={
           <div className="flex flex-wrap items-start gap-3">
-            <YelpSyncButton label="Sync programs from Yelp" syncPath={`/api/businesses/${business.id}/programs/sync`} />
+            <Button asChild>
+              <Link href={`/programs/new?businessId=${business.id}`}>New program</Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link href="/reporting">Run report</Link>
+            </Button>
+            <YelpSyncButton label="Refresh Yelp" syncPath={`/api/businesses/${business.id}/programs/sync`} />
             <BusinessDeleteForm
               businessId={business.id}
               businessName={business.name}
@@ -59,6 +66,31 @@ export default async function BusinessDetailPage({ params }: { params: Promise<{
 
       <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
         <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Launch readiness</CardTitle>
+              <CardDescription>Use this before submitting a new CPC request.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <StatusChip status={business.readiness.isReadyForCpc ? "READY" : "FAILED"} />
+              <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm">
+                <div className="font-medium">Next move</div>
+                <div className="mt-1 text-muted-foreground">
+                  {business.readiness.isReadyForCpc
+                    ? "Ready for a CPC launch."
+                    : business.readiness.missingItems[0] ?? "Review the saved business inputs before launching."}
+                </div>
+              </div>
+              <ul className="space-y-2 text-sm text-muted-foreground">
+                {business.readiness.missingItems.length === 0 ? (
+                  <li>No blocking readiness gaps detected.</li>
+                ) : (
+                  business.readiness.missingItems.map((item) => <li key={item}>{item}</li>)
+                )}
+              </ul>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle>Business profile</CardTitle>
@@ -98,31 +130,14 @@ export default async function BusinessDetailPage({ params }: { params: Promise<{
               </div>
             </CardContent>
           </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Readiness check</CardTitle>
-              <CardDescription>Required before enabling CPC.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <StatusChip status={business.readiness.isReadyForCpc ? "READY" : "FAILED"} />
-              <ul className="space-y-2 text-sm text-muted-foreground">
-                {business.readiness.missingItems.length === 0 ? (
-                  <li>No blocking readiness gaps detected.</li>
-                ) : (
-                  business.readiness.missingItems.map((item) => <li key={item}>{item}</li>)
-                )}
-              </ul>
-            </CardContent>
-          </Card>
         </div>
 
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Programs</CardTitle>
+              <CardTitle>Live Yelp inventory</CardTitle>
               <CardDescription>
-                {business.liveProgramInventory.message ?? "The latest 10 active Yelp programs, merged with local console tracking."}
+                {business.liveProgramInventory.message ?? "Yelp-native inventory. Local console records stay separate below."}
               </CardDescription>
             </CardHeader>
             <CardContent className="p-0">
@@ -208,7 +223,7 @@ export default async function BusinessDetailPage({ params }: { params: Promise<{
           <Card>
             <CardHeader>
               <CardTitle>Local console records</CardTitle>
-              <CardDescription>Current active or pending programs saved in this console.</CardDescription>
+              <CardDescription>What the console is actively tracking for this business.</CardDescription>
             </CardHeader>
             <CardContent className="p-0">
               {business.currentPrograms.length > 0 ? (
@@ -235,7 +250,12 @@ export default async function BusinessDetailPage({ params }: { params: Promise<{
                   </TableBody>
                 </Table>
               ) : (
-                <div className="p-6 text-sm text-muted-foreground">No active local programs are currently tracked for this business.</div>
+                <div className="space-y-3 p-6 text-sm text-muted-foreground">
+                  <div>No active local programs are currently tracked for this business.</div>
+                  <Link className="font-medium text-foreground hover:underline" href={`/programs/new?businessId=${business.id}`}>
+                    Create the first program
+                  </Link>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -243,6 +263,7 @@ export default async function BusinessDetailPage({ params }: { params: Promise<{
           <Card>
             <CardHeader>
               <CardTitle>Recent report requests</CardTitle>
+              <CardDescription>Saved Yelp batch requests for this business.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               {business.reportRequests.map((report) => (
@@ -253,6 +274,9 @@ export default async function BusinessDetailPage({ params }: { params: Promise<{
                   <StatusChip status={report.status} />
                 </div>
               ))}
+              {business.reportRequests.length === 0 ? (
+                <div className="text-sm text-muted-foreground">No report requests have been saved for this business yet.</div>
+              ) : null}
             </CardContent>
           </Card>
 

@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+const emptyToUndefined = <TSchema extends z.ZodTypeAny>(schema: TSchema) =>
+  z.preprocess((value) => (value === "" || value === null ? undefined : value), schema.optional());
+
 export const reportMetrics = [
   "impressions",
   "clicks",
@@ -50,3 +53,26 @@ export const reportRequestFormSchema = z
   });
 
 export type ReportRequestFormValues = z.infer<typeof reportRequestFormSchema>;
+
+export const reportBreakdownViews = ["location", "service"] as const;
+export const reportUnknownBucketValue = "unknown";
+
+export const reportBreakdownFiltersSchema = z
+  .object({
+    view: emptyToUndefined(z.enum(reportBreakdownViews)),
+    from: emptyToUndefined(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)),
+    to: emptyToUndefined(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)),
+    locationId: emptyToUndefined(z.string().min(1)),
+    serviceCategoryId: emptyToUndefined(z.string().min(1))
+  })
+  .superRefine((value, ctx) => {
+    if (value.from && value.to && new Date(value.from) > new Date(value.to)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["to"],
+        message: "End date must be on or after the start date."
+      });
+    }
+  });
+
+export type ReportBreakdownFiltersInput = z.infer<typeof reportBreakdownFiltersSchema>;

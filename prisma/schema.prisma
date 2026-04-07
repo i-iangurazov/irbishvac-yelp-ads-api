@@ -121,12 +121,23 @@ enum YelpLeadReplyState {
 enum InternalLeadStatus {
   UNMAPPED
   NEW
+  CONTACTED
   BOOKED
   SCHEDULED
   JOB_IN_PROGRESS
   COMPLETED
   CANCELED
+  CLOSED_WON
+  CLOSED_LOST
   LOST
+}
+
+enum CrmLeadMappingState {
+  UNRESOLVED
+  MATCHED
+  MANUAL_OVERRIDE
+  CONFLICT
+  ERROR
 }
 
 enum SyncRunType {
@@ -154,6 +165,97 @@ enum ReportingFreshnessState {
   FINAL
 }
 
+enum ReportScheduleCadence {
+  WEEKLY
+  MONTHLY
+}
+
+enum ReportScheduleRunScope {
+  ACCOUNT
+  LOCATION
+}
+
+enum ReportScheduleGenerationStatus {
+  PENDING
+  REQUESTED
+  PROCESSING
+  READY
+  FAILED
+  SKIPPED
+}
+
+enum ReportScheduleDeliveryStatus {
+  PENDING
+  SENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+enum LeadAutomationChannel {
+  YELP_THREAD
+  EMAIL
+}
+
+enum LeadAutomationAttemptStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+enum LeadAutomationSkipReason {
+  AUTORESPONDER_DISABLED
+  NO_MATCHING_RULE
+  TEMPLATE_DISABLED
+  MISSING_CONTACT
+  OUTSIDE_WORKING_HOURS
+  CHANNEL_UNSUPPORTED
+  DUPLICATE
+}
+
+enum LeadConversationActionType {
+  SEND_MESSAGE
+  MARK_READ
+  MARK_REPLIED
+}
+
+enum LeadConversationActionStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+enum LeadConversationInitiator {
+  AUTOMATION
+  OPERATOR
+  SYSTEM
+}
+
+enum OperatorIssueType {
+  LEAD_SYNC_FAILURE
+  UNMAPPED_LEAD
+  CRM_SYNC_FAILURE
+  AUTORESPONDER_FAILURE
+  REPORT_DELIVERY_FAILURE
+  MAPPING_CONFLICT
+  STALE_LEAD
+}
+
+enum OperatorIssueSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum OperatorIssueStatus {
+  OPEN
+  RESOLVED
+  IGNORED
+}
+
 model Tenant {
   id             String              @id @default(cuid())
   name           String
@@ -168,6 +270,8 @@ model Tenant {
   programFeatureSnapshots ProgramFeatureSnapshot[]
   reportRequests ReportRequest[]
   reportResults  ReportResult[]
+  reportSchedules ReportSchedule[]
+  reportScheduleRuns ReportScheduleRun[]
   auditEvents    AuditEvent[]
   settings       SystemSetting[]
   locations      Location[]
@@ -179,6 +283,11 @@ model Tenant {
   yelpReportingSnapshots YelpReportingSnapshot[]
   crmLeadMappings CrmLeadMapping[]
   crmStatusEvents CrmStatusEvent[]
+  leadAutomationTemplates LeadAutomationTemplate[]
+  leadAutomationRules LeadAutomationRule[]
+  leadAutomationAttempts LeadAutomationAttempt[]
+  leadConversationActions LeadConversationAction[]
+  operatorIssues  OperatorIssue[]
   syncRuns       SyncRun[]
   syncErrors     SyncError[]
 }
@@ -208,6 +317,8 @@ model User {
   role         Role         @relation(fields: [roleId], references: [id])
   reportRuns   ReportRequest[] @relation("ReportCreatedBy")
   auditEvents  AuditEvent[] @relation("AuditActor")
+  resolvedOperatorIssues OperatorIssue[] @relation("OperatorIssueResolvedBy")
+  ignoredOperatorIssues OperatorIssue[] @relation("OperatorIssueIgnoredBy")
 
   @@index([tenantId])
   @@index([roleId])
@@ -258,7 +369,10 @@ model Business {
   reportRequests          ReportRequest[]
   reportResults           ReportResult[]
   auditEvents             AuditEvent[]
+  reportSchedules         ReportSchedule[]
   yelpLeads               YelpLead[]
+  leadAutomationAttempts  LeadAutomationAttempt[]
+  operatorIssues          OperatorIssue[]
   yelpReportingJobs       YelpReportingJob[]
   yelpReportingSnapshots  YelpReportingSnapshot[]
   syncRuns                SyncRun[]
@@ -379,6 +493,8 @@ model ReportRequest {
   business                Business?         @relation(fields: [businessId], references: [id], onDelete: SetNull)
   createdBy               User?             @relation("ReportCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   results                 ReportResult[]
+  reportScheduleRuns      ReportScheduleRun[]
+  operatorIssues          OperatorIssue[]
   auditEvents             AuditEvent[]
 
   @@index([tenantId, status, granularity])
@@ -403,6 +519,70 @@ model ReportResult {
   business           Business?   @relation(fields: [businessId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, reportRequestId])
+}
+
+model ReportSchedule {
+  id                        String               @id @default(cuid())
+  tenantId                  String
+  businessId                String?
+  name                      String
+  cadence                   ReportScheduleCadence
+  timezone                  String
+  sendDayOfWeek             Int?
+  sendDayOfMonth            Int?
+  sendHour                  Int
+  sendMinute                Int                @default(0)
+  deliverPerLocation        Boolean            @default(false)
+  recipientEmailsJson       Json               @default("[]")
+  isEnabled                 Boolean            @default(true)
+  lastTriggeredAt           DateTime?
+  lastSuccessfulGenerationAt DateTime?
+  lastSuccessfulDeliveryAt  DateTime?
+  createdAt                 DateTime           @default(now())
+  updatedAt                 DateTime           @updatedAt
+  tenant                    Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  business                  Business?          @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  runs                      ReportScheduleRun[]
+
+  @@index([tenantId, isEnabled, cadence])
+  @@index([businessId])
+}
+
+model ReportScheduleRun {
+  id                  String                      @id @default(cuid())
+  runKey              String                      @unique
+  tenantId            String
+  scheduleId          String
+  reportRequestId     String?
+  locationId          String?
+  scope               ReportScheduleRunScope
+  scopeKey            String
+  windowStart         DateTime
+  windowEnd           DateTime
+  scheduledFor        DateTime
+  generationStatus    ReportScheduleGenerationStatus @default(PENDING)
+  deliveryStatus      ReportScheduleDeliveryStatus   @default(PENDING)
+  recipientEmailsJson Json                        @default("[]")
+  dashboardUrl        String?
+  summaryJson         Json?
+  generationStartedAt DateTime?
+  generatedAt         DateTime?
+  deliveryStartedAt   DateTime?
+  deliveredAt         DateTime?
+  lastAttemptedAt     DateTime?
+  errorSummary        String?
+  errorJson           Json?
+  createdAt           DateTime                    @default(now())
+  updatedAt           DateTime                    @updatedAt
+  tenant              Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  schedule            ReportSchedule              @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  reportRequest       ReportRequest?              @relation(fields: [reportRequestId], references: [id], onDelete: SetNull)
+  location            Location?                   @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  operatorIssues      OperatorIssue[]
+
+  @@index([tenantId, generationStatus, deliveryStatus])
+  @@index([scheduleId, scheduledFor])
+  @@index([reportRequestId, locationId])
 }
 
 model AuditEvent {
@@ -453,6 +633,10 @@ model Location {
   updatedAt           DateTime           @updatedAt
   tenant              Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   businesses          Business[]
+  reportScheduleRuns  ReportScheduleRun[]
+  leadAutomationRules LeadAutomationRule[]
+  leadAutomationAttempts LeadAutomationAttempt[]
+  operatorIssues      OperatorIssue[]
   yelpLeads           YelpLead[]
   yelpReportingJobs   YelpReportingJob[]
   yelpReportingSnapshots YelpReportingSnapshot[]
@@ -479,6 +663,8 @@ model ServiceCategory {
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
   tenant           Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  leadAutomationRules LeadAutomationRule[]
+  leadAutomationAttempts LeadAutomationAttempt[]
   yelpLeads        YelpLead[]
   yelpReportingSnapshots YelpReportingSnapshot[]
 
@@ -520,6 +706,9 @@ model YelpLead {
   webhookEvents         YelpWebhookEvent[]
   crmLeadMappings       CrmLeadMapping[]
   crmStatusEvents       CrmStatusEvent[]
+  automationAttempts    LeadAutomationAttempt[]
+  conversationActions   LeadConversationAction[]
+  operatorIssues        OperatorIssue[]
   syncRuns              SyncRun[]
 
   @@unique([tenantId, externalLeadId])
@@ -639,13 +828,16 @@ model CrmLeadMapping {
   tenantId           String
   leadId             String
   locationId         String?
-  externalCrmLeadId  String
+  externalCrmLeadId  String?
   externalOpportunityId String?
   externalJobId      String?
+  state              CrmLeadMappingState @default(UNRESOLVED)
   matchMethod        String?
   confidenceScore    Float?
   sourceSystem       RecordSourceSystem @default(CRM)
-  matchedAt          DateTime           @default(now())
+  matchedAt          DateTime?
+  issueSummary       String?
+  lastSyncedAt       DateTime?
   metadataJson       Json?
   rawSnapshotJson    Json?
   createdAt          DateTime           @default(now())
@@ -657,6 +849,7 @@ model CrmLeadMapping {
 
   @@unique([leadId])
   @@unique([tenantId, externalCrmLeadId])
+  @@index([tenantId, state])
   @@index([tenantId, locationId])
 }
 
@@ -682,6 +875,168 @@ model CrmStatusEvent {
   @@unique([tenantId, externalStatusEventId])
   @@index([tenantId, leadId, occurredAt])
   @@index([tenantId, status])
+}
+
+model LeadAutomationTemplate {
+  id              String                @id @default(cuid())
+  tenantId        String
+  name            String
+  channel         LeadAutomationChannel
+  isEnabled       Boolean               @default(true)
+  subjectTemplate String?
+  bodyTemplate    String
+  sourceSystem    RecordSourceSystem    @default(INTERNAL)
+  metadataJson    Json?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  tenant          Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  rules           LeadAutomationRule[]
+  attempts        LeadAutomationAttempt[]
+
+  @@index([tenantId, channel, isEnabled])
+  @@index([tenantId, name])
+}
+
+model LeadAutomationRule {
+  id                     String                @id @default(cuid())
+  tenantId               String
+  templateId             String
+  locationId             String?
+  serviceCategoryId      String?
+  name                   String
+  channel                LeadAutomationChannel
+  isEnabled              Boolean               @default(true)
+  priority               Int                   @default(100)
+  onlyDuringWorkingHours Boolean               @default(false)
+  timezone               String?
+  workingDaysJson        Json                  @default("[1,2,3,4,5]")
+  startMinute            Int?
+  endMinute              Int?
+  sourceSystem           RecordSourceSystem    @default(INTERNAL)
+  metadataJson           Json?
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
+  tenant                 Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  template               LeadAutomationTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  location               Location?             @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  serviceCategory        ServiceCategory?      @relation(fields: [serviceCategoryId], references: [id], onDelete: SetNull)
+  attempts               LeadAutomationAttempt[]
+
+  @@index([tenantId, isEnabled, priority])
+  @@index([tenantId, locationId, serviceCategoryId])
+}
+
+model LeadAutomationAttempt {
+  id                  String                     @id @default(cuid())
+  tenantId            String
+  leadId              String
+  businessId          String?
+  locationId          String?
+  serviceCategoryId   String?
+  ruleId              String?
+  templateId          String?
+  channel             LeadAutomationChannel?
+  status              LeadAutomationAttemptStatus @default(PENDING)
+  skipReason          LeadAutomationSkipReason?
+  sourceSystem        RecordSourceSystem         @default(INTERNAL)
+  recipient           String?
+  renderedSubject     String?
+  renderedBody        String?
+  providerMessageId   String?
+  providerStatus      String?
+  providerMetadataJson Json?
+  errorSummary        String?
+  triggeredAt         DateTime                   @default(now())
+  startedAt           DateTime?
+  completedAt         DateTime?
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
+  tenant              Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lead                YelpLead                    @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  business            Business?                   @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  location            Location?                   @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  serviceCategory     ServiceCategory?            @relation(fields: [serviceCategoryId], references: [id], onDelete: SetNull)
+  rule                LeadAutomationRule?         @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+  template            LeadAutomationTemplate?     @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  conversationActions LeadConversationAction[]
+
+  @@unique([leadId])
+  @@index([tenantId, status, triggeredAt])
+  @@index([tenantId, businessId, locationId, serviceCategoryId])
+}
+
+model LeadConversationAction {
+  id                   String                       @id @default(cuid())
+  tenantId             String
+  leadId               String
+  automationAttemptId  String?
+  actorId              String?
+  initiator            LeadConversationInitiator
+  actionType           LeadConversationActionType
+  channel              LeadAutomationChannel
+  status               LeadConversationActionStatus @default(PENDING)
+  sourceSystem         RecordSourceSystem          @default(INTERNAL)
+  recipient            String?
+  renderedSubject      String?
+  renderedBody         String?
+  providerMessageId    String?
+  providerStatus       String?
+  providerMetadataJson Json?
+  errorSummary         String?
+  startedAt            DateTime?
+  completedAt          DateTime?
+  createdAt            DateTime                    @default(now())
+  updatedAt            DateTime                    @updatedAt
+  tenant               Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lead                 YelpLead                    @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  automationAttempt    LeadAutomationAttempt?      @relation(fields: [automationAttemptId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, leadId, createdAt])
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, automationAttemptId])
+}
+
+model OperatorIssue {
+  id                  String                @id @default(cuid())
+  tenantId            String
+  businessId          String?
+  locationId          String?
+  leadId              String?
+  reportRequestId     String?
+  reportScheduleRunId String?
+  syncRunId           String?
+  issueType           OperatorIssueType
+  severity            OperatorIssueSeverity
+  status              OperatorIssueStatus   @default(OPEN)
+  dedupeKey           String
+  sourceSystem        RecordSourceSystem    @default(DERIVED)
+  title               String
+  summary             String
+  detailsJson         Json?
+  detectedCount       Int                   @default(1)
+  firstDetectedAt     DateTime              @default(now())
+  lastDetectedAt      DateTime              @default(now())
+  resolvedAt          DateTime?
+  resolvedById        String?
+  resolutionReason    String?
+  resolutionNote      String?
+  ignoredAt           DateTime?
+  ignoredById         String?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  tenant              Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  business            Business?             @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  location            Location?             @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  lead                YelpLead?             @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  reportRequest       ReportRequest?        @relation(fields: [reportRequestId], references: [id], onDelete: SetNull)
+  reportScheduleRun   ReportScheduleRun?    @relation(fields: [reportScheduleRunId], references: [id], onDelete: SetNull)
+  syncRun             SyncRun?              @relation(fields: [syncRunId], references: [id], onDelete: SetNull)
+  resolvedBy          User?                 @relation("OperatorIssueResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+  ignoredBy           User?                 @relation("OperatorIssueIgnoredBy", fields: [ignoredById], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, dedupeKey])
+  @@index([tenantId, status, severity, lastDetectedAt])
+  @@index([businessId, locationId, leadId, reportRequestId, reportScheduleRunId, syncRunId])
 }
 
 model SyncRun {
@@ -710,6 +1065,7 @@ model SyncRun {
   location            Location?          @relation(fields: [locationId], references: [id], onDelete: SetNull)
   lead                YelpLead?          @relation(fields: [leadId], references: [id], onDelete: SetNull)
   reportingJob        YelpReportingJob?  @relation(fields: [reportingJobId], references: [id], onDelete: SetNull)
+  operatorIssues      OperatorIssue[]
   webhookEvents       YelpWebhookEvent[]
   errors              SyncError[]
 

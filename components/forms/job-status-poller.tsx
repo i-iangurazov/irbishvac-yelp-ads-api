@@ -68,7 +68,7 @@ export function JobStatusPoller({ jobId }: { jobId: string }) {
     <Card className="overflow-hidden">
       <CardHeader>
         <CardTitle>Latest Yelp job</CardTitle>
-        <CardDescription>Job polling uses backoff and stops automatically in terminal states.</CardDescription>
+        <CardDescription>Refreshes until Yelp returns a final job state.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 overflow-hidden">
         <div className="flex min-w-0 items-center gap-3">
@@ -91,7 +91,7 @@ export function JobStatusPoller({ jobId }: { jobId: string }) {
         ) : null}
         <details className="rounded-lg border border-border bg-muted/30">
           <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium">
-            Technical details
+            Payload
           </summary>
           <div className="border-t border-border px-4 py-3">
             <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-950 p-3 text-xs text-slate-100">

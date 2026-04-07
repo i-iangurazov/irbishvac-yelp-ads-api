@@ -1,7 +1,7 @@
 import { EmptyState } from "@/components/shared/empty-state";
-import { MetricCard } from "@/components/shared/metric-card";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusChip } from "@/components/shared/status-chip";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getIntegrationsOverview } from "@/features/operations/service";
@@ -11,22 +11,25 @@ import { formatDateTime } from "@/lib/utils/format";
 export default async function IntegrationsPage() {
   const user = await requireUser();
   const overview = await getIntegrationsOverview(user.tenantId);
-  const enabledCount = overview.integrations.filter((integration) => integration.enabled).length;
-  const totalErrors = overview.integrations.reduce((sum, integration) => sum + (integration.errorCount ?? 0), 0);
 
   return (
     <div>
       <PageHeader
         title="Integrations"
-        description="Monitor Yelp and CRM connectivity, recent sync activity, and the explicit boundaries between Yelp-native data and CRM-derived operational state."
+        description="Foundation-only connectivity view for credentials and sync pipelines. Useful for diagnostics, but intentionally outside the primary MVP workflow."
+        actions={<Badge variant="outline">Beta</Badge>}
       />
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard title="Enabled integrations" value={enabledCount} description="Capabilities enabled for the current tenant and environment." />
-        <MetricCard title="Sync errors" value={totalErrors} description="Recorded sync errors across lead, reporting, and CRM foundation jobs." />
-        <MetricCard title="Recent sync runs" value={overview.recentSyncRuns.length} description="Most recent sync executions across all operational pipelines." />
-        <MetricCard title="Coverage" value={`${overview.integrations.length} modules`} description="Tracked APIs and downstream enrichment systems." />
-      </div>
+      <Card className="border-border/70 bg-muted/20">
+        <CardHeader>
+          <CardTitle>Why this page is de-emphasized</CardTitle>
+          <CardDescription>The MVP uses Settings for control and Audit for follow-up. This page stays as a read-only diagnostic foundation view.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm text-muted-foreground">
+          <div>Yelp Ads and Reporting are the only integrations that materially power the current operator workflow.</div>
+          <div>Leads, CRM enrichment, and deeper business-access integrations remain foundation work and should not read like finished products.</div>
+        </CardContent>
+      </Card>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-2">
         {overview.integrations.map((integration) => (
@@ -56,7 +59,7 @@ export default async function IntegrationsPage() {
       <Card className="mt-6">
         <CardHeader>
           <CardTitle>Recent sync runs</CardTitle>
-          <CardDescription>Retry controls and deeper diagnostics will attach to this same operational log pattern in later phases.</CardDescription>
+          <CardDescription>Retry controls and deeper diagnostics can grow from this same pattern later without turning the page into a faux-finished product today.</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
           {overview.recentSyncRuns.length === 0 ? (

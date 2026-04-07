@@ -23,32 +23,32 @@ const credentialInstructions: Record<
   }
 > = {
   ADS_BASIC_AUTH: {
-    source: "Source: Yelp partner onboarding or Yelp partner support.",
+    source: "Yelp partner onboarding or partner support.",
     howToGet:
-      "Use the Partner API username and password Yelp issued for your partner account. If your team does not already have them, ask your Yelp partner manager or technical support contact to provision or resend the Partner API Basic Auth credentials for this environment. These are separate from OAuth values like YELP_CLIENT_ID and YELP_CLIENT_SECRET.",
+      "Use the Partner API username and password Yelp issued for this environment. If they are missing, ask your Yelp partner contact to provision or resend them.",
     baseUrlNote:
-      "Leave the base URL on the default unless Yelp gave you an environment-specific Partner API host."
+      "Keep the default base URL unless Yelp gave you an environment-specific host."
   },
   REPORTING_FUSION: {
-    source: "Source: Yelp-issued Fusion API key with reporting access.",
+    source: "Yelp-issued bearer token for Yelp Partner APIs under api.yelp.com.",
     howToGet:
-      "Paste the reporting API key Yelp provided for this tenant or environment. This form only needs the key, not a username. If your team already stores that value as YELP_API_KEY in .env, that is the value to paste here. If you only have a generic Fusion key and reporting calls are not enabled, confirm with Yelp that reporting access is attached to that key.",
+      "Paste the Yelp access token Yelp issued for this tenant or environment. This console uses it for Leads and other bearer-auth Yelp APIs under api.yelp.com. If your team still stores it in env, YELP_ACCESS_TOKEN is the preferred name.",
     baseUrlNote:
-      "Leave the base URL on the default Fusion host unless Yelp gave you a different reporting endpoint."
+      "Keep the default api.yelp.com host unless Yelp gave you a different bearer-auth endpoint."
   },
   BUSINESS_MATCH: {
-    source: "Source: Yelp partner support when Business Match is enabled.",
+    source: "Yelp partner support when Business Match is enabled.",
     howToGet:
-      "Use the username and secret Yelp provides for Business Match. Many tenants will not have this capability enabled. If the feature is still unavailable, ask Yelp to confirm Business Match access before saving credentials here.",
+      "Use the username and secret Yelp provides for Business Match. If the feature is unavailable, confirm access with Yelp before saving anything here.",
     baseUrlNote:
-      "Use the default base URL unless Yelp explicitly assigned a different Business Match endpoint."
+      "Keep the default base URL unless Yelp assigned a different Business Match endpoint."
   },
   DATA_INGESTION: {
-    source: "Source: Yelp partner support for Data Ingestion access.",
+    source: "Yelp partner support for Data Ingestion access.",
     howToGet:
-      "Use the username and secret Yelp issued for Data Ingestion. Save this only if Yelp has enabled the ingestion capability for your tenant. If your team is missing these values, request the Data Ingestion credentials from Yelp together with the allowed endpoints for your account.",
+      "Use the username and secret Yelp issued for Data Ingestion. Save this only if Yelp has enabled ingestion for this tenant.",
     baseUrlNote:
-      "Leave the default base URL in place unless Yelp gave you a tenant-specific ingestion host."
+      "Keep the default base URL unless Yelp gave you a tenant-specific ingestion host."
   }
 };
 
@@ -142,15 +142,15 @@ export function SettingsCredentialForm({
     <Card>
       <CardHeader>
         <CardTitle>{credentialKindLabels[kind]}</CardTitle>
-        <CardDescription>Secrets are encrypted server-side and never rendered back after save.</CardDescription>
+        <CardDescription>Encrypted server-side and never shown again after save.</CardDescription>
       </CardHeader>
       <CardContent>
         <form className="space-y-4" onSubmit={submit}>
           <div className="rounded-lg border border-border/70 bg-muted/30 p-4 text-sm">
-            <div className="font-medium">How to get this credential</div>
+            <div className="font-medium">How to get it</div>
             <div className="mt-2 text-muted-foreground">{instructions.source}</div>
-            <div className="mt-2 text-muted-foreground">{instructions.howToGet}</div>
-            <div className="mt-2 text-muted-foreground">{instructions.baseUrlNote}</div>
+            <div className="mt-1 text-muted-foreground">{instructions.howToGet}</div>
+            <div className="mt-1 text-muted-foreground">{instructions.baseUrlNote}</div>
           </div>
           <Input type="hidden" {...register("kind")} />
           <div className="space-y-2">
@@ -164,7 +164,7 @@ export function SettingsCredentialForm({
             </div>
           ) : null}
           <div className="space-y-2">
-            <Label>{kind === "REPORTING_FUSION" ? "API key" : "Password / secret"}</Label>
+            <Label>{kind === "REPORTING_FUSION" ? "Access token" : "Password / secret"}</Label>
             <Input type="password" {...register("secret")} placeholder="Only re-enter when rotating" />
           </div>
           <div className="space-y-2">
@@ -176,7 +176,7 @@ export function SettingsCredentialForm({
             <Label>Connection test path</Label>
             <Input {...register("testPath")} placeholder="/some-safe-read-endpoint" />
             <p className="text-sm text-muted-foreground">
-              Optional. Yelp Ads docs do not publish a generic health endpoint, so leave this blank unless Yelp gave you a safe readable path.
+              Optional. Leave blank unless Yelp gave you a safe readable path.
             </p>
           </div>
           <Label className="flex items-center justify-between rounded-lg border border-border p-4">
@@ -188,10 +188,10 @@ export function SettingsCredentialForm({
           </Label>
           <div className="flex gap-3">
             <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "Saving..." : "Save"}
+              {isSubmitting ? "Saving..." : "Save changes"}
             </Button>
             <Button type="button" variant="outline" onClick={testConnection} disabled={isSubmitting || isTesting}>
-              {isTesting ? "Saving and testing..." : "Save and test"}
+              {isTesting ? "Saving and testing..." : "Save + test"}
             </Button>
           </div>
         </form>

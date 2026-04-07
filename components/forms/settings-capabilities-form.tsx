@@ -13,6 +13,19 @@ import { capabilityFlagDefinitions, type CapabilityFlags } from "@/features/sett
 import { capabilityFlagsSchema } from "@/features/settings/schemas";
 import { apiFetch } from "@/lib/utils/client-api";
 
+const capabilitySections = [
+  {
+    title: "Live operator workflows",
+    description: "Enable these only when the tenant can use the current production flows end to end.",
+    keys: ["hasAdsApi", "hasLeadsApi", "hasReportingApi", "hasCrmIntegration", "programFeatureApiEnabled"] as Array<keyof CapabilityFlags>
+  },
+  {
+    title: "Restricted and future capabilities",
+    description: "These flags cover optional partner access, future integrations, or local testing paths. They should not imply a broader live workflow by themselves.",
+    keys: ["hasPartnerSupportApi", "hasConversionsApi", "demoModeEnabled"] as Array<keyof CapabilityFlags>
+  }
+] as const;
+
 export function SettingsCapabilitiesForm({
   defaultValues
 }: {
@@ -48,28 +61,37 @@ export function SettingsCapabilitiesForm({
     <Card>
       <CardHeader>
         <CardTitle>Capability toggles</CardTitle>
-        <CardDescription>Use these switches to explicitly enable only the Yelp APIs available in this environment.</CardDescription>
+        <CardDescription>Enable only the surfaces that are actually available in this environment.</CardDescription>
       </CardHeader>
       <CardContent>
         <form className="space-y-4" onSubmit={submit}>
-          {capabilityFlagDefinitions.map((definition) => (
-            <Label className="flex items-center justify-between rounded-lg border border-border p-4" key={definition.key}>
+          {capabilitySections.map((section) => (
+            <div className="space-y-3" key={section.title}>
               <div>
-                <div className="font-medium">{definition.label}</div>
-                <div className="text-sm text-muted-foreground">
-                  {definition.description}
-                </div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  {values[definition.key]
-                    ? "Enabled for this tenant and environment."
-                    : "Disabled until Yelp or CRM enablement is confirmed."}
-                </div>
+                <div className="font-medium">{section.title}</div>
+                <div className="text-sm text-muted-foreground">{section.description}</div>
               </div>
-              <Switch
-                checked={values[definition.key]}
-                onCheckedChange={(checked) => setValue(definition.key, checked)}
-              />
-            </Label>
+              {section.keys.map((key) => {
+                const definition = capabilityFlagDefinitions.find((item) => item.key === key);
+
+                if (!definition) {
+                  return null;
+                }
+
+                return (
+                  <Label className="flex items-center justify-between rounded-lg border border-border p-4" key={definition.key}>
+                    <div>
+                      <div className="font-medium">{definition.label}</div>
+                      <div className="text-sm text-muted-foreground">{definition.description}</div>
+                    </div>
+                    <Switch
+                      checked={values[definition.key]}
+                      onCheckedChange={(checked) => setValue(definition.key, checked)}
+                    />
+                  </Label>
+                );
+              })}
+            </div>
           ))}
           <Button type="submit" disabled={isSubmitting}>
             {isSubmitting ? "Saving..." : "Save capability flags"}

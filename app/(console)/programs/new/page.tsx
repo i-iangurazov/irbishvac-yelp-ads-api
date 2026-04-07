@@ -7,15 +7,21 @@ import { Button } from "@/components/ui/button";
 import { getBusinessesIndex } from "@/features/businesses/service";
 import { requireUser } from "@/lib/auth/service";
 
-export default async function NewProgramPage() {
+export default async function NewProgramPage({
+  searchParams
+}: {
+  searchParams: Promise<{ businessId?: string }>;
+}) {
   const user = await requireUser();
+  const query = await searchParams;
   const businesses = await getBusinessesIndex(user.tenantId);
+  const initialBusinessId = businesses.some((business) => business.id === query.businessId) ? query.businessId : undefined;
 
   return (
     <div>
       <PageHeader
         title="New program"
-        description="Create a Yelp ad program with CPC-specific guardrails, previewed cents payloads, and async job tracking."
+        description="Submit a new Yelp program request. The console stores the request immediately, then waits for Yelp to settle the final state."
       />
 
       {businesses.length === 0 ? (
@@ -37,6 +43,9 @@ export default async function NewProgramPage() {
             categories: business.categories,
             readiness: business.readiness
           }))}
+          initialValues={{
+            businessId: initialBusinessId
+          }}
         />
       )}
     </div>

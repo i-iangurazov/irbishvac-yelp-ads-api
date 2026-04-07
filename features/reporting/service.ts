@@ -3,12 +3,20 @@ import "server-only";
 import Papa from "papaparse";
 
 import { recordAuditEvent } from "@/features/audit/service";
+import { buildBreakdownCsvRows, buildReportBreakdown } from "@/features/reporting/breakdowns";
 import { buildCombinedReportPayload } from "@/features/reporting/payloads";
-import { reportRequestFormSchema } from "@/features/reporting/schemas";
+import {
+  reportBreakdownFiltersSchema,
+  type ReportBreakdownFiltersInput,
+  reportRequestFormSchema,
+  type ReportRequestFormValues
+} from "@/features/reporting/schemas";
 import { getBusinessById } from "@/lib/db/businesses-repository";
 import { toJsonValue } from "@/lib/db/json";
 import {
   getReportRequestById,
+  listLeadsForReportBreakdown,
+  listReportBreakdownOptions,
   listPendingReportRequests,
   listReportRequests,
   createReportRequest,
@@ -21,12 +29,51 @@ import { YelpReportingClient } from "@/lib/yelp/reporting-client";
 import { normalizeUnknownError } from "@/lib/yelp/errors";
 import { pollUntil } from "@/lib/utils/polling";
 
+function toDateInputValue(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function endOfDay(value: string) {
+  return new Date(`${value}T23:59:59.999Z`);
+}
+
+function startOfDay(value: string) {
+  return new Date(`${value}T00:00:00.000Z`);
+}
+
+function clampDate(value: string | undefined, minValue: string, maxValue: string) {
+  if (!value) {
+    return undefined;
+  }
+
+  if (value < minValue) {
+    return minValue;
+  }
+
+  if (value > maxValue) {
+    return maxValue;
+  }
+
+  return value;
+}
+
+function getRequestedBusinessIds(report: Awaited<ReturnType<typeof getReportRequestById>>) {
+  const requestedIds = Array.isArray(report.requestedBusinessIdsJson)
+    ? report.requestedBusinessIdsJson.filter((value): value is string => typeof value === "string")
+    : [];
+
+  if (requestedIds.length > 0) {
+    return requestedIds;
+  }
+
+  return report.businessId ? [report.businessId] : [];
+}
+
 export async function getReportingIndex(tenantId: string) {
   return listReportRequests(tenantId);
 }
 
-export async function requestReportWorkflow(tenantId: string, actorId: string, input: unknown) {
-  const values = reportRequestFormSchema.parse(input);
+export async function requestReportByValues(tenantId: string, actorId: string | null, values: ReportRequestFormValues) {
   const businesses = await Promise.all(values.businessIds.map((businessId) => getBusinessById(businessId, tenantId)));
   const encryptedIds = businesses.map((business) => business.encryptedYelpBusinessId);
   const payload = mapReportFormToDto(values, encryptedIds);
@@ -34,7 +81,7 @@ export async function requestReportWorkflow(tenantId: string, actorId: string, i
   const request = await createReportRequest(tenantId, {
     tenantId,
     businessId: values.businessIds.length === 1 ? values.businessIds[0] : null,
-    createdById: actorId,
+    createdById: actorId ?? null,
     granularity: values.granularity,
     status: "REQUESTED",
     startDate: new Date(values.startDate),
@@ -53,7 +100,7 @@ export async function requestReportWorkflow(tenantId: string, actorId: string, i
 
       await recordAuditEvent({
         tenantId,
-        actorId,
+        actorId: actorId ?? undefined,
         reportRequestId: request.id,
         actionType: "report.request",
         status: "SUCCESS",
@@ -82,7 +129,7 @@ export async function requestReportWorkflow(tenantId: string, actorId: string, i
 
     await recordAuditEvent({
       tenantId,
-      actorId,
+      actorId: actorId ?? undefined,
       reportRequestId: request.id,
       actionType: "report.request",
       status: "SUCCESS",
@@ -103,7 +150,7 @@ export async function requestReportWorkflow(tenantId: string, actorId: string, i
 
     await recordAuditEvent({
       tenantId,
-      actorId,
+      actorId: actorId ?? undefined,
       reportRequestId: request.id,
       actionType: "report.request",
       status: "FAILED",
@@ -113,6 +160,11 @@ export async function requestReportWorkflow(tenantId: string, actorId: string, i
 
     throw normalized;
   }
+}
+
+export async function requestReportWorkflow(tenantId: string, actorId: string, input: unknown) {
+  const values = reportRequestFormSchema.parse(input);
+  return requestReportByValues(tenantId, actorId, values);
 }
 
 export async function pollReportWorkflow(tenantId: string, reportRequestId: string) {
@@ -182,10 +234,57 @@ export async function getReportDetail(tenantId: string, reportRequestId: string)
   return getReportRequestById(reportRequestId, tenantId);
 }
 
+export async function getReportBreakdownView(
+  tenantId: string,
+  reportRequestId: string,
+  rawFilters?: ReportBreakdownFiltersInput
+) {
+  const report = await getReportRequestById(reportRequestId, tenantId);
+  const parsed = reportBreakdownFiltersSchema.parse(rawFilters ?? {});
+  const windowStart = toDateInputValue(report.startDate);
+  const windowEnd = toDateInputValue(report.endDate);
+  const filters = {
+    view: parsed.view ?? "location",
+    from: clampDate(parsed.from, windowStart, windowEnd) ?? windowStart,
+    to: clampDate(parsed.to, windowStart, windowEnd) ?? windowEnd,
+    locationId: parsed.locationId,
+    serviceCategoryId: parsed.serviceCategoryId
+  } as const;
+  const businessIds = getRequestedBusinessIds(report);
+  const [options, leads] = await Promise.all([
+    listReportBreakdownOptions(tenantId),
+    listLeadsForReportBreakdown(tenantId, {
+      businessIds,
+      from: startOfDay(filters.from),
+      to: endOfDay(filters.to)
+    })
+  ]);
+
+  return {
+    report,
+    payload: buildCombinedReportPayload(report),
+    filters,
+    options,
+    breakdown: buildReportBreakdown({
+      view: filters.view,
+      filters,
+      leads,
+      results: report.results,
+      options
+    })
+  };
+}
+
 export function exportReportResultToCsv(report: Awaited<ReturnType<typeof getReportDetail>>) {
   const payload = buildCombinedReportPayload(report) as { rows?: Array<Record<string, unknown>> };
 
   return Papa.unparse(payload?.rows ?? []);
+}
+
+export function exportReportBreakdownToCsv(
+  breakdownView: Awaited<ReturnType<typeof getReportBreakdownView>>
+) {
+  return Papa.unparse(buildBreakdownCsvRows(breakdownView.breakdown));
 }
 
 export async function reconcilePendingReports(limit = 10) {

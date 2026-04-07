@@ -186,7 +186,7 @@ export function ProgramForm(props: ProgramFormProps) {
       <CardHeader>
         <CardTitle>{props.mode === "create" ? "Create program" : "Edit program"}</CardTitle>
         <CardDescription>
-          Use human-friendly dollar inputs. The console always shows the exact cents payload Yelp will receive.
+          Use dollar inputs. The console saves the request immediately, then waits for Yelp to confirm the final state.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -230,8 +230,8 @@ export function ProgramForm(props: ProgramFormProps) {
                 <div className="mt-2 text-xs text-muted-foreground">
                   {selectedBusiness.readiness.adsEligibilityMessage ??
                     (selectedBusiness.readiness.adsEligibilityStatus === "UNKNOWN"
-                      ? "Yelp has not yet confirmed whether this business is eligible for advertising."
-                      : "This business has previously completed a Yelp ads operation successfully.")}
+                      ? "Yelp has not confirmed ad eligibility yet."
+                      : "This business has already completed a Yelp ads operation successfully.")}
                 </div>
               </div>
             ) : null}
@@ -279,7 +279,7 @@ export function ProgramForm(props: ProgramFormProps) {
               aliasBackedCategories.length > 0 ? (
                 <div className="space-y-2 rounded-lg border border-border p-3">
                   <div className="rounded-md border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
-                    Leave every category unchecked to omit <span className="font-mono">ad_categories</span> and let Yelp use the business listing categories. This is currently the safest option when Yelp rejects explicit category targeting for a business.
+                    Leave all unchecked to omit <span className="font-mono">ad_categories</span> and let Yelp use the listing categories.
                   </div>
                   {aliasBackedCategories.map((category) => (
                     <Label key={category.alias} className="flex items-start gap-3 rounded-md border border-transparent p-2 hover:bg-muted/40">
@@ -305,7 +305,7 @@ export function ProgramForm(props: ProgramFormProps) {
                 </div>
               ) : (
                 <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
-                  This business does not have Yelp category aliases saved in the console yet. You can still submit CPC without explicit <span className="font-mono">ad_categories</span>, or re-save the business in the Businesses screen with categories entered as <span className="font-mono">Label | alias</span> if you want to test explicit targeting.
+                  No Yelp category aliases are saved for this business yet. You can still submit CPC without explicit <span className="font-mono">ad_categories</span>.
                 </div>
               )
             ) : (
@@ -315,11 +315,11 @@ export function ProgramForm(props: ProgramFormProps) {
             )}
             {legacySelectedCategories.length > 0 ? (
               <p className="text-xs text-warning">
-                Previously saved category values are not valid Yelp aliases and will be ignored until you choose alias-backed categories for this business.
+                Previously saved category values are not valid Yelp aliases and will be ignored.
               </p>
             ) : null}
             <p className="text-xs text-muted-foreground">
-              When one or more aliases are checked, the console sends them as Yelp <span className="font-mono">ad_categories</span>. When none are checked, the console omits that field.
+              Checked aliases are sent as Yelp <span className="font-mono">ad_categories</span>. Leave them unchecked to omit the field.
             </p>
             {errors.adCategories ? <p className="text-sm text-destructive">{errors.adCategories.message as string}</p> : null}
           </div>
@@ -332,7 +332,7 @@ export function ProgramForm(props: ProgramFormProps) {
               />
               Use Yelp autobid
             </Label>
-            <p className="text-xs text-muted-foreground">If autobid is off, max bid is required and may not apply immediately.</p>
+            <p className="text-xs text-muted-foreground">If autobid is off, max bid is required.</p>
           </div>
 
           <div className="space-y-2">
@@ -391,14 +391,14 @@ export function ProgramForm(props: ProgramFormProps) {
           </div>
 
           <div className="rounded-xl border border-border bg-muted/40 p-4 lg:col-span-2">
-            <div className="font-medium">Preview</div>
+            <div className="font-medium">Payload preview</div>
             <div className="mt-2 grid gap-2 text-sm text-muted-foreground md:grid-cols-2">
               <div>Program type: {programTypeLabels[programType as keyof typeof programTypeLabels]}</div>
               <div>Business: {selectedBusiness?.name ?? "Select a business"}</div>
               <div>Budget payload: {formatInteger(centsPreview)} cents</div>
               <div>
                 Ad categories payload:{" "}
-                {selectedCategoryAliases.length > 0 ? selectedCategoryAliases.join(", ") : "None selected"}
+                {selectedCategoryAliases.length > 0 ? selectedCategoryAliases.join(", ") : "Omit field and let Yelp use listing categories"}
               </div>
             </div>
           </div>
@@ -408,7 +408,8 @@ export function ProgramForm(props: ProgramFormProps) {
               type="submit"
               disabled={
                 isSubmitting ||
-                (programType === "CPC" && (aliasBackedCategories.length === 0 || selectedBusiness?.readiness.isReadyForCpc === false))
+                !selectedBusiness ||
+                (programType === "CPC" && selectedBusiness.readiness.isReadyForCpc === false)
               }
             >
               {isSubmitting ? "Submitting..." : props.mode === "create" ? "Submit program" : "Submit update"}

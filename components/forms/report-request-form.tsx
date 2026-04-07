@@ -59,7 +59,7 @@ export function ReportRequestForm({
     <Card>
       <CardHeader>
         <CardTitle>Request report</CardTitle>
-        <CardDescription>Choose daily or monthly reporting, select businesses, and keep date ranges within Yelp limits.</CardDescription>
+        <CardDescription>Choose a date window, select businesses, and request a delayed Yelp batch snapshot.</CardDescription>
       </CardHeader>
       <CardContent>
         <form className="grid gap-5 lg:grid-cols-2" onSubmit={submit}>

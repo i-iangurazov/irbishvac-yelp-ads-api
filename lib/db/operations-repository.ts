@@ -20,7 +20,7 @@ export async function getOperationsCounts(tenantId: string) {
     syncErrors
   ] = await Promise.all([
     prisma.yelpLead.count({ where: { tenantId } }),
-    prisma.crmLeadMapping.count({ where: { tenantId } }),
+    prisma.crmLeadMapping.count({ where: { tenantId, state: { in: ["MATCHED", "MANUAL_OVERRIDE"] } } }),
     prisma.yelpLeadEvent.count({ where: { tenantId } }),
     prisma.yelpWebhookEvent.count({ where: { tenantId } }),
     prisma.location.count({ where: { tenantId } }),

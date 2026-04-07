@@ -1,0 +1,721 @@
+import "server-only";
+
+import type { LeadAutomationChannel } from "@prisma/client";
+
+import { recordAuditEvent } from "@/features/audit/service";
+import { leadReplyFormSchema } from "@/features/leads/schemas";
+import { syncLeadSnapshotFromYelp } from "@/features/leads/yelp-sync";
+import { sendLeadAutomationEmail } from "@/features/autoresponder/email";
+import {
+  createLeadConversationAction,
+  updateLeadConversationAction
+} from "@/lib/db/lead-messaging-repository";
+import { getLeadRecordById } from "@/lib/db/leads-repository";
+import { toJsonValue } from "@/lib/db/json";
+import { logError, logInfo } from "@/lib/utils/logging";
+import {
+  normalizeUnknownError,
+  YelpApiError,
+  YelpMissingAccessError,
+  YelpNotFoundError,
+  YelpValidationError
+} from "@/lib/yelp/errors";
+import { YelpLeadsClient } from "@/lib/yelp/leads-client";
+import { ensureYelpLeadsAccess } from "@/lib/yelp/runtime";
+import { isSmtpConfigured } from "@/features/report-delivery/email";
+
+function buildLeadAutomationHtml(body: string) {
+  return `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.5;color:#111827">${body
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\n/g, "<br />")}</div>`;
+}
+
+function getFallbackSubject(params: {
+  businessName: string | null;
+  customerName: string | null;
+  leadReference: string;
+}) {
+  if (params.businessName) {
+    return `${params.businessName} received your Yelp request`;
+  }
+
+  if (params.customerName) {
+    return `We received your request, ${params.customerName}`;
+  }
+
+  return `We received your request (${params.leadReference})`;
+}
+
+function getLeadMaskedEmail(lead: Awaited<ReturnType<typeof getLeadRecordById>>) {
+  return lead.customerEmail?.trim() || null;
+}
+
+function getLatestUnreadEventId(lead: Awaited<ReturnType<typeof getLeadRecordById>>) {
+  return [...lead.events]
+    .reverse()
+    .find((event) => !event.isRead && event.externalEventId)?.externalEventId ?? null;
+}
+
+function getLatestSuccessfulOutboundChannel(lead: Awaited<ReturnType<typeof getLeadRecordById>>) {
+  return (
+    lead.conversationActions.find(
+      (action) => action.actionType === "SEND_MESSAGE" && action.status === "SENT"
+    )?.channel ?? null
+  );
+}
+
+function shouldFallbackFromYelpThread(error: YelpApiError) {
+  return ["MISSING_ACCESS", "NOT_FOUND", "VALIDATION_ERROR"].includes(error.code);
+}
+
+async function tryRefreshLeadFromYelp(params: {
+  tenantId: string;
+  lead: Awaited<ReturnType<typeof getLeadRecordById>>;
+  client: YelpLeadsClient;
+  sourceEventType: string;
+}) {
+  const yelpBusinessId =
+    params.lead.business?.encryptedYelpBusinessId ?? params.lead.externalBusinessId ?? null;
+
+  if (!yelpBusinessId) {
+    return "The saved lead snapshot could not be refreshed because the Yelp business ID is missing locally.";
+  }
+
+  try {
+    await syncLeadSnapshotFromYelp({
+      tenantId: params.tenantId,
+      business: {
+        id: params.lead.business?.id ?? params.lead.businessId ?? null,
+        locationId: params.lead.locationId ?? params.lead.business?.locationId ?? null,
+        encryptedYelpBusinessId: yelpBusinessId
+      },
+      client: params.client,
+      leadId: params.lead.externalLeadId,
+      receivedAt: new Date(),
+      sourceEventType: params.sourceEventType,
+      sourceEventId: null,
+      sourceInteractionTime: null
+    });
+
+    return null;
+  } catch (error) {
+    const normalized = normalizeUnknownError(error);
+
+    logError("lead.reply.refresh_failed", {
+      tenantId: params.tenantId,
+      leadId: params.lead.id,
+      externalLeadId: params.lead.externalLeadId,
+      sourceEventType: params.sourceEventType,
+      message: normalized.message
+    });
+
+    return normalized.message;
+  }
+}
+
+async function createFailedConversationAction(params: {
+  tenantId: string;
+  leadId: string;
+  automationAttemptId?: string | null;
+  actorId?: string | null;
+  initiator: "AUTOMATION" | "OPERATOR";
+  channel: LeadAutomationChannel;
+  actionType: "SEND_MESSAGE" | "MARK_READ" | "MARK_REPLIED";
+  renderedSubject?: string | null;
+  renderedBody?: string | null;
+  recipient?: string | null;
+  error: YelpApiError;
+  providerMetadataJson?: Record<string, unknown> | null;
+}) {
+  const action = await createLeadConversationAction({
+    tenantId: params.tenantId,
+    leadId: params.leadId,
+    automationAttemptId: params.automationAttemptId ?? null,
+    actorId: params.actorId ?? null,
+    initiator: params.initiator,
+    channel: params.channel,
+    actionType: params.actionType,
+    status: "FAILED",
+    renderedSubject: params.renderedSubject ?? null,
+    renderedBody: params.renderedBody ?? null,
+    recipient: params.recipient ?? null,
+    providerStatus: "failed",
+    providerMetadataJson: params.providerMetadataJson ?? null,
+    errorSummary: params.error.message,
+    completedAt: new Date()
+  });
+
+  return {
+    status: "FAILED" as const,
+    warning: null,
+    action,
+    error: params.error
+  };
+}
+
+async function sendLeadReplyInYelpThread(params: {
+  tenantId: string;
+  lead: Awaited<ReturnType<typeof getLeadRecordById>>;
+  actorId?: string | null;
+  initiator: "AUTOMATION" | "OPERATOR";
+  automationAttemptId?: string | null;
+  renderedBody: string;
+  providerMetadataJson?: Record<string, unknown> | null;
+}) {
+  const action = await createLeadConversationAction({
+    tenantId: params.tenantId,
+    leadId: params.lead.id,
+    automationAttemptId: params.automationAttemptId ?? null,
+    actorId: params.actorId ?? null,
+    initiator: params.initiator,
+    channel: "YELP_THREAD",
+    actionType: "SEND_MESSAGE",
+    status: "PENDING",
+    renderedBody: params.renderedBody,
+    startedAt: new Date(),
+    providerMetadataJson: {
+      deliveryChannel: "YELP_THREAD",
+      ...(params.providerMetadataJson ?? {})
+    }
+  });
+
+  try {
+    const { credential } = await ensureYelpLeadsAccess(params.tenantId);
+    const client = new YelpLeadsClient(credential);
+    const response = await client.writeLeadEvent(params.lead.externalLeadId, {
+      request_content: params.renderedBody,
+      request_type: "TEXT"
+    });
+    const refreshWarning = await tryRefreshLeadFromYelp({
+      tenantId: params.tenantId,
+      lead: params.lead,
+      client,
+      sourceEventType: "WRITE_EVENT"
+    });
+    const saved = await updateLeadConversationAction(action.id, {
+      status: "SENT",
+      providerStatus: "sent",
+      providerMetadataJson: {
+        deliveryChannel: "YELP_THREAD",
+        correlationId: response.correlationId,
+        ...(params.providerMetadataJson ?? {}),
+        ...(refreshWarning ? { refreshWarning } : {})
+      },
+      completedAt: new Date()
+    });
+
+    return {
+      status: "SENT" as const,
+      action: saved,
+      warning: refreshWarning
+    };
+  } catch (error) {
+    const normalized = normalizeUnknownError(error);
+    const saved = await updateLeadConversationAction(action.id, {
+      status: "FAILED",
+      providerStatus: "failed",
+      providerMetadataJson: {
+        deliveryChannel: "YELP_THREAD",
+        ...(params.providerMetadataJson ?? {})
+      },
+      errorSummary: normalized.message,
+      completedAt: new Date()
+    });
+
+    return {
+      status: "FAILED" as const,
+      action: saved,
+      error: normalized
+    };
+  }
+}
+
+async function markLeadAsRepliedAfterExternalReply(params: {
+  tenantId: string;
+  lead: Awaited<ReturnType<typeof getLeadRecordById>>;
+  actorId?: string | null;
+  initiator: "AUTOMATION" | "OPERATOR";
+  automationAttemptId?: string | null;
+  providerMetadataJson?: Record<string, unknown> | null;
+}) {
+  const action = await createLeadConversationAction({
+    tenantId: params.tenantId,
+    leadId: params.lead.id,
+    automationAttemptId: params.automationAttemptId ?? null,
+    actorId: params.actorId ?? null,
+    initiator: params.initiator,
+    channel: "EMAIL",
+    actionType: "MARK_REPLIED",
+    status: "PENDING",
+    startedAt: new Date(),
+    providerMetadataJson: params.providerMetadataJson ?? null
+  });
+
+  try {
+    const { credential } = await ensureYelpLeadsAccess(params.tenantId);
+    const client = new YelpLeadsClient(credential);
+    const response = await client.markLeadAsReplied(params.lead.externalLeadId, {
+      reply_type: "EMAIL"
+    });
+    const refreshWarning = await tryRefreshLeadFromYelp({
+      tenantId: params.tenantId,
+      lead: params.lead,
+      client,
+      sourceEventType: "MARK_REPLIED"
+    });
+    const saved = await updateLeadConversationAction(action.id, {
+      status: "SENT",
+      providerStatus: "sent",
+      providerMetadataJson: {
+        correlationId: response.correlationId,
+        ...(params.providerMetadataJson ?? {}),
+        ...(refreshWarning ? { refreshWarning } : {})
+      },
+      completedAt: new Date()
+    });
+
+    return {
+      status: "SENT" as const,
+      action: saved,
+      warning: refreshWarning
+    };
+  } catch (error) {
+    const normalized = normalizeUnknownError(error);
+    const saved = await updateLeadConversationAction(action.id, {
+      status: "FAILED",
+      providerStatus: "failed",
+      providerMetadataJson: params.providerMetadataJson ?? null,
+      errorSummary: normalized.message,
+      completedAt: new Date()
+    });
+
+    return {
+      status: "FAILED" as const,
+      action: saved,
+      error: normalized
+    };
+  }
+}
+
+async function sendLeadReplyByEmail(params: {
+  tenantId: string;
+  lead: Awaited<ReturnType<typeof getLeadRecordById>>;
+  actorId?: string | null;
+  initiator: "AUTOMATION" | "OPERATOR";
+  automationAttemptId?: string | null;
+  renderedSubject?: string | null;
+  renderedBody: string;
+  providerMetadataJson?: Record<string, unknown> | null;
+}) {
+  const maskedEmail = getLeadMaskedEmail(params.lead);
+
+  if (!maskedEmail) {
+    return createFailedConversationAction({
+      tenantId: params.tenantId,
+      leadId: params.lead.id,
+      automationAttemptId: params.automationAttemptId ?? null,
+      actorId: params.actorId ?? null,
+      initiator: params.initiator,
+      channel: "EMAIL",
+      actionType: "SEND_MESSAGE",
+      renderedSubject: params.renderedSubject ?? null,
+      renderedBody: params.renderedBody,
+      recipient: null,
+      error: new YelpValidationError(
+        "Yelp did not provide a masked email address for this lead."
+      ),
+      providerMetadataJson: params.providerMetadataJson ?? null
+    });
+  }
+
+  const action = await createLeadConversationAction({
+    tenantId: params.tenantId,
+    leadId: params.lead.id,
+    automationAttemptId: params.automationAttemptId ?? null,
+    actorId: params.actorId ?? null,
+    initiator: params.initiator,
+    channel: "EMAIL",
+    actionType: "SEND_MESSAGE",
+    status: "PENDING",
+    recipient: maskedEmail,
+    renderedSubject: params.renderedSubject ?? null,
+    renderedBody: params.renderedBody,
+    startedAt: new Date(),
+    providerMetadataJson: {
+      deliveryChannel: "EMAIL",
+      ...(params.providerMetadataJson ?? {})
+    }
+  });
+
+  try {
+    const email = await sendLeadAutomationEmail({
+      to: maskedEmail,
+      subject:
+        params.renderedSubject ??
+        getFallbackSubject({
+          businessName: params.lead.business?.name ?? null,
+          customerName: params.lead.customerName ?? null,
+          leadReference: params.lead.externalLeadId
+        }),
+      text: params.renderedBody,
+      html: buildLeadAutomationHtml(params.renderedBody)
+    });
+    const sentAction = await updateLeadConversationAction(action.id, {
+      status: "SENT",
+      providerMessageId: email.messageId ?? null,
+      providerStatus: "sent",
+      providerMetadataJson: {
+        deliveryChannel: "EMAIL",
+        accepted: email.accepted.map((value) => String(value)),
+        rejected: email.rejected.map((value) => String(value)),
+        response: email.response,
+        ...(params.providerMetadataJson ?? {})
+      },
+      completedAt: new Date()
+    });
+    const markReplied = await markLeadAsRepliedAfterExternalReply({
+      tenantId: params.tenantId,
+      lead: params.lead,
+      actorId: params.actorId ?? null,
+      initiator: params.initiator,
+      automationAttemptId: params.automationAttemptId ?? null,
+      providerMetadataJson: {
+        linkedSendActionId: sentAction.id
+      }
+    });
+
+    if (markReplied.status === "FAILED") {
+      return {
+        status: "PARTIAL" as const,
+        action: sentAction,
+        markAction: markReplied.action,
+        warning: "External email sent, but Yelp could not be marked as replied.",
+        error: markReplied.error
+      };
+    }
+
+    return {
+      status: "SENT" as const,
+      action: sentAction,
+      markAction: markReplied.action,
+      warning: markReplied.warning
+    };
+  } catch (error) {
+    const normalized = normalizeUnknownError(error);
+    const saved = await updateLeadConversationAction(action.id, {
+      status: "FAILED",
+      providerStatus: "failed",
+      errorSummary: normalized.message,
+      completedAt: new Date()
+    });
+
+    return {
+      status: "FAILED" as const,
+      action: saved,
+      error: normalized
+    };
+  }
+}
+
+export async function sendLeadReplyWorkflow(
+  tenantId: string,
+  actorId: string,
+  leadId: string,
+  input: unknown
+) {
+  const values = leadReplyFormSchema.parse(input);
+  const lead = await getLeadRecordById(tenantId, leadId);
+  const normalizedSubject = values.subject?.trim() || null;
+  const normalizedBody = values.body.trim();
+  const result =
+    values.channel === "YELP_THREAD"
+      ? await sendLeadReplyInYelpThread({
+          tenantId,
+          lead,
+          actorId,
+          initiator: "OPERATOR",
+          renderedBody: normalizedBody
+        })
+      : await sendLeadReplyByEmail({
+          tenantId,
+          lead,
+          actorId,
+          initiator: "OPERATOR",
+          renderedSubject:
+            normalizedSubject ??
+            getFallbackSubject({
+              businessName: lead.business?.name ?? null,
+              customerName: lead.customerName ?? null,
+              leadReference: lead.externalLeadId
+            }),
+          renderedBody: normalizedBody
+        });
+
+  await recordAuditEvent({
+    tenantId,
+    actorId,
+    businessId: lead.business?.id ?? lead.businessId ?? undefined,
+    actionType: "lead.reply.send",
+    status: result.status === "FAILED" ? "FAILED" : "SUCCESS",
+    correlationId: result.action.id,
+    upstreamReference: lead.externalLeadId,
+    requestSummary: toJsonValue({
+      channel: values.channel,
+      subject: normalizedSubject
+    }),
+    responseSummary: toJsonValue({
+      status: result.status,
+      warning: "warning" in result ? result.warning ?? null : null,
+      error:
+        result.status === "FAILED" || result.status === "PARTIAL"
+          ? result.error?.message ?? null
+          : null
+    })
+  });
+
+  if (result.status === "FAILED") {
+    throw result.error;
+  }
+
+  logInfo("lead.reply.sent", {
+    tenantId,
+    leadId,
+    actionId: result.action.id,
+    channel: values.channel,
+    status: result.status
+  });
+
+  return {
+    status: result.status,
+    channel: values.channel,
+    warning: "warning" in result ? result.warning ?? null : null
+  };
+}
+
+export async function markLeadAsReadWorkflow(tenantId: string, actorId: string, leadId: string) {
+  const lead = await getLeadRecordById(tenantId, leadId);
+  const unreadEventId = getLatestUnreadEventId(lead);
+
+  if (!unreadEventId) {
+    throw new YelpValidationError("This lead does not have an unread Yelp event to mark as read.");
+  }
+
+  const action = await createLeadConversationAction({
+    tenantId,
+    leadId: lead.id,
+    actorId,
+    initiator: "OPERATOR",
+    channel: "YELP_THREAD",
+    actionType: "MARK_READ",
+    status: "PENDING",
+    startedAt: new Date(),
+    providerMetadataJson: {
+      eventId: unreadEventId
+    }
+  });
+
+  try {
+    const { credential } = await ensureYelpLeadsAccess(tenantId);
+    const client = new YelpLeadsClient(credential);
+    const response = await client.markLeadEventAsRead(lead.externalLeadId, {
+      event_id: unreadEventId,
+      time_read: new Date().toISOString()
+    });
+    const refreshWarning = await tryRefreshLeadFromYelp({
+      tenantId,
+      lead,
+      client,
+      sourceEventType: "MARK_READ"
+    });
+    const saved = await updateLeadConversationAction(action.id, {
+      status: "SENT",
+      providerStatus: "sent",
+      providerMetadataJson: {
+        eventId: unreadEventId,
+        correlationId: response.correlationId,
+        ...(refreshWarning ? { refreshWarning } : {})
+      },
+      completedAt: new Date()
+    });
+
+    await recordAuditEvent({
+      tenantId,
+      actorId,
+      businessId: lead.business?.id ?? lead.businessId ?? undefined,
+      actionType: "lead.reply.mark-read",
+      status: "SUCCESS",
+      correlationId: saved.id,
+      upstreamReference: lead.externalLeadId,
+      requestSummary: toJsonValue({
+        eventId: unreadEventId
+      }),
+      responseSummary: toJsonValue({
+        warning: refreshWarning
+      })
+    });
+
+    return {
+      status: "SENT" as const,
+      warning: refreshWarning
+    };
+  } catch (error) {
+    const normalized = normalizeUnknownError(error);
+    await updateLeadConversationAction(action.id, {
+      status: "FAILED",
+      providerStatus: "failed",
+      errorSummary: normalized.message,
+      completedAt: new Date()
+    });
+
+    await recordAuditEvent({
+      tenantId,
+      actorId,
+      businessId: lead.business?.id ?? lead.businessId ?? undefined,
+      actionType: "lead.reply.mark-read",
+      status: "FAILED",
+      correlationId: action.id,
+      upstreamReference: lead.externalLeadId,
+      requestSummary: toJsonValue({
+        eventId: unreadEventId
+      }),
+      responseSummary: toJsonValue({
+        message: normalized.message,
+        code: normalized.code
+      })
+    });
+
+    throw normalized;
+  }
+}
+
+export async function deliverLeadAutomationMessage(params: {
+  tenantId: string;
+  actorId?: string | null;
+  leadId: string;
+  automationAttemptId: string;
+  channel: LeadAutomationChannel;
+  renderedSubject: string;
+  renderedBody: string;
+  recipient: string | null;
+}) {
+  const lead = await getLeadRecordById(params.tenantId, params.leadId);
+
+  if (params.channel === "YELP_THREAD") {
+    const primary = await sendLeadReplyInYelpThread({
+      tenantId: params.tenantId,
+      lead,
+      actorId: params.actorId ?? null,
+      initiator: "AUTOMATION",
+      automationAttemptId: params.automationAttemptId,
+      renderedBody: params.renderedBody
+    });
+
+    if (primary.status === "SENT") {
+      return {
+        status: "SENT" as const,
+        deliveryChannel: "YELP_THREAD" as const,
+        warning: primary.warning ?? null,
+        error: null
+      };
+    }
+
+    if (!shouldFallbackFromYelpThread(primary.error) || !getLeadMaskedEmail(lead)) {
+      return {
+        status: "FAILED" as const,
+        deliveryChannel: "YELP_THREAD" as const,
+        warning: null,
+        error: primary.error
+      };
+    }
+
+    const fallback = await sendLeadReplyByEmail({
+      tenantId: params.tenantId,
+      lead,
+      actorId: params.actorId ?? null,
+      initiator: "AUTOMATION",
+      automationAttemptId: params.automationAttemptId,
+      renderedSubject: params.renderedSubject,
+      renderedBody: params.renderedBody,
+      providerMetadataJson: {
+        fallbackFrom: "YELP_THREAD",
+        fallbackReason: primary.error.message
+      }
+    });
+
+    if (fallback.status === "FAILED") {
+      return {
+        status: "FAILED" as const,
+        deliveryChannel: "EMAIL" as const,
+        warning: null,
+        error: fallback.error
+      };
+    }
+
+    return {
+      status: fallback.status === "PARTIAL" ? "PARTIAL" as const : "SENT" as const,
+      deliveryChannel: "EMAIL" as const,
+      warning:
+        fallback.status === "PARTIAL"
+          ? fallback.warning ?? "External email sent, but Yelp was not marked as replied."
+          : fallback.warning ?? null,
+      error: fallback.status === "PARTIAL" ? fallback.error ?? null : null
+    };
+  }
+
+  const result = await sendLeadReplyByEmail({
+    tenantId: params.tenantId,
+    lead,
+    actorId: params.actorId ?? null,
+    initiator: "AUTOMATION",
+    automationAttemptId: params.automationAttemptId,
+    renderedSubject: params.renderedSubject,
+    renderedBody: params.renderedBody
+  });
+
+  if (result.status === "FAILED") {
+    return {
+      status: "FAILED" as const,
+      deliveryChannel: "EMAIL" as const,
+      warning: null,
+      error: result.error
+    };
+  }
+
+  return {
+    status: result.status === "PARTIAL" ? "PARTIAL" as const : "SENT" as const,
+    deliveryChannel: "EMAIL" as const,
+    warning:
+      result.status === "PARTIAL"
+        ? result.warning ?? "External email sent, but Yelp was not marked as replied."
+        : result.warning ?? null,
+    error: result.status === "PARTIAL" ? result.error ?? null : null
+  };
+}
+
+export async function getLeadReplyComposerState(tenantId: string, leadId: string) {
+  const lead = await getLeadRecordById(tenantId, leadId);
+  const maskedEmail = getLeadMaskedEmail(lead);
+  let canUseYelpThread = true;
+
+  try {
+    await ensureYelpLeadsAccess(tenantId);
+  } catch {
+    canUseYelpThread = false;
+  }
+
+  const canUseEmail = Boolean(maskedEmail) && isSmtpConfigured();
+  const latestOutboundChannel = getLatestSuccessfulOutboundChannel(lead);
+
+  return {
+    canUseYelpThread,
+    canUseEmail,
+    defaultChannel:
+      latestOutboundChannel ??
+      (canUseYelpThread ? "YELP_THREAD" : canUseEmail ? "EMAIL" : null),
+    latestOutboundChannel,
+    maskedEmail,
+    canMarkAsRead: Boolean(getLatestUnreadEventId(lead))
+  };
+}

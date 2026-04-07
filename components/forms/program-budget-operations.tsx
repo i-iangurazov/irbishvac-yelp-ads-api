@@ -107,7 +107,7 @@ export function ProgramBudgetOperations({
       <CardHeader>
         <CardTitle>Budget operations</CardTitle>
         <CardDescription>
-          Use focused CPC operations for current budget, future budget scheduling, and pacing or max-bid changes. The console only updates local budget values after Yelp confirms the async job.
+          Update current budget, schedule a future budget, or adjust pacing and bid settings for this CPC program.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -151,7 +151,7 @@ export function ProgramBudgetOperations({
                 <div className="space-y-2">
                   <Label htmlFor="currentBudgetDollars">New monthly budget</Label>
                   <Input id="currentBudgetDollars" placeholder="325.00" {...currentBudgetForm.register("currentBudgetDollars")} />
-                  <p className="text-xs text-muted-foreground">Exact Yelp payload: `budget={centsPreview(currentBudgetValue)}` cents.</p>
+                  <p className="text-xs text-muted-foreground">Yelp payload: `budget={centsPreview(currentBudgetValue)}` cents.</p>
                   {currentBudgetForm.formState.errors.currentBudgetDollars ? (
                     <p className="text-sm text-destructive">{currentBudgetForm.formState.errors.currentBudgetDollars.message}</p>
                   ) : null}
@@ -180,7 +180,7 @@ export function ProgramBudgetOperations({
                 <div className="space-y-2">
                   <Label htmlFor="scheduledBudgetDollars">Future monthly budget</Label>
                   <Input id="scheduledBudgetDollars" placeholder="425.00" {...scheduledBudgetForm.register("scheduledBudgetDollars")} />
-                  <p className="text-xs text-muted-foreground">Exact Yelp payload budget: {centsPreview(scheduledBudgetValue)} cents.</p>
+                  <p className="text-xs text-muted-foreground">Yelp budget payload: {centsPreview(scheduledBudgetValue)} cents.</p>
                   {scheduledBudgetForm.formState.errors.scheduledBudgetDollars ? (
                     <p className="text-sm text-destructive">{scheduledBudgetForm.formState.errors.scheduledBudgetDollars.message}</p>
                   ) : null}
@@ -188,7 +188,7 @@ export function ProgramBudgetOperations({
                 <div className="space-y-2">
                   <Label htmlFor="scheduledBudgetEffectiveDate">Effective date</Label>
                   <Input id="scheduledBudgetEffectiveDate" type="date" {...scheduledBudgetForm.register("scheduledBudgetEffectiveDate")} />
-                  <p className="text-xs text-muted-foreground">Exact Yelp payload date: {scheduledDateValue || "not set"}.</p>
+                  <p className="text-xs text-muted-foreground">Yelp date payload: {scheduledDateValue || "not set"}.</p>
                   {scheduledBudgetForm.formState.errors.scheduledBudgetEffectiveDate ? (
                     <p className="text-sm text-destructive">{scheduledBudgetForm.formState.errors.scheduledBudgetEffectiveDate.message}</p>
                   ) : null}
@@ -219,7 +219,7 @@ export function ProgramBudgetOperations({
                   <Label htmlFor="pacingMethod">Pacing method</Label>
                   <select
                     id="pacingMethod"
-                    className="flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                    className="ui-native-select"
                     {...bidStrategyForm.register("pacingMethod")}
                   >
                     <option value="paced">Paced</option>
@@ -236,8 +236,8 @@ export function ProgramBudgetOperations({
                   />
                   <p className="text-xs text-muted-foreground">
                     {isAutobid
-                      ? "This CPC program currently uses Yelp autobid. Leave max bid blank unless the program is already on manual max bid."
-                      : `Exact Yelp payload max_bid: ${centsPreview(bidMaxValue)} cents.`}
+                      ? "This program currently uses Yelp autobid."
+                      : `Yelp max_bid payload: ${centsPreview(bidMaxValue)} cents.`}
                   </p>
                   {bidStrategyForm.formState.errors.maxBidDollars ? (
                     <p className="text-sm text-destructive">{bidStrategyForm.formState.errors.maxBidDollars.message}</p>

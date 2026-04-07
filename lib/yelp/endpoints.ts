@@ -21,6 +21,14 @@ export const DEFAULT_YELP_ENDPOINTS = {
     getMonthlyReport: "/reporting/monthly/{reportId}",
     testConnection: "/"
   },
+  leads: {
+    getLead: "/v3/leads/{leadId}",
+    getLeadEvents: "/v3/leads/{leadId}/events",
+    writeLeadEvent: "/v3/leads/{leadId}/events",
+    markLeadEventAsRead: "/v3/leads/{leadId}/events/mark_as_read",
+    markLeadAsReplied: "/v3/leads/{leadId}/mark_as_replied",
+    getBusinessLeadIds: "/v3/businesses/{businessId}/lead_ids"
+  },
   businessMatch: {
     matchBusiness: "/businesses/match",
     testConnection: "/"

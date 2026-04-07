@@ -22,7 +22,7 @@ export function ReportStatusPoller({ reportId }: { reportId: string }) {
     <Card>
       <CardHeader>
         <CardTitle>Report generation</CardTitle>
-        <CardDescription>Polling keeps the detail page current until the report is ready or failed.</CardDescription>
+        <CardDescription>Refreshes while Yelp finishes the delayed batch request.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         <StatusChip status={query.data.status} />

@@ -19,6 +19,33 @@ export async function listReportRequests(tenantId: string) {
   });
 }
 
+export async function listReportBreakdownOptions(tenantId: string) {
+  const [locations, serviceCategories] = await Promise.all([
+    prisma.location.findMany({
+      where: { tenantId },
+      select: {
+        id: true,
+        name: true
+      },
+      orderBy: [{ name: "asc" }]
+    }),
+    prisma.serviceCategory.findMany({
+      where: { tenantId },
+      select: {
+        id: true,
+        name: true,
+        slug: true
+      },
+      orderBy: [{ name: "asc" }]
+    })
+  ]);
+
+  return {
+    locations,
+    serviceCategories
+  };
+}
+
 export async function getReportRequestById(id: string, tenantId: string) {
   return prisma.reportRequest.findFirstOrThrow({
     where: { id, tenantId },
@@ -31,6 +58,51 @@ export async function getReportRequestById(id: string, tenantId: string) {
       },
       auditEvents: {
         orderBy: { createdAt: "desc" }
+      }
+    }
+  });
+}
+
+export async function listLeadsForReportBreakdown(
+  tenantId: string,
+  params: {
+    businessIds: string[];
+    from: Date;
+    to: Date;
+  }
+) {
+  return prisma.yelpLead.findMany({
+    where: {
+      tenantId,
+      createdAtYelp: {
+        gte: params.from,
+        lte: params.to
+      },
+      ...(params.businessIds.length > 0
+        ? {
+            businessId: {
+              in: params.businessIds
+            }
+          }
+        : {})
+    },
+    select: {
+      id: true,
+      createdAtYelp: true,
+      internalStatus: true,
+      locationId: true,
+      serviceCategoryId: true,
+      business: {
+        select: {
+          id: true,
+          locationId: true
+        }
+      },
+      crmLeadMappings: {
+        select: {
+          state: true
+        },
+        take: 1
       }
     }
   });

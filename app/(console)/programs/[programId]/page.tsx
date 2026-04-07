@@ -8,12 +8,13 @@ import { AuditTimeline } from "@/components/shared/audit-timeline";
 import { JsonViewer } from "@/components/shared/json-viewer";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusChip } from "@/components/shared/status-chip";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getProgramDetail } from "@/features/ads-programs/service";
 import { getBusinessesIndex } from "@/features/businesses/service";
 import { requireUser } from "@/lib/auth/service";
-import { formatCurrency } from "@/lib/utils/format";
+import { formatCurrency, formatDateTime, titleCase } from "@/lib/utils/format";
 import { getCapabilityFlags } from "@/lib/yelp/runtime";
 
 function normalizePacingMethod(value?: string) {
@@ -59,6 +60,7 @@ export default async function ProgramDetailPage({
   const scheduledBudgetDollars = typeof configuration.scheduledBudgetDollars === "string" ? configuration.scheduledBudgetDollars : undefined;
   const scheduledBudgetEffectiveDate =
     typeof configuration.scheduledBudgetEffectiveDate === "string" ? configuration.scheduledBudgetEffectiveDate : undefined;
+  const latestJob = program.jobs[0];
   const terminateDisabledReason =
     capabilities.demoModeEnabled && !capabilities.adsApiEnabled
       ? undefined
@@ -75,16 +77,16 @@ export default async function ProgramDetailPage({
     <div>
       <PageHeader
         title={`${program.type} program`}
-        description="Review program configuration, async job progress, feature controls, and the full audit trail."
+        description="Review local state, the latest Yelp job, and what is actually settled upstream."
         actions={
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
             {program.type === "CPC" ? (
               <Button asChild variant="outline">
-                <Link href="#budget-operations">Budget operations</Link>
+                <Link href="#budget-operations">Budget</Link>
               </Button>
             ) : null}
             <Button asChild variant="outline">
-              <Link href={`/program-features/${program.id}`}>Manage features</Link>
+              <Link href={`/program-features/${program.id}`}>Features</Link>
             </Button>
             <ProgramTerminateForm programId={program.id} disabledReason={terminateDisabledReason} />
           </div>
@@ -96,14 +98,17 @@ export default async function ProgramDetailPage({
           <Card>
             <CardHeader>
               <CardTitle>Program summary</CardTitle>
+              <CardDescription>Local status and upstream confirmation can diverge while Yelp is still processing.</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-3 text-sm md:grid-cols-2">
               <div>
                 <div className="text-muted-foreground">Business</div>
-                <div>{program.business.name}</div>
+                <Link className="font-medium hover:underline" href={`/businesses/${program.businessId}`}>
+                  {program.business.name}
+                </Link>
               </div>
               <div>
-                <div className="text-muted-foreground">Status</div>
+                <div className="text-muted-foreground">Local status</div>
                 <StatusChip status={program.status} />
               </div>
               <div>
@@ -121,6 +126,14 @@ export default async function ProgramDetailPage({
               <div>
                 <div className="text-muted-foreground">Yelp program ID</div>
                 <div>{program.upstreamProgramId ?? "Not assigned yet"}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Last sync</div>
+                <div>{program.lastSyncedAt ? formatDateTime(program.lastSyncedAt) : "Not synced back from Yelp yet"}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Latest Yelp job</div>
+                <div>{latestJob ? formatDateTime(latestJob.createdAt) : "No job recorded yet"}</div>
               </div>
               <div>
                 <div className="text-muted-foreground">Scheduled budget</div>
@@ -197,7 +210,64 @@ export default async function ProgramDetailPage({
 
           <Card>
             <CardHeader>
-              <CardTitle>Latest local configuration</CardTitle>
+              <CardTitle>Record boundaries</CardTitle>
+              <CardDescription>Keep upstream state, local state, and audit notes separate.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              <div className="rounded-lg border border-border p-4">
+                <div className="flex items-center gap-2">
+                  <Badge>Yelp-native</Badge>
+                  <span className="font-medium">Program IDs, live status, accepted budget changes</span>
+                </div>
+                <div className="mt-2 text-xs text-muted-foreground">Final only after Yelp finishes the job.</div>
+              </div>
+              <div className="rounded-lg border border-border p-4">
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary">Local console</Badge>
+                  <span className="font-medium">Drafted configuration, queue state, operator notes</span>
+                </div>
+                <div className="mt-2 text-xs text-muted-foreground">Saved immediately so operators can track intent.</div>
+              </div>
+              <div className="rounded-lg border border-border p-4">
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline">Audit only</Badge>
+                  <span className="font-medium">Terminate reason and requested end date</span>
+                </div>
+                <div className="mt-2 text-xs text-muted-foreground">Stored internally. Not sent to Yelp.</div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Recent Yelp jobs</CardTitle>
+              <CardDescription>Use this when the local record looks ahead of Yelp.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {program.jobs.length === 0 ? (
+                <div className="text-sm text-muted-foreground">No jobs have been recorded for this program yet.</div>
+              ) : (
+                program.jobs.slice(0, 5).map((job) => (
+                  <div className="rounded-lg border border-border p-4" key={job.id}>
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <div className="font-medium">{titleCase(job.type.toLowerCase().replaceAll("_", " "))}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {formatDateTime(job.createdAt)} {job.upstreamJobId ? `• ${job.upstreamJobId}` : ""}
+                        </div>
+                      </div>
+                      <StatusChip status={job.status} />
+                    </div>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Saved payload</CardTitle>
+              <CardDescription>The last request state saved on the local record.</CardDescription>
             </CardHeader>
             <CardContent>
               <JsonViewer value={program.configurationJson} />

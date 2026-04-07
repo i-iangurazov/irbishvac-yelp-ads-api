@@ -1,6 +1,6 @@
 import { EmptyState } from "@/components/shared/empty-state";
-import { MetricCard } from "@/components/shared/metric-card";
 import { PageHeader } from "@/components/shared/page-header";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getServiceCategoryOverview } from "@/features/operations/service";
@@ -14,15 +14,21 @@ export default async function ServicesPage() {
     <div>
       <PageHeader
         title="Services"
-        description="Service categories normalize inconsistent Yelp and CRM labels so per-service rollups stay explicit and reviewable."
+        description="Foundation-only service mapping inventory. It remains intentionally read-only until per-service reporting and enrichment are real product workflows."
+        actions={<Badge variant="outline">Beta</Badge>}
       />
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard title="Service categories" value={overview.counts.serviceCategories} description="Normalized services available for mapping rules." />
-        <MetricCard title="Classified leads" value={overview.counts.classifiedLeads} description="Leads already mapped to a normalized service category." />
-        <MetricCard title="Reporting snapshots" value={overview.counts.reportingSnapshots} description="Future per-service rollups will aggregate these delayed reporting snapshots." />
-        <MetricCard title="Sync errors" value={overview.counts.syncErrors} description="Service mapping or enrichment issues that need operational review." />
-      </div>
+      <Card className="border-border/70 bg-muted/20">
+        <CardHeader>
+          <CardTitle>Current state</CardTitle>
+          <CardDescription>This page exists to keep the data model visible without pretending per-service operations are already in the MVP.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm text-muted-foreground">
+          <div>{overview.counts.serviceCategories} normalized services are stored today.</div>
+          <div>{overview.counts.classifiedLeads} leads and {overview.counts.reportingSnapshots} reporting snapshots are already available for future service-level rollups.</div>
+          <div>Service mapping and related sync issues remain internal foundation work for now.</div>
+        </CardContent>
+      </Card>
 
       <Card className="mt-6">
         <CardHeader>

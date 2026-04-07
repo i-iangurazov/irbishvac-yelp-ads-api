@@ -53,7 +53,7 @@ export function BusinessSearchForm() {
 
   return (
     <div className="space-y-4">
-      <form className="grid gap-4 rounded-xl border border-border bg-card p-4 lg:grid-cols-[2fr_1fr_auto]" onSubmit={onSubmit}>
+      <form className="grid gap-4 rounded-2xl border border-border/80 bg-card p-5 lg:grid-cols-[2fr_1fr_auto]" onSubmit={onSubmit}>
         <div className="space-y-2">
           <Label htmlFor="query">Business name</Label>
           <Input id="query" placeholder="Northwind HVAC" {...register("query")} />
@@ -65,12 +65,9 @@ export function BusinessSearchForm() {
         </div>
         <Button className="self-end" type="submit" disabled={isSubmitting}>
           {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-          Search
+          Search Yelp
         </Button>
       </form>
-      <p className="text-sm text-muted-foreground">
-        If Business Match is not enabled for this tenant yet, add the business manually below using the encrypted Yelp business ID Yelp provided.
-      </p>
 
       {results ? (
         <div className="grid gap-4 xl:grid-cols-2">
@@ -79,7 +76,7 @@ export function BusinessSearchForm() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Local business</TableHead>
+                    <TableHead>Already saved in console</TableHead>
                     <TableHead>Location</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -113,9 +110,7 @@ export function BusinessSearchForm() {
             <CardContent className="space-y-3 p-4">
               <div>
                 <div className="font-medium">Yelp partner matches</div>
-                <div className="text-sm text-muted-foreground">
-                  If the Business Match API is disabled, the local list still works and the remote section will explain why.
-                </div>
+                <div className="text-xs text-muted-foreground">Save the exact Yelp business the console should operate against.</div>
               </div>
               {results.remoteState ? <p className="text-sm text-warning">{results.remoteState.message}</p> : null}
               <div className="space-y-3">
@@ -152,7 +147,7 @@ export function BusinessSearchForm() {
                         }
                       }}
                     >
-                      Save to console
+                      Save business
                     </Button>
                       </>
                     );

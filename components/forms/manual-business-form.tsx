@@ -81,11 +81,11 @@ export function ManualBusinessForm() {
   });
 
   return (
-    <Card>
+    <Card className="border-border/70 bg-muted/10 shadow-none">
       <CardHeader>
-        <CardTitle>Manual business entry</CardTitle>
+        <CardTitle>Manual fallback</CardTitle>
         <CardDescription>
-          Use this when Yelp already gave you the encrypted Yelp business ID or Business Match is not enabled yet.
+          Save a business directly when Yelp already handed over the encrypted business ID.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -125,15 +125,15 @@ export function ManualBusinessForm() {
               {...register("categoriesText")}
             />
             <p className="text-xs text-muted-foreground">
-              Enter one category per line. Use <span className="font-mono">Label | yelp_alias</span> when you know the Yelp alias. Alias-backed categories are required for CPC ad submission.
+              One category per line. Use <span className="font-mono">Label | yelp_alias</span> when you know the alias.
             </p>
           </div>
 
           <Label className="flex items-center justify-between rounded-lg border border-border p-4 lg:col-span-2">
             <div>
-              <div className="font-medium">About-this-business text already exists</div>
+              <div className="font-medium">About text already exists</div>
               <div className="text-sm text-muted-foreground">
-                Turn this on only if the Yelp listing already has specialties or about-this-business text in place.
+                Turn this on only if the Yelp listing already has specialties or about text in place.
               </div>
             </div>
             <Switch checked={hasAboutText} onCheckedChange={(checked) => setValue("hasAboutText", checked)} />

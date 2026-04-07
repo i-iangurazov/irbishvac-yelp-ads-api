@@ -33,7 +33,7 @@ export const roleAssignmentSchema = z.object({
 
 export const credentialKindLabels: Record<CredentialKind, string> = {
   ADS_BASIC_AUTH: "Partner API Basic Auth",
-  REPORTING_FUSION: "Fusion API Key",
+  REPORTING_FUSION: "Yelp API Bearer Token",
   BUSINESS_MATCH: "Business Match API",
   DATA_INGESTION: "Data Ingestion API"
 };

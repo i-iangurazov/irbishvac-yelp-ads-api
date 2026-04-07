@@ -330,6 +330,112 @@ export const yelpBusinessMatchResponseSchema = z.object({
   matches: z.array(yelpBusinessMatchResultSchema)
 });
 
+export const yelpLeadWebhookUpdateSchema = z
+  .object({
+    event_type: z.string().min(1),
+    event_id: z.string().optional(),
+    lead_id: z.string().min(1),
+    interaction_time: z.string().optional()
+  })
+  .passthrough();
+
+export const yelpLeadWebhookPayloadSchema = z
+  .object({
+    time: z.string().optional(),
+    object: z.string().optional(),
+    data: z
+      .object({
+        id: z.string().min(1),
+        updates: z.array(yelpLeadWebhookUpdateSchema).default([])
+      })
+      .passthrough()
+  })
+  .passthrough();
+
+const yelpLeadPersonSchema = z
+  .object({
+    name: z.string().optional(),
+    email: z.string().optional(),
+    phone: z.string().optional(),
+    masked_phone_number: z.string().optional(),
+    temporary_email_address: z.string().optional()
+  })
+  .partial()
+  .passthrough();
+
+export const yelpLeadDetailSchema = z
+  .object({
+    id: z.string().optional(),
+    lead_id: z.string().optional(),
+    business_id: z.string().optional(),
+    conversation_id: z.string().optional(),
+    time_created: z.string().optional(),
+    interaction_time: z.string().optional(),
+    last_activity_time: z.string().optional(),
+    latest_interaction_at: z.string().optional(),
+    reply_state: z.string().optional(),
+    is_read: z.boolean().optional(),
+    is_replied: z.boolean().optional(),
+    customer_name: z.string().optional(),
+    customer_email: z.string().optional(),
+    customer_phone: z.string().optional(),
+    masked_phone_number: z.string().optional(),
+    temporary_email_address: z.string().optional(),
+    customer: yelpLeadPersonSchema.optional(),
+    consumer: yelpLeadPersonSchema.optional(),
+    user: yelpLeadPersonSchema.optional(),
+    lead: z.record(z.unknown()).optional(),
+    data: z.record(z.unknown()).optional()
+  })
+  .passthrough();
+
+export const yelpLeadEventSchema = z
+  .object({
+    id: z.string().optional(),
+    event_id: z.string().optional(),
+    event_type: z.string().optional(),
+    type: z.string().optional(),
+    interaction_time: z.string().optional(),
+    time_created: z.string().optional(),
+    created_at: z.string().optional(),
+    message: z.string().optional(),
+    text: z.string().optional()
+  })
+  .passthrough();
+
+export const yelpLeadEventsResponseSchema = z.union([
+  z
+    .object({
+      events: z.array(yelpLeadEventSchema).default([])
+    })
+    .passthrough(),
+  z.array(yelpLeadEventSchema)
+]);
+
+export const yelpBusinessLeadIdsResponseSchema = z.union([
+  z
+    .object({
+      lead_ids: z.array(z.string()).default([]),
+      has_more: z.boolean().optional()
+    })
+    .passthrough(),
+  z.array(z.string())
+]);
+
+export const yelpWriteLeadEventRequestSchema = z.object({
+  request_content: z.string().trim().min(1),
+  request_type: z.literal("TEXT").default("TEXT")
+});
+
+export const yelpMarkLeadEventAsReadRequestSchema = z.object({
+  event_id: z.string().trim().min(1),
+  time_read: z.string().datetime()
+});
+
+export const yelpMarkLeadAsRepliedRequestSchema = z.object({
+  reply_type: z.literal("EMAIL")
+});
+
 export type YelpCreateProgramRequestDto = z.infer<typeof yelpCreateProgramRequestSchema>;
 export type YelpEditProgramRequestDto = z.infer<typeof yelpEditProgramRequestSchema>;
 export type YelpTerminateProgramRequestDto = z.infer<typeof yelpTerminateProgramRequestSchema>;
@@ -342,3 +448,11 @@ export type YelpProgramFeatureDto = z.infer<typeof yelpProgramFeatureSchema>;
 export type YelpReportRequestDto = z.infer<typeof yelpReportRequestSchema>;
 export type YelpReportResponseDto = z.infer<typeof yelpReportResponseSchema>;
 export type YelpBusinessMatchResponseDto = z.infer<typeof yelpBusinessMatchResponseSchema>;
+export type YelpLeadWebhookPayloadDto = z.infer<typeof yelpLeadWebhookPayloadSchema>;
+export type YelpLeadWebhookUpdateDto = z.infer<typeof yelpLeadWebhookUpdateSchema>;
+export type YelpLeadDetailDto = z.infer<typeof yelpLeadDetailSchema>;
+export type YelpLeadEventsResponseDto = z.infer<typeof yelpLeadEventsResponseSchema>;
+export type YelpBusinessLeadIdsResponseDto = z.infer<typeof yelpBusinessLeadIdsResponseSchema>;
+export type YelpWriteLeadEventRequestDto = z.infer<typeof yelpWriteLeadEventRequestSchema>;
+export type YelpMarkLeadEventAsReadRequestDto = z.infer<typeof yelpMarkLeadEventAsReadRequestSchema>;
+export type YelpMarkLeadAsRepliedRequestDto = z.infer<typeof yelpMarkLeadAsRepliedRequestSchema>;
