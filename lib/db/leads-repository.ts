@@ -251,7 +251,7 @@ export async function listLeadWebhookSyncRunsForReconcile(limit = 20) {
         orderBy: [{ occurredAt: "desc" }]
       }
     },
-    orderBy: [{ startedAt: "asc" }, { createdAt: "asc" }],
+    orderBy: [{ createdAt: "desc" }, { startedAt: "desc" }],
     take: limit
   });
 }
