@@ -172,13 +172,13 @@ export function LeadAutoresponderBusinessOverrideForm({
           <section className="space-y-4 border-t border-border/70 pt-6">
             <div>
               <div className="text-sm font-semibold">AI assist</div>
-              <div className="mt-1 text-xs text-muted-foreground">Review-only drafting for this business scope.</div>
+              <div className="mt-1 text-xs text-muted-foreground">Controls AI-assisted live templates and review-mode lead tools for this business.</div>
             </div>
             <div className="grid gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]">
               <div className="flex items-center justify-between rounded-xl border border-border/80 bg-muted/10 px-4 py-3">
                 <div>
-                  <div className="text-sm font-medium">AI draft assist</div>
-                  <div className="text-xs text-muted-foreground">{aiAssistConfigured ? "Operators still review before sending." : "OpenAI key not configured."}</div>
+                  <div className="text-sm font-medium">AI assist</div>
+                  <div className="text-xs text-muted-foreground">{aiAssistConfigured ? "Allows AI-assisted live templates for this business." : "OpenAI key not configured."}</div>
                 </div>
                 <Switch
                   checked={aiAssistEnabled}
@@ -210,7 +210,7 @@ export function LeadAutoresponderBusinessOverrideForm({
                 </div>
               ) : (
                 <div className="rounded-xl border border-dashed border-border/80 px-4 py-3 text-sm text-muted-foreground">
-                  {aiAssistConfigured ? "AI draft assist is off for this override." : "Add `OPENAI_API_KEY` to enable AI draft assist."}
+                  {aiAssistConfigured ? "AI assist is off for this override." : "Add `OPENAI_API_KEY` to enable AI assist."}
                 </div>
               )}
             </div>

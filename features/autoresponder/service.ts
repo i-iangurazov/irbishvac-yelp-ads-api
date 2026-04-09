@@ -3,6 +3,7 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 
 import { approvedLeadAiModelOptions, LEAD_AUTORESPONDER_SETTING_KEY } from "@/features/autoresponder/constants";
+import { generateLeadAutomationAiMessage } from "@/features/autoresponder/ai-service";
 import {
   getLeadAiModelLabel,
   getLeadAutomationScopeConfig,
@@ -19,9 +20,11 @@ import {
   getLeadAutomationCadenceDelayMs,
   getNextWorkingWindowStart,
   humanizeLeadAutomationCadence,
+  type LeadAutomationRuleCandidate,
   renderLeadAutomationTemplate
 } from "@/features/autoresponder/logic";
 import { buildLeadAutomationHistory } from "@/features/autoresponder/normalize";
+import { readLeadAutomationTemplateMetadata } from "@/features/autoresponder/template-metadata";
 import {
   leadAutomationRuleFormSchema,
   leadAutomationTemplateFormSchema,
@@ -251,12 +254,14 @@ function asTemplateMetadata(value: unknown) {
 
 function buildTemplateMetadata(
   currentValue: unknown,
-  values: Pick<LeadAutomationTemplateFormValues, "templateKind">,
+  values: Pick<LeadAutomationTemplateFormValues, "templateKind" | "renderMode" | "aiPrompt">,
   actorId: string
 ) {
   return toJsonValue({
     ...asTemplateMetadata(currentValue),
     templateKind: values.templateKind,
+    renderMode: values.renderMode,
+    aiPrompt: values.aiPrompt || null,
     updatedBy: actorId
   });
 }
@@ -304,6 +309,57 @@ function validateRuleCadenceScope(params: {
   }
 }
 
+async function renderLeadAutomationMessage(params: {
+  lead: Awaited<ReturnType<typeof getLeadAutomationCandidate>>;
+  rule: LeadAutomationRuleCandidate;
+  settings: {
+    aiAssistEnabled: boolean;
+    aiModel: string;
+  };
+  channel: "YELP_THREAD" | "EMAIL";
+  fallbackSubject: string;
+  fallbackBody: string;
+}) {
+  const metadata = readLeadAutomationTemplateMetadata(params.rule.template.metadataJson);
+
+  if (metadata.renderMode !== "AI_ASSISTED" || !params.settings.aiAssistEnabled || !metadata.aiPrompt) {
+    return {
+      subject: params.fallbackSubject,
+      body: params.fallbackBody,
+      contentMetadata: {
+        contentSource: "TEMPLATE",
+        templateRenderMode: metadata.renderMode,
+        templateKind: metadata.templateKind
+      }
+    };
+  }
+
+  const aiResult = await generateLeadAutomationAiMessage({
+    lead: params.lead,
+    rule: params.rule,
+    model: resolveLeadAiModel(params.settings.aiModel),
+    channel: params.channel,
+    guidance: metadata.aiPrompt,
+    fallbackSubject: params.fallbackSubject,
+    fallbackBody: params.fallbackBody,
+    variables: buildLeadAutomationVariables(params.lead),
+    cadenceLabel: humanizeLeadAutomationCadence(params.rule.cadence)
+  });
+
+  return {
+    subject: aiResult.subject,
+    body: aiResult.body,
+    contentMetadata: {
+      contentSource: aiResult.usedAi ? "AI" : "TEMPLATE_FALLBACK",
+      templateRenderMode: metadata.renderMode,
+      templateKind: metadata.templateKind,
+      aiModel: aiResult.model,
+      ...(aiResult.fallbackReason ? { fallbackReason: aiResult.fallbackReason } : {}),
+      ...(aiResult.warningCodes.length > 0 ? { warningCodes: aiResult.warningCodes } : {})
+    }
+  };
+}
+
 async function deliverLeadAutomationAttempt(params: {
   tenantId: string;
   actorId: string | null;
@@ -315,6 +371,7 @@ async function deliverLeadAutomationAttempt(params: {
   renderedBody: string;
   recipient: string | null;
   allowEmailFallback?: boolean;
+  contentMetadata?: Record<string, unknown> | null;
 }) {
   const result = await deliverLeadAutomationMessage({
     tenantId: params.tenantId,
@@ -333,10 +390,11 @@ async function deliverLeadAutomationAttempt(params: {
     const saved = await updateLeadAutomationAttempt(params.attemptId, {
       status: "SENT",
       providerStatus: result.status === "PARTIAL" ? "sent_with_warning" : "sent",
-      providerMetadataJson: {
+      providerMetadataJson: toJsonValue({
+        ...(params.contentMetadata ?? {}),
         deliveryChannel: result.deliveryChannel,
         ...(result.warning ? { warning: result.warning } : {})
-      },
+      }),
       completedAt
     });
 
@@ -371,7 +429,10 @@ async function deliverLeadAutomationAttempt(params: {
     status: "FAILED",
     providerStatus: "failed",
     errorSummary: normalized.message,
-    providerMetadataJson: normalized.details ?? null,
+    providerMetadataJson: toJsonValue({
+      ...(params.contentMetadata ?? {}),
+      ...(normalized.details ? { errorDetails: normalized.details } : {})
+    }),
     completedAt
   });
 
@@ -1088,18 +1149,29 @@ export async function processLeadAutoresponderForNewLead(tenantId: string, leadI
   }
 
   const variables = buildLeadAutomationVariables(lead);
-  const renderedSubject =
+  const fallbackSubject =
     renderLeadAutomationTemplate(eligibility.rule.template.subjectTemplate, variables) ||
     getFallbackSubject({
       businessName: lead.business?.name ?? null,
       customerName: lead.customerName ?? null,
       leadReference: lead.externalLeadId
     });
-  const renderedBody = renderLeadAutomationTemplate(eligibility.rule.template.bodyTemplate, variables);
+  const fallbackBody = renderLeadAutomationTemplate(eligibility.rule.template.bodyTemplate, variables);
+  const renderedMessage = await renderLeadAutomationMessage({
+    lead,
+    rule: eligibility.rule,
+    settings: {
+      aiAssistEnabled: effectiveSettings.aiAssistEnabled,
+      aiModel: effectiveSettings.aiModel
+    },
+    channel: normalizeAutomationDeliveryChannel(eligibility.rule.channel),
+    fallbackSubject,
+    fallbackBody
+  });
   const disclosedMessage = applyLeadAutomationDisclosure({
     channel: eligibility.rule.channel,
-    subject: renderedSubject,
-    body: renderedBody,
+    subject: renderedMessage.subject,
+    body: renderedMessage.body,
     businessName: lead.business?.name ?? null
   });
 
@@ -1149,7 +1221,8 @@ export async function processLeadAutoresponderForNewLead(tenantId: string, leadI
     renderedSubject: disclosedMessage.subject,
     renderedBody: disclosedMessage.body,
     recipient: eligibility.recipient,
-    allowEmailFallback: effectiveSettings.emailFallbackEnabled
+    allowEmailFallback: effectiveSettings.emailFallbackEnabled,
+    contentMetadata: renderedMessage.contentMetadata
   });
 
   if (result.status === "SENT") {
@@ -1310,7 +1383,7 @@ async function processDueLeadAutomationAttempt(params: {
   }
 
   const variables = buildLeadAutomationVariables(lead);
-  const renderedSubject =
+  const fallbackSubject =
     attempt.renderedSubject ||
     renderLeadAutomationTemplate(eligibility.rule.template.subjectTemplate, variables) ||
     getFallbackSubject({
@@ -1318,13 +1391,24 @@ async function processDueLeadAutomationAttempt(params: {
       customerName: lead.customerName ?? null,
       leadReference: lead.externalLeadId
     });
-  const renderedBody =
+  const fallbackBody =
     attempt.renderedBody ||
     renderLeadAutomationTemplate(eligibility.rule.template.bodyTemplate, variables);
+  const renderedMessage = await renderLeadAutomationMessage({
+    lead,
+    rule: eligibility.rule,
+    settings: {
+      aiAssistEnabled: effectiveSettings.aiAssistEnabled,
+      aiModel: effectiveSettings.aiModel
+    },
+    channel: "YELP_THREAD",
+    fallbackSubject,
+    fallbackBody
+  });
   const disclosedMessage = applyLeadAutomationDisclosure({
     channel: "YELP_THREAD",
-    subject: renderedSubject,
-    body: renderedBody,
+    subject: renderedMessage.subject,
+    body: renderedMessage.body,
     businessName: lead.business?.name ?? null
   });
 
@@ -1355,7 +1439,8 @@ async function processDueLeadAutomationAttempt(params: {
     renderedSubject: disclosedMessage.subject,
     renderedBody: disclosedMessage.body,
     recipient: null,
-    allowEmailFallback: false
+    allowEmailFallback: false,
+    contentMetadata: renderedMessage.contentMetadata
   });
 
   if (result.status === "SENT") {

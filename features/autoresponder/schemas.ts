@@ -4,6 +4,7 @@ import {
   leadAutomationCadenceValues,
   approvedLeadAiModelValues,
   defaultLeadAiModel,
+  leadAutomationRenderModeValues,
   leadAutomationTemplateKinds,
   leadAutomationScopeModeValues
 } from "@/features/autoresponder/constants";
@@ -11,6 +12,7 @@ import {
 const leadAutomationChannelSchema = z.enum(["YELP_THREAD", "EMAIL"]);
 const leadAiModelSchema = z.enum(approvedLeadAiModelValues);
 const leadAutomationTemplateKindSchema = z.enum(leadAutomationTemplateKinds);
+const leadAutomationRenderModeSchema = z.enum(leadAutomationRenderModeValues);
 const leadAutomationCadenceSchema = z.enum(leadAutomationCadenceValues);
 const leadAutomationScopeModeSchema = z.enum(leadAutomationScopeModeValues);
 const followUp24hDelaySchema = z.coerce.number().int().min(12).max(48);
@@ -52,9 +54,23 @@ export const leadAutomationTemplateFormSchema = z.object({
   businessId: z.string().optional().or(z.literal("")),
   channel: leadAutomationChannelSchema.default("YELP_THREAD"),
   templateKind: leadAutomationTemplateKindSchema.default("ACKNOWLEDGMENT"),
+  renderMode: leadAutomationRenderModeSchema.default("STATIC"),
+  aiPrompt: z.string().trim().max(4000).optional().or(z.literal("")),
   isEnabled: z.boolean().default(true),
   subjectTemplate: z.string().trim().max(200).optional().or(z.literal("")),
   bodyTemplate: z.string().trim().min(10).max(5000)
+}).superRefine((value, context) => {
+  if (value.renderMode !== "AI_ASSISTED") {
+    return;
+  }
+
+  if (!value.aiPrompt || value.aiPrompt.trim().length < 20) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["aiPrompt"],
+      message: "Add AI guidance so live AI replies know how to respond."
+    });
+  }
 });
 
 export type LeadAutomationTemplateFormValues = z.infer<typeof leadAutomationTemplateFormSchema>;

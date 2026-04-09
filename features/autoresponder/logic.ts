@@ -40,6 +40,7 @@ export type LeadAutomationCandidate = {
     actorType?: string | null;
     occurredAt?: Date | null;
     isReply?: boolean;
+    payloadJson?: unknown;
   }>;
   conversationActions?: Array<{
     actionType: "SEND_MESSAGE" | "MARK_READ" | "MARK_REPLIED";
@@ -70,6 +71,7 @@ export type LeadAutomationRuleCandidate = {
     isEnabled: boolean;
     subjectTemplate: string | null;
     bodyTemplate: string;
+    metadataJson?: unknown;
     sourceSystem: RecordSourceSystem;
   };
 };

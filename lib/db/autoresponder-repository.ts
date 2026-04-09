@@ -237,7 +237,8 @@ export async function getLeadAutomationCandidate(tenantId: string, leadId: strin
           eventType: true,
           actorType: true,
           occurredAt: true,
-          isReply: true
+          isReply: true,
+          payloadJson: true
         },
         orderBy: [{ occurredAt: "asc" }, { createdAt: "asc" }]
       },

@@ -287,7 +287,7 @@ export function LeadReplyForm({
   };
 
   return (
-    <form className="space-y-4" onSubmit={submit}>
+    <form className="space-y-5" onSubmit={submit}>
       <div className="grid gap-4 md:grid-cols-[minmax(0,0.8fr)_auto] md:items-end">
         <div className="space-y-2">
           <Label>Reply channel</Label>
@@ -316,18 +316,16 @@ export function LeadReplyForm({
         {noReplyChannel
           ? "No live reply channel is available for this lead yet."
           : selectedChannel === "YELP_THREAD"
-            ? "Posts directly into the Yelp lead conversation. Use this as the primary path when possible."
-            : `Sends through Yelp's masked email${maskedEmail ? ` (${maskedEmail})` : ""} and marks the lead as replied on Yelp.`}
+            ? "Primary path. Sends directly into the Yelp thread."
+            : `Fallback path. Sends through Yelp's masked email${maskedEmail ? ` (${maskedEmail})` : ""}.`}
         {latestOutboundChannel ? ` Last outbound channel: ${channelLabel(latestOutboundChannel)}.` : ""}
       </div>
 
       <div className="rounded-xl border border-border/80 px-4 py-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="space-y-1">
-            <div className="text-sm font-medium">AI reply assist</div>
-            <p className="text-xs text-muted-foreground">
-              Generate review-only draft suggestions for the current reply channel. Nothing is sent automatically.
-            </p>
+            <div className="text-sm font-medium">AI draft assist</div>
+            <p className="text-xs text-muted-foreground">Review-only suggestions for this channel. Nothing sends automatically.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             {draftResult ? (
@@ -351,9 +349,7 @@ export function LeadReplyForm({
           </div>
         </div>
         {!canGenerateAiDrafts ? (
-          <p className="mt-3 text-xs text-muted-foreground">
-            AI drafting is not configured in this environment.
-          </p>
+          <p className="mt-3 text-xs text-muted-foreground">AI drafting is not configured in this environment.</p>
         ) : null}
         {draftResult ? (
           <div className="mt-4 space-y-3">
@@ -412,9 +408,7 @@ export function LeadReplyForm({
                 <SelectItem value="EMAIL">Email sent outside this console</SelectItem>
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">
-              Use this only after an operator actually replied outside the Yelp thread.
-            </p>
+            <p className="text-xs text-muted-foreground">Use this only after a real phone, SMS, or email handoff happened outside Yelp.</p>
           </div>
 
           <Button
@@ -440,7 +434,7 @@ export function LeadReplyForm({
         <Label htmlFor="lead-reply-body">Reply</Label>
         <Textarea
           id="lead-reply-body"
-          placeholder="Hi, thanks for contacting us. We received your request and will follow up shortly."
+          placeholder="Hi, thanks for reaching out. We received your request and will follow up shortly."
           rows={6}
           {...register("body")}
         />

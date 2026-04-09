@@ -256,8 +256,8 @@ export function LeadAutoresponderSettingsForm({
           <div className="space-y-4 rounded-xl border border-border/80 bg-muted/10 p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <div className="text-sm font-medium">AI draft assist</div>
-                <div className="text-xs text-muted-foreground">Review-only support for operators. AI never auto-sends.</div>
+                <div className="text-sm font-medium">AI assist</div>
+                <div className="text-xs text-muted-foreground">Allows AI-assisted live templates and review-mode lead tools.</div>
               </div>
               <Switch
                 checked={aiAssistEnabled}
@@ -290,13 +290,13 @@ export function LeadAutoresponderSettingsForm({
                   </p>
                 </div>
                 <div className="rounded-xl border border-border/70 bg-background px-3 py-3 text-xs text-muted-foreground">
-                  <div className="font-medium text-foreground">Review mode</div>
-                  <div className="mt-1">Operators still review and send the final reply manually.</div>
+                  <div className="font-medium text-foreground">Live AI guardrails</div>
+                  <div className="mt-1">Rules still decide eligibility. Static fallback still exists if AI output is unsafe or unavailable.</div>
                 </div>
               </div>
             ) : (
               <div className="text-xs text-muted-foreground">
-                {aiAssistConfigured ? "AI draft assist is off." : "Add `OPENAI_API_KEY` before enabling AI draft assist."}
+                {aiAssistConfigured ? "AI assist is off." : "Add `OPENAI_API_KEY` before enabling AI assist."}
               </div>
             )}
           </div>

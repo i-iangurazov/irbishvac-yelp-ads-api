@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  leadAutomationRenderModeOptions,
   leadAutomationStarterTemplates,
   leadAutomationTemplateKinds
 } from "@/features/autoresponder/constants";
@@ -21,6 +22,7 @@ import {
   leadAutomationTemplateFormSchema,
   type LeadAutomationTemplateFormValues
 } from "@/features/autoresponder/schemas";
+import { humanizeLeadAutomationTemplateKind } from "@/features/autoresponder/template-metadata";
 import { apiFetch } from "@/lib/utils/client-api";
 
 const variableExamples = [
@@ -30,14 +32,6 @@ const variableExamples = [
   "{{service_type}}",
   "{{lead_reference}}"
 ] as const;
-
-function humanizeTemplateKind(kind: LeadAutomationTemplateFormValues["templateKind"]) {
-  return kind
-    .toLowerCase()
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
 
 export function LeadAutomationTemplateForm({
   initialValues,
@@ -65,12 +59,15 @@ export function LeadAutomationTemplateForm({
       businessId: initialValues?.businessId ?? "",
       channel: initialValues?.channel ?? "YELP_THREAD",
       templateKind: initialValues?.templateKind ?? "ACKNOWLEDGMENT",
+      renderMode: initialValues?.renderMode ?? "STATIC",
+      aiPrompt: initialValues?.aiPrompt ?? "",
       isEnabled: initialValues?.isEnabled ?? true,
       subjectTemplate: initialValues?.subjectTemplate ?? "",
       bodyTemplate: initialValues?.bodyTemplate ?? ""
     }
   });
   const templateKind = watch("templateKind");
+  const renderMode = watch("renderMode");
 
   const loadStarterCopy = () => {
     if (templateKind === "CUSTOM") {
@@ -81,6 +78,7 @@ export function LeadAutomationTemplateForm({
     setValue("name", starter.name, { shouldValidate: true });
     setValue("subjectTemplate", starter.subject, { shouldValidate: true });
     setValue("bodyTemplate", starter.body, { shouldValidate: true });
+    setValue("aiPrompt", starter.aiPrompt ?? "", { shouldValidate: true });
   };
 
   const submit = handleSubmit(async (values) => {
@@ -105,7 +103,7 @@ export function LeadAutomationTemplateForm({
     <Card>
       <CardHeader className="pb-3">
         <CardTitle>{isEditing ? "Edit template" : "New template"}</CardTitle>
-        <CardDescription>Short, explicit copy for initial responses and follow-ups.</CardDescription>
+        <CardDescription>Rules choose the template. The template can stay static or guide a guarded AI reply with fallback.</CardDescription>
       </CardHeader>
       <CardContent>
         <form className="space-y-4" onSubmit={submit}>
@@ -145,7 +143,7 @@ export function LeadAutomationTemplateForm({
                 <SelectContent>
                   {leadAutomationTemplateKinds.map((kind) => (
                     <SelectItem key={kind} value={kind}>
-                      {humanizeTemplateKind(kind)}
+                      {humanizeLeadAutomationTemplateKind(kind)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -172,25 +170,102 @@ export function LeadAutomationTemplateForm({
             </div>
           </div>
 
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label>Render mode</Label>
+              <Select
+                value={renderMode}
+                onValueChange={(value) =>
+                  setValue("renderMode", value as LeadAutomationTemplateFormValues["renderMode"], {
+                    shouldValidate: true
+                  })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {leadAutomationRenderModeOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {leadAutomationRenderModeOptions.find((option) => option.value === renderMode)?.description ??
+                  "Choose how this template renders."}
+              </p>
+            </div>
+            <div className="rounded-xl border border-border/80 bg-muted/10 px-4 py-3 text-sm text-muted-foreground">
+              {renderMode === "AI_ASSISTED"
+                ? "AI follows the guidance below, then falls back to the saved message if output is risky or unavailable."
+                : "Static mode sends the saved template message as written."}
+            </div>
+          </div>
+
+          {renderMode === "AI_ASSISTED" ? (
+            <div className="space-y-2">
+              <Label htmlFor="automation-template-ai-prompt">AI guidance</Label>
+              <Textarea
+                id="automation-template-ai-prompt"
+                placeholder="Write a short Yelp-thread reply that acknowledges the request, asks for the most useful missing detail, avoids estimates or promises, and keeps the next step inside Yelp."
+                rows={6}
+                {...register("aiPrompt")}
+              />
+              {errors.aiPrompt ? (
+                <p className="text-sm text-destructive">{errors.aiPrompt.message}</p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Tell AI how to respond. Disclosure, risk checks, and fallback still apply automatically.
+                </p>
+              )}
+            </div>
+          ) : null}
+
           {watch("channel") === "EMAIL" ? (
             <div className="space-y-2">
-              <Label htmlFor="automation-template-subject">Email subject</Label>
+              <Label htmlFor="automation-template-subject">
+                {renderMode === "AI_ASSISTED" ? "Fallback email subject" : "Email subject"}
+              </Label>
               <Input id="automation-template-subject" placeholder="Automated message from {{business_name}} via Yelp" {...register("subjectTemplate")} />
-              {errors.subjectTemplate ? <p className="text-sm text-destructive">{errors.subjectTemplate.message}</p> : <p className="text-xs text-muted-foreground">Leave blank to use the default fallback subject.</p>}
+              {errors.subjectTemplate ? (
+                <p className="text-sm text-destructive">{errors.subjectTemplate.message}</p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Leave blank to use the default fallback subject.
+                </p>
+              )}
             </div>
           ) : (
-            <div className="text-xs text-muted-foreground">Yelp thread templates do not use a subject.</div>
+            <div className="text-xs text-muted-foreground">
+              Yelp thread templates do not use a subject.
+            </div>
           )}
 
           <div className="space-y-2">
-            <Label htmlFor="automation-template-body">{watch("channel") === "EMAIL" ? "Email body" : "Yelp thread message"}</Label>
+            <Label htmlFor="automation-template-body">
+              {renderMode === "AI_ASSISTED"
+                ? watch("channel") === "EMAIL"
+                  ? "Fallback email body"
+                  : "Fallback Yelp thread message"
+                : watch("channel") === "EMAIL"
+                  ? "Email body"
+                  : "Yelp thread message"}
+            </Label>
             <Textarea
               id="automation-template-body"
               placeholder={"Automated message from {{business_name}} via Yelp - a team member may follow up with more details.\n\nHi {{customer_name}}, thanks for reaching out about {{service_type}}. Please reply here with any photos, the address, and a short description so we can review the next step."}
               rows={8}
               {...register("bodyTemplate")}
             />
-            {errors.bodyTemplate ? <p className="text-sm text-destructive">{errors.bodyTemplate.message}</p> : null}
+            {errors.bodyTemplate ? (
+              <p className="text-sm text-destructive">{errors.bodyTemplate.message}</p>
+            ) : renderMode === "AI_ASSISTED" ? (
+              <p className="text-xs text-muted-foreground">
+                Used if AI output fails, violates guardrails, or is disabled for this scope.
+              </p>
+            ) : null}
           </div>
 
           <div className="rounded-xl border border-border/80 bg-muted/10 px-4 py-3 text-xs text-muted-foreground">

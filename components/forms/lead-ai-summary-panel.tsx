@@ -96,14 +96,11 @@ export function LeadAiSummaryPanel({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>AI lead summary</CardTitle>
-        <CardDescription>
-          Review-only assist for faster triage. Generated text never changes Yelp-native or partner lifecycle records.
-        </CardDescription>
+        <CardTitle>AI summary</CardTitle>
+        <CardDescription>Review-only triage assist. It never changes Yelp or partner records.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="outline">AI-generated assist</Badge>
           <Badge variant="secondary">Review only</Badge>
           <Badge variant="outline">{modelLabel}</Badge>
         </div>
@@ -201,7 +198,7 @@ export function LeadAiSummaryPanel({
         ) : (
           <div className="space-y-4">
             <div className="rounded-xl border border-border/80 bg-muted/10 px-4 py-3 text-sm text-muted-foreground">
-              Generate a short operator summary for customer intent, thread state, partner lifecycle, missing info, and suggested next steps.
+              Generate a short operator summary for intent, thread state, missing info, and next steps.
             </div>
             <Button disabled={!canGenerate || isGenerating} onClick={() => generate(false)} type="button">
               {isGenerating ? "Generating..." : "Generate summary"}

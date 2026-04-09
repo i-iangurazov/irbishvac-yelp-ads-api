@@ -14,6 +14,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { LeadAutomationTemplateFormValues } from "@/features/autoresponder/schemas";
 import { getLeadAutomationModuleState } from "@/features/autoresponder/service";
+import {
+  humanizeLeadAutomationRenderMode,
+  humanizeLeadAutomationTemplateKind,
+  readLeadAutomationTemplateMetadata
+} from "@/features/autoresponder/template-metadata";
 import { requireUser } from "@/lib/auth/service";
 import { hasPermission } from "@/lib/permissions";
 import { formatDateTime } from "@/lib/utils/format";
@@ -26,39 +31,21 @@ function channelLabel(channel: string | null | undefined) {
   return channel === "EMAIL" ? "Yelp masked email" : "Yelp thread";
 }
 
-function asRecord(value: unknown) {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
 function getTemplateKindLabel(metadataJson: unknown) {
-  const record = asRecord(metadataJson);
-  const value = typeof record?.templateKind === "string" ? record.templateKind : "CUSTOM";
-
-  return value
-    .toLowerCase()
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
+  const metadata = readLeadAutomationTemplateMetadata(metadataJson);
+  return `${humanizeLeadAutomationTemplateKind(metadata.templateKind)} • ${humanizeLeadAutomationRenderMode(metadata.renderMode)}`;
 }
 
 function getTemplateKindValue(metadataJson: unknown): LeadAutomationTemplateFormValues["templateKind"] {
-  const record = asRecord(metadataJson);
-  const value = typeof record?.templateKind === "string" ? record.templateKind : "CUSTOM";
+  return readLeadAutomationTemplateMetadata(metadataJson).templateKind;
+}
 
-  switch (value) {
-    case "ACKNOWLEDGMENT":
-    case "REQUEST_DETAILS":
-    case "AFTER_HOURS":
-    case "CANNOT_ESTIMATE":
-    case "FOLLOW_UP_24H":
-    case "FOLLOW_UP_7D":
-    case "CUSTOM":
-      return value;
-    default:
-      return "CUSTOM";
-  }
+function getTemplateRenderModeValue(metadataJson: unknown): LeadAutomationTemplateFormValues["renderMode"] {
+  return readLeadAutomationTemplateMetadata(metadataJson).renderMode;
+}
+
+function getTemplateAiPromptValue(metadataJson: unknown) {
+  return readLeadAutomationTemplateMetadata(metadataJson).aiPrompt ?? "";
 }
 
 export default async function AutoresponderPage({
@@ -136,7 +123,7 @@ export default async function AutoresponderPage({
               <div className="text-xs text-muted-foreground">{overview.moduleSummary.enabledRuleCount} enabled rules</div>
             </div>
             <div className="space-y-1 xl:pl-4">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Review assist</div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">AI assist</div>
               <div className="text-xl font-semibold tracking-tight">{overview.aiAssist.enabled ? "On" : "Off"}</div>
               <div className="text-xs text-muted-foreground">
                 {overview.aiAssist.envConfigured ? overview.aiAssist.modelLabel : "OpenAI key not configured"}
@@ -215,8 +202,8 @@ export default async function AutoresponderPage({
                 <div className="mt-1 text-xs text-muted-foreground">{overview.operatingMode.scopePolicy}</div>
               </div>
               <div className="rounded-xl border border-border/80 bg-muted/10 p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Fallback + review</div>
-                <div className="mt-2 font-medium">{overview.aiAssist.enabled ? "Review assist enabled" : "Review assist disabled"}</div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Fallback + AI</div>
+                <div className="mt-2 font-medium">{overview.aiAssist.enabled ? "AI assist enabled" : "AI assist disabled"}</div>
                 <div className="mt-1 text-xs text-muted-foreground">{overview.operatingMode.fallbackPolicy}</div>
               </div>
             </CardContent>
@@ -315,7 +302,7 @@ export default async function AutoresponderPage({
                             </div>
                           </TableCell>
                           <TableCell>
-                            <div>{override.aiAssistEnabled ? "Review assist on" : "Review assist off"}</div>
+                            <div>{override.aiAssistEnabled ? "AI assist on" : "AI assist off"}</div>
                             <div className="text-xs text-muted-foreground">{override.aiModelLabel}</div>
                           </TableCell>
                           <TableCell className="text-xs text-muted-foreground">{formatDateTime(override.updatedAt)}</TableCell>
@@ -420,6 +407,8 @@ export default async function AutoresponderPage({
                         businessId: selectedTemplate.businessId ?? "",
                         channel: normalizeAutomationChannel(selectedTemplate.channel),
                         templateKind: getTemplateKindValue(selectedTemplate.metadataJson),
+                        renderMode: getTemplateRenderModeValue(selectedTemplate.metadataJson),
+                        aiPrompt: getTemplateAiPromptValue(selectedTemplate.metadataJson),
                         isEnabled: selectedTemplate.isEnabled,
                         subjectTemplate: selectedTemplate.subjectTemplate ?? "",
                         bodyTemplate: selectedTemplate.bodyTemplate

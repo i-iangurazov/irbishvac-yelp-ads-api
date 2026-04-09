@@ -63,7 +63,7 @@ export function LeadCrmMappingForm({
   });
 
   return (
-    <form className="space-y-4" onSubmit={submit}>
+    <form className="space-y-5" onSubmit={submit}>
       <div className="space-y-2">
         <Label htmlFor="crm-mapping-state">Mapping state</Label>
         <select
@@ -113,8 +113,8 @@ export function LeadCrmMappingForm({
         {errors.issueSummary ? <p className="text-sm text-destructive">{errors.issueSummary.message}</p> : null}
       </div>
 
-      <div className="flex items-center justify-between gap-3 rounded-xl border border-border/80 bg-muted/10 px-4 py-3 text-xs text-muted-foreground">
-        <span>Operator actions save internal mapping records. Yelp-native lead history remains untouched.</span>
+      <div className="flex flex-col gap-3 border-t border-border/70 pt-4 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+        <span>Internal mapping only. Yelp-native lead history stays untouched.</span>
         <Button type="submit" disabled={isSubmitting}>
           {isSubmitting ? "Saving..." : "Save mapping"}
         </Button>

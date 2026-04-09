@@ -71,7 +71,7 @@ export function LeadCrmStatusForm({
   });
 
   return (
-    <form className="space-y-4" onSubmit={submit}>
+    <form className="space-y-5" onSubmit={submit}>
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2">
           <Label htmlFor="crm-status">Partner lifecycle status</Label>
@@ -110,11 +110,11 @@ export function LeadCrmStatusForm({
         />
       </div>
 
-      <div className="flex items-center justify-between gap-3 rounded-xl border border-border/80 bg-muted/10 px-4 py-3 text-xs text-muted-foreground">
+      <div className="flex flex-col gap-3 border-t border-border/70 pt-4 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
         <span>
           {disabled
-            ? "Resolve the CRM mapping before recording partner lifecycle states."
-            : "These statuses are partner-managed outcomes based on the Yelp lead. They render separately from the Yelp timeline."}
+            ? "Resolve CRM mapping before recording partner lifecycle states."
+            : "Partner lifecycle stays separate from the Yelp thread."}
         </span>
         <Button disabled={disabled || isSubmitting} type="submit">
           {isSubmitting ? "Saving..." : "Add status"}

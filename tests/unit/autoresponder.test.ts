@@ -38,6 +38,7 @@ const listDueLeadAutomationAttempts = vi.fn();
 const listRecentLeadAutomationAttempts = vi.fn();
 const claimLeadAutomationAttemptForProcessing = vi.fn();
 const deliverLeadAutomationMessage = vi.fn();
+const generateLeadAutomationAiMessage = vi.fn();
 const recordAuditEvent = vi.fn();
 const getAuditLog = vi.fn();
 const getAiReplyAssistantState = vi.fn();
@@ -80,6 +81,10 @@ vi.mock("@/lib/db/autoresponder-repository", () => ({
 
 vi.mock("@/features/leads/messaging-service", () => ({
   deliverLeadAutomationMessage
+}));
+
+vi.mock("@/features/autoresponder/ai-service", () => ({
+  generateLeadAutomationAiMessage
 }));
 
 vi.mock("@/features/audit/service", () => ({
@@ -419,6 +424,7 @@ describe("autoresponder service", () => {
     listDueLeadAutomationAttempts.mockResolvedValue([]);
     listRecentLeadAutomationAttempts.mockResolvedValue([]);
     claimLeadAutomationAttemptForProcessing.mockResolvedValue(true);
+    generateLeadAutomationAiMessage.mockReset();
     getAiReplyAssistantState.mockResolvedValue({
       envConfigured: true,
       enabled: true,
@@ -569,6 +575,188 @@ describe("autoresponder service", () => {
         status: "SENT",
         providerMetadataJson: expect.objectContaining({
           deliveryChannel: "EMAIL"
+        })
+      })
+    );
+    expect(result).toMatchObject({
+      status: "SENT"
+    });
+  });
+
+  it("uses AI-generated live content when the matched template is AI-assisted", async () => {
+    getSystemSetting.mockResolvedValueOnce({
+      ...baseSettings,
+      defaultChannel: "YELP_THREAD",
+      emailFallbackEnabled: false,
+      aiAssistEnabled: true
+    });
+    listEnabledLeadAutomationRules.mockResolvedValueOnce([
+      {
+        ...baseRule,
+        channel: "YELP_THREAD",
+        template: {
+          ...baseRule.template,
+          subjectTemplate: null,
+          bodyTemplate: "Thanks for contacting {{business_name}} about {{service_type}}.",
+          metadataJson: {
+            templateKind: "ACKNOWLEDGMENT",
+            renderMode: "AI_ASSISTED",
+            aiPrompt: "Write a short helpful Yelp reply."
+          }
+        }
+      }
+    ]);
+    generateLeadAutomationAiMessage.mockResolvedValueOnce({
+      usedAi: true,
+      subject: "Ignored for Yelp thread",
+      body: "Hi Jane, thanks for reaching out. Please reply here with a photo and the address so we can review the next step.",
+      model: "gpt-5-nano",
+      fallbackReason: null,
+      warningCodes: []
+    });
+    createLeadAutomationAttempt.mockResolvedValueOnce({
+      id: "attempt_ai_1",
+      ruleId: "rule_1",
+      templateId: "template_1",
+      channel: "YELP_THREAD",
+      recipient: null
+    });
+    deliverLeadAutomationMessage.mockResolvedValueOnce({
+      status: "SENT",
+      deliveryChannel: "YELP_THREAD",
+      warning: null,
+      error: null
+    });
+    updateLeadAutomationAttempt.mockResolvedValueOnce({
+      id: "attempt_ai_1",
+      status: "SENT",
+      channel: "YELP_THREAD",
+      recipient: null,
+      ruleId: "rule_1",
+      templateId: "template_1",
+      providerStatus: "sent",
+      providerMetadataJson: {
+        contentSource: "AI",
+        deliveryChannel: "YELP_THREAD",
+        aiModel: "gpt-5-nano"
+      }
+    });
+
+    const { processLeadAutoresponderForNewLead } = await import("@/features/autoresponder/service");
+    const result = await processLeadAutoresponderForNewLead("tenant_1", "lead_local_1");
+
+    expect(generateLeadAutomationAiMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: "YELP_THREAD",
+        guidance: "Write a short helpful Yelp reply.",
+        model: "gpt-5-nano"
+      })
+    );
+    expect(createLeadAutomationAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        renderedBody:
+          "Automated message from Northwind HVAC via Yelp - a team member may follow up with more details.\n\nHi Jane, thanks for reaching out. Please reply here with a photo and the address so we can review the next step."
+      })
+    );
+    expect(deliverLeadAutomationMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: "YELP_THREAD",
+        renderedBody:
+          "Automated message from Northwind HVAC via Yelp - a team member may follow up with more details.\n\nHi Jane, thanks for reaching out. Please reply here with a photo and the address so we can review the next step."
+      })
+    );
+    expect(updateLeadAutomationAttempt).toHaveBeenCalledWith(
+      "attempt_ai_1",
+      expect.objectContaining({
+        providerMetadataJson: expect.objectContaining({
+          contentSource: "AI",
+          deliveryChannel: "YELP_THREAD",
+          aiModel: "gpt-5-nano"
+        })
+      })
+    );
+    expect(result).toMatchObject({
+      status: "SENT"
+    });
+  });
+
+  it("falls back to the saved template when live AI generation is unavailable or rejected", async () => {
+    getSystemSetting.mockResolvedValueOnce({
+      ...baseSettings,
+      defaultChannel: "YELP_THREAD",
+      emailFallbackEnabled: false,
+      aiAssistEnabled: true
+    });
+    listEnabledLeadAutomationRules.mockResolvedValueOnce([
+      {
+        ...baseRule,
+        channel: "YELP_THREAD",
+        template: {
+          ...baseRule.template,
+          subjectTemplate: null,
+          bodyTemplate: "Thanks for contacting {{business_name}} about {{service_type}}.",
+          metadataJson: {
+            templateKind: "ACKNOWLEDGMENT",
+            renderMode: "AI_ASSISTED",
+            aiPrompt: "Write a short helpful Yelp reply."
+          }
+        }
+      }
+    ]);
+    generateLeadAutomationAiMessage.mockResolvedValueOnce({
+      usedAi: false,
+      subject: "",
+      body: "Thanks for contacting Northwind HVAC about HVAC Repair.",
+      model: "gpt-5-nano",
+      fallbackReason: "AI_REQUEST_FAILED",
+      warningCodes: []
+    });
+    createLeadAutomationAttempt.mockResolvedValueOnce({
+      id: "attempt_ai_fallback_1",
+      ruleId: "rule_1",
+      templateId: "template_1",
+      channel: "YELP_THREAD",
+      recipient: null
+    });
+    deliverLeadAutomationMessage.mockResolvedValueOnce({
+      status: "SENT",
+      deliveryChannel: "YELP_THREAD",
+      warning: null,
+      error: null
+    });
+    updateLeadAutomationAttempt.mockResolvedValueOnce({
+      id: "attempt_ai_fallback_1",
+      status: "SENT",
+      channel: "YELP_THREAD",
+      recipient: null,
+      ruleId: "rule_1",
+      templateId: "template_1",
+      providerStatus: "sent",
+      providerMetadataJson: {
+        contentSource: "TEMPLATE_FALLBACK",
+        fallbackReason: "AI_REQUEST_FAILED",
+        deliveryChannel: "YELP_THREAD",
+        aiModel: "gpt-5-nano"
+      }
+    });
+
+    const { processLeadAutoresponderForNewLead } = await import("@/features/autoresponder/service");
+    const result = await processLeadAutoresponderForNewLead("tenant_1", "lead_local_1");
+
+    expect(createLeadAutomationAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        renderedBody:
+          "Automated message from Northwind HVAC via Yelp - a team member may follow up with more details.\n\nThanks for contacting Northwind HVAC about HVAC Repair."
+      })
+    );
+    expect(updateLeadAutomationAttempt).toHaveBeenCalledWith(
+      "attempt_ai_fallback_1",
+      expect.objectContaining({
+        providerMetadataJson: expect.objectContaining({
+          contentSource: "TEMPLATE_FALLBACK",
+          fallbackReason: "AI_REQUEST_FAILED",
+          deliveryChannel: "YELP_THREAD",
+          aiModel: "gpt-5-nano"
         })
       })
     );
@@ -975,6 +1163,8 @@ describe("autoresponder service", () => {
       businessId: "business_1",
       channel: "YELP_THREAD",
       templateKind: "CANNOT_ESTIMATE",
+      renderMode: "AI_ASSISTED",
+      aiPrompt: "Tell AI to explain that an exact estimate is not available yet.",
       isEnabled: true,
       bodyTemplate: "We cannot give an exact quote yet."
     });
@@ -984,7 +1174,9 @@ describe("autoresponder service", () => {
       expect.objectContaining({
         businessId: "business_1",
         metadataJson: expect.objectContaining({
-          templateKind: "CANNOT_ESTIMATE"
+          templateKind: "CANNOT_ESTIMATE",
+          renderMode: "AI_ASSISTED",
+          aiPrompt: "Tell AI to explain that an exact estimate is not available yet."
         })
       })
     );
