@@ -37,11 +37,13 @@ export function LeadAutomationTemplateForm({
   initialValues,
   templateId,
   businesses,
+  canDelete = false,
   returnPath = "/autoresponder" as Route
 }: {
   initialValues?: Partial<LeadAutomationTemplateFormValues> | null;
   templateId?: string | null;
   businesses: Array<{ id: string; name: string; yelpBusinessId: string | null }>;
+  canDelete?: boolean;
   returnPath?: Route;
 }) {
   const router = useRouter();
@@ -98,6 +100,31 @@ export function LeadAutomationTemplateForm({
       toast.error(error instanceof Error ? error.message : "Unable to save automation template.");
     }
   });
+
+  const removeTemplate = async () => {
+    if (!canDelete || !templateId) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Delete this template? Any rules that still depend on it will also be removed."
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await apiFetch(`/api/settings/autoresponder/templates/${templateId}`, {
+        method: "DELETE"
+      });
+      toast.success("Automation template deleted.");
+      router.replace(returnPath);
+      router.refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to delete automation template.");
+    }
+  };
 
   return (
     <Card>
@@ -287,6 +314,11 @@ export function LeadAutomationTemplateForm({
             {isEditing ? (
               <Button onClick={() => router.replace(returnPath)} type="button" variant="outline">
                 Cancel
+              </Button>
+            ) : null}
+            {canDelete ? (
+              <Button onClick={removeTemplate} type="button" variant="destructive">
+                Delete template
               </Button>
             ) : null}
           </div>

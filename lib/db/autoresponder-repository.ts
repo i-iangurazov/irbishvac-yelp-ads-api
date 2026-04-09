@@ -74,6 +74,12 @@ export async function updateLeadAutomationTemplate(
   });
 }
 
+export async function deleteLeadAutomationTemplate(templateId: string) {
+  return prisma.leadAutomationTemplate.delete({
+    where: { id: templateId }
+  });
+}
+
 export async function listLeadAutomationRules(tenantId: string) {
   return prisma.leadAutomationRule.findMany({
     where: { tenantId },
@@ -156,6 +162,12 @@ export async function updateLeadAutomationRule(
   return prisma.leadAutomationRule.update({
     where: { id: ruleId },
     data
+  });
+}
+
+export async function deleteLeadAutomationRule(ruleId: string) {
+  return prisma.leadAutomationRule.delete({
+    where: { id: ruleId }
   });
 }
 

@@ -20,8 +20,10 @@ const listLeadAutomationOptions = vi.fn();
 const listLeadAutomationBusinessOverrides = vi.fn();
 const createLeadAutomationTemplate = vi.fn();
 const updateLeadAutomationTemplate = vi.fn();
+const deleteLeadAutomationTemplate = vi.fn();
 const createLeadAutomationRule = vi.fn();
 const updateLeadAutomationRule = vi.fn();
+const deleteLeadAutomationRule = vi.fn();
 const upsertLeadAutomationBusinessOverride = vi.fn();
 const deleteLeadAutomationBusinessOverride = vi.fn();
 const getLeadAutomationBusinessOverrideByBusinessId = vi.fn();
@@ -60,8 +62,10 @@ vi.mock("@/lib/db/autoresponder-repository", () => ({
   listLeadAutomationBusinessOverrides,
   createLeadAutomationTemplate,
   updateLeadAutomationTemplate,
+  deleteLeadAutomationTemplate,
   createLeadAutomationRule,
   updateLeadAutomationRule,
+  deleteLeadAutomationRule,
   upsertLeadAutomationBusinessOverride,
   deleteLeadAutomationBusinessOverride,
   getLeadAutomationBusinessOverrideByBusinessId,
@@ -1205,6 +1209,47 @@ describe("autoresponder service", () => {
         workingDays: [1, 2, 3, 4, 5]
       })
     ).rejects.toThrow("Template scope does not match the selected Yelp business.");
+  });
+
+  it("deletes an automation template through the workflow layer", async () => {
+    getLeadAutomationTemplateById.mockResolvedValueOnce({
+      id: "template_1",
+      businessId: "business_1",
+      name: "Acknowledgment",
+      channel: "YELP_THREAD",
+      isEnabled: true
+    });
+    deleteLeadAutomationTemplate.mockResolvedValueOnce({
+      id: "template_1"
+    });
+
+    const { deleteLeadAutomationTemplateWorkflow } = await import("@/features/autoresponder/service");
+    const result = await deleteLeadAutomationTemplateWorkflow("tenant_1", "user_1", "template_1");
+
+    expect(deleteLeadAutomationTemplate).toHaveBeenCalledWith("template_1");
+    expect(result).toEqual({
+      deleted: true
+    });
+  });
+
+  it("deletes an automation rule through the workflow layer", async () => {
+    getLeadAutomationRuleById.mockResolvedValueOnce({
+      id: "rule_1",
+      businessId: "business_1",
+      name: "Initial response",
+      templateId: "template_1"
+    });
+    deleteLeadAutomationRule.mockResolvedValueOnce({
+      id: "rule_1"
+    });
+
+    const { deleteLeadAutomationRuleWorkflow } = await import("@/features/autoresponder/service");
+    const result = await deleteLeadAutomationRuleWorkflow("tenant_1", "user_1", "rule_1");
+
+    expect(deleteLeadAutomationRule).toHaveBeenCalledWith("rule_1");
+    expect(result).toEqual({
+      deleted: true
+    });
   });
 
   it("builds module state for the dedicated autoresponder page", async () => {

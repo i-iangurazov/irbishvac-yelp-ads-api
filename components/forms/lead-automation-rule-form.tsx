@@ -65,6 +65,7 @@ export function LeadAutomationRuleForm({
   businesses,
   locations,
   serviceCategories,
+  canDelete = false,
   returnPath = "/autoresponder" as Route
 }: {
   initialValues?: Partial<LeadAutomationRuleFormValues> | null;
@@ -80,6 +81,7 @@ export function LeadAutomationRuleForm({
   businesses: Array<{ id: string; name: string; yelpBusinessId: string | null }>;
   locations: Array<{ id: string; name: string }>;
   serviceCategories: Array<{ id: string; name: string }>;
+  canDelete?: boolean;
   returnPath?: Route;
 }) {
   const router = useRouter();
@@ -199,6 +201,31 @@ export function LeadAutomationRuleForm({
       toast.error(error instanceof Error ? error.message : "Unable to save automation rule.");
     }
   });
+
+  const removeRule = async () => {
+    if (!canDelete || !ruleId) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Delete this rule? Existing attempt history stays recorded, but this rule will no longer evaluate."
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await apiFetch(`/api/settings/autoresponder/rules/${ruleId}`, {
+        method: "DELETE"
+      });
+      toast.success("Automation rule deleted.");
+      router.replace(returnPath);
+      router.refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to delete automation rule.");
+    }
+  };
 
   return (
     <Card>
@@ -402,6 +429,11 @@ export function LeadAutomationRuleForm({
             {isEditing ? (
               <Button onClick={() => router.replace(returnPath)} type="button" variant="outline">
                 Cancel
+              </Button>
+            ) : null}
+            {canDelete ? (
+              <Button onClick={removeRule} type="button" variant="destructive">
+                Delete rule
               </Button>
             ) : null}
           </div>

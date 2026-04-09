@@ -400,6 +400,7 @@ export default async function AutoresponderPage({
             {canManage ? (
               <LeadAutomationTemplateForm
                 businesses={businessOptions}
+                canDelete={Boolean(selectedTemplate)}
                 initialValues={
                   selectedTemplate
                     ? {
@@ -487,6 +488,7 @@ export default async function AutoresponderPage({
                 </Card>
               ) : (
                 <LeadAutomationRuleForm
+                  canDelete={Boolean(selectedRule)}
                   initialValues={
                     selectedRule
                       ? {

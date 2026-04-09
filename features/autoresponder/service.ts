@@ -39,6 +39,8 @@ import { deliverLeadAutomationMessage } from "@/features/leads/messaging-service
 import {
   createLeadAutomationAttempt,
   claimLeadAutomationAttemptForProcessing,
+  deleteLeadAutomationRule,
+  deleteLeadAutomationTemplate,
   deleteLeadAutomationBusinessOverride,
   createLeadAutomationRule,
   getLeadAutomationBusinessAttemptHealth,
@@ -954,6 +956,34 @@ export async function updateLeadAutomationTemplateWorkflow(
   return saved;
 }
 
+export async function deleteLeadAutomationTemplateWorkflow(
+  tenantId: string,
+  actorId: string,
+  templateId: string
+) {
+  const existing = await getLeadAutomationTemplateById(tenantId, templateId);
+
+  if (!existing) {
+    throw new YelpValidationError("Lead automation template not found.");
+  }
+
+  await deleteLeadAutomationTemplate(templateId);
+
+  await recordAuditEvent({
+    tenantId,
+    actorId,
+    businessId: existing.businessId ?? undefined,
+    actionType: "settings.lead-automation-template.delete",
+    status: "SUCCESS",
+    before: toJsonValue(existing),
+    after: toJsonValue({})
+  });
+
+  return {
+    deleted: true
+  };
+}
+
 export async function createLeadAutomationRuleWorkflow(
   tenantId: string,
   actorId: string,
@@ -1070,6 +1100,34 @@ export async function updateLeadAutomationRuleWorkflow(
   });
 
   return saved;
+}
+
+export async function deleteLeadAutomationRuleWorkflow(
+  tenantId: string,
+  actorId: string,
+  ruleId: string
+) {
+  const existing = await getLeadAutomationRuleById(tenantId, ruleId);
+
+  if (!existing) {
+    throw new YelpValidationError("Lead automation rule not found.");
+  }
+
+  await deleteLeadAutomationRule(ruleId);
+
+  await recordAuditEvent({
+    tenantId,
+    actorId,
+    businessId: existing.businessId ?? undefined,
+    actionType: "settings.lead-automation-rule.delete",
+    status: "SUCCESS",
+    before: toJsonValue(existing),
+    after: toJsonValue({})
+  });
+
+  return {
+    deleted: true
+  };
 }
 
 export async function processLeadAutoresponderForNewLead(tenantId: string, leadId: string) {
