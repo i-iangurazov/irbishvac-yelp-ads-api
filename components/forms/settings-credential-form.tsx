@@ -49,6 +49,13 @@ const credentialInstructions: Record<
       "Use the username and secret Yelp issued for Data Ingestion. Save this only if Yelp has enabled ingestion for this tenant.",
     baseUrlNote:
       "Keep the default base URL unless Yelp gave you a tenant-specific ingestion host."
+  },
+  CRM_SERVICETITAN: {
+    source: "ServiceTitan customer admin or integration owner.",
+    howToGet:
+      "Use the ServiceTitan connector workflow on the Integrations page for live setup. This generic Settings form is not the primary path for ServiceTitan.",
+    baseUrlNote:
+      "Use the dedicated Integrations page so environment, tenant ID, app key, and auth host stay aligned."
   }
 };
 

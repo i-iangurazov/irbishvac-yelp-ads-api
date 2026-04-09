@@ -12,6 +12,8 @@ import {
 import { requestYelp } from "@/lib/yelp/base-client";
 import type { YelpCredentialConfig } from "@/lib/yelp/runtime";
 
+const YELP_LEAD_IDS_MAX_LIMIT = 20;
+
 export class YelpLeadsClient {
   constructor(private readonly credential: YelpCredentialConfig) {}
 
@@ -88,7 +90,12 @@ export class YelpLeadsClient {
     });
   }
 
-  async getBusinessLeadIds(businessId: string, options?: { limit?: number }) {
+  async getBusinessLeadIds(businessId: string, options?: { limit?: number; offset?: number }) {
+    const limit =
+      typeof options?.limit === "number"
+        ? Math.max(1, Math.min(Math.trunc(options.limit), YELP_LEAD_IDS_MAX_LIMIT))
+        : undefined;
+
     return requestYelp({
       credential: this.credential,
       authType: "bearer",
@@ -96,7 +103,8 @@ export class YelpLeadsClient {
         businessId
       }),
       query: {
-        ...(options?.limit ? { limit: options.limit } : {})
+        ...(limit ? { limit } : {}),
+        ...(options?.offset ? { offset: options.offset } : {})
       },
       schema: yelpBusinessLeadIdsResponseSchema
     });

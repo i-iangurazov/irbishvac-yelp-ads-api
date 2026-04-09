@@ -1,5 +1,7 @@
 import type { LeadAutomationAttemptStatus, LeadAutomationSkipReason } from "@prisma/client";
 
+import { humanizeLeadAutomationCadence } from "@/features/autoresponder/logic";
+
 function asRecord(value: unknown) {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -20,7 +22,7 @@ function getDeliveredChannelLabel(providerMetadataJson: unknown, requestedChanne
   }
 
   if (deliveredChannel === "EMAIL") {
-    return "External email";
+    return "Yelp masked email";
   }
 
   return null;
@@ -42,6 +44,16 @@ function humanizeSkipReason(reason: LeadAutomationSkipReason | null) {
       return "Channel unsupported";
     case "DUPLICATE":
       return "Duplicate prevented";
+    case "FOLLOW_UP_DISABLED":
+      return "Follow-up disabled";
+    case "CUSTOMER_REPLIED":
+      return "Customer already replied";
+    case "HUMAN_TAKEOVER":
+      return "Team member already took over";
+    case "LIFECYCLE_STOPPED":
+      return "Partner lifecycle stopped follow-up";
+    case "MISSING_THREAD_CONTEXT":
+      return "Missing safe Yelp thread context";
     default:
       return null;
   }
@@ -50,6 +62,7 @@ function humanizeSkipReason(reason: LeadAutomationSkipReason | null) {
 export function buildLeadAutomationSummary(
   attempt:
     | {
+        cadence?: "INITIAL" | "FOLLOW_UP_24H" | "FOLLOW_UP_7D" | null;
         status: LeadAutomationAttemptStatus;
         recipient?: string | null;
         errorSummary?: string | null;
@@ -57,27 +70,30 @@ export function buildLeadAutomationSummary(
         template?: { name: string } | null;
         channel?: string | null;
         providerMetadataJson?: unknown;
+        dueAt?: Date | null;
       }
     | null
 ) {
   if (!attempt) {
     return {
       status: "NOT_TRIGGERED" as const,
-      message: "No first-response attempt recorded yet."
+      message: "No automation attempt recorded yet."
     };
   }
+
+  const cadenceLabel = humanizeLeadAutomationCadence(attempt.cadence ?? "INITIAL");
 
   if (attempt.status === "FAILED") {
     return {
       status: attempt.status,
-      message: attempt.errorSummary ?? "Delivery failed."
+      message: attempt.errorSummary ?? `${cadenceLabel} failed.`
     };
   }
 
   if (attempt.status === "SKIPPED") {
     return {
       status: attempt.status,
-      message: humanizeSkipReason(attempt.skipReason ?? null) ?? "Delivery skipped."
+      message: humanizeSkipReason(attempt.skipReason ?? null) ?? `${cadenceLabel} skipped.`
     };
   }
 
@@ -91,24 +107,30 @@ export function buildLeadAutomationSummary(
       status: attempt.status,
       message:
         deliveredChannel === "Yelp thread"
-          ? "Posted in Yelp thread."
+          ? `${cadenceLabel} posted in Yelp thread.`
           : attempt.recipient
-            ? `Sent by email to ${attempt.recipient}`
+            ? `${cadenceLabel} sent to ${attempt.recipient} by Yelp masked email`
             : deliveredChannel
-              ? `${deliveredChannel} sent.`
-              : "Message sent."
+              ? `${cadenceLabel} sent by ${deliveredChannel.toLowerCase()}.`
+              : `${cadenceLabel} sent.`
     };
   }
 
   return {
     status: attempt.status,
-    message: attempt.template?.name ? `Using ${attempt.template.name}` : "Delivery pending."
+    message:
+      attempt.dueAt && attempt.cadence && attempt.cadence !== "INITIAL"
+        ? `${cadenceLabel} scheduled.`
+        : attempt.template?.name
+          ? `${cadenceLabel} using ${attempt.template.name}`
+          : `${cadenceLabel} pending.`
   };
 }
 
 export function buildLeadAutomationHistory(
   attempts: Array<{
     id: string;
+    cadence?: "INITIAL" | "FOLLOW_UP_24H" | "FOLLOW_UP_7D" | null;
     status: LeadAutomationAttemptStatus;
     skipReason: LeadAutomationSkipReason | null;
     channel: string | null;
@@ -120,6 +142,7 @@ export function buildLeadAutomationHistory(
     providerMetadataJson: unknown;
     errorSummary: string | null;
     triggeredAt: Date;
+    dueAt?: Date | null;
     startedAt: Date | null;
     completedAt: Date | null;
     template?: { id: string; name: string } | null;
@@ -135,6 +158,8 @@ export function buildLeadAutomationHistory(
     .sort((left, right) => left.triggeredAt.getTime() - right.triggeredAt.getTime())
     .map((attempt) => ({
       id: attempt.id,
+      cadence: attempt.cadence ?? "INITIAL",
+      cadenceLabel: humanizeLeadAutomationCadence(attempt.cadence ?? "INITIAL"),
       status: attempt.status,
       skipReason: attempt.skipReason,
       skipReasonLabel: humanizeSkipReason(attempt.skipReason),
@@ -151,6 +176,7 @@ export function buildLeadAutomationHistory(
         attempt.channel
       ),
       triggeredAt: attempt.triggeredAt,
+      dueAt: attempt.dueAt ?? null,
       startedAt: attempt.startedAt,
       completedAt: attempt.completedAt,
       templateName: attempt.template?.name ?? null,

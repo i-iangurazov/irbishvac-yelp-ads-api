@@ -19,6 +19,20 @@ export async function listReportSchedules(tenantId: string) {
   });
 }
 
+export async function listReportScheduleLocations(tenantId: string) {
+  return prisma.location.findMany({
+    where: {
+      tenantId,
+      isActive: true
+    },
+    select: {
+      id: true,
+      name: true
+    },
+    orderBy: [{ name: "asc" }]
+  });
+}
+
 export async function getReportScheduleById(id: string, tenantId: string) {
   return prisma.reportSchedule.findFirstOrThrow({
     where: { id, tenantId },
@@ -160,7 +174,8 @@ export async function listRecentReportScheduleRuns(tenantId: string, take = 20) 
           name: true,
           cadence: true,
           timezone: true,
-          deliverPerLocation: true
+          deliverPerLocation: true,
+          deliveryScope: true
         }
       },
       location: {

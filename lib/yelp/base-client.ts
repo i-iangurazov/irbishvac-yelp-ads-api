@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 import { fetchWithRetry } from "@/lib/utils/fetch";
-import { logInfo } from "@/lib/utils/logging";
+import { logError, logInfo } from "@/lib/utils/logging";
 import { normalizeYelpError, YelpApiError, YelpUpstreamUnavailableError } from "@/lib/yelp/errors";
 import type { YelpCredentialConfig } from "@/lib/yelp/runtime";
 
@@ -63,6 +63,21 @@ function buildAuthHeaders(authType: YelpRequestOptions<z.ZodTypeAny>["authType"]
   };
 }
 
+function resolveApiFamily(pathname: string) {
+  if (
+    pathname.startsWith("/v3/leads") ||
+    /^\/v3\/businesses\/[^/]+\/lead_ids$/.test(pathname)
+  ) {
+    return "leads.api_requests";
+  }
+
+  if (pathname.startsWith("/v1/reporting") || pathname.startsWith("/v1/reports")) {
+    return "reporting.api_requests";
+  }
+
+  return "yelp.api_requests";
+}
+
 export async function requestYelp<TSchema extends z.ZodTypeAny>({
   credential,
   method = "GET",
@@ -75,11 +90,14 @@ export async function requestYelp<TSchema extends z.ZodTypeAny>({
   headers
 }: YelpRequestOptions<TSchema>) {
   const url = buildUrl(credential.baseUrl, path, query);
+  const startedAt = Date.now();
+  const apiFamily = resolveApiFamily(url.pathname);
 
   logInfo("yelp.request", {
     method,
     url: url.toString(),
-    correlationId
+    correlationId,
+    apiFamily
   });
 
   const response = await fetchWithRetry(url, {
@@ -97,8 +115,30 @@ export async function requestYelp<TSchema extends z.ZodTypeAny>({
   });
 
   if (!response.ok) {
-    throw await normalizeYelpError(response);
+    const normalized = await normalizeYelpError(response);
+
+    logError("yelp.request.failed", {
+      method,
+      url: url.toString(),
+      correlationId,
+      apiFamily,
+      status: response.status,
+      durationMs: Date.now() - startedAt,
+      code: normalized.code,
+      message: normalized.message
+    });
+
+    throw normalized;
   }
+
+  logInfo("yelp.request.completed", {
+    method,
+    url: url.toString(),
+    correlationId,
+    apiFamily,
+    status: response.status,
+    durationMs: Date.now() - startedAt
+  });
 
   if (!schema) {
     return {

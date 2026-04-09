@@ -1,0 +1,1 @@
+ALTER TYPE "LeadAutomationChannel" ADD VALUE IF NOT EXISTS 'PHONE';

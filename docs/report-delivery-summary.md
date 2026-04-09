@@ -2,101 +2,94 @@
 
 ## What Was Implemented
 
-- Added recurring report schedules with persisted configuration:
-  - weekly and monthly cadence
-  - timezone-aware send timing
-  - recipient lists
-  - enabled / disabled state
-  - optional per-location delivery fan-out
-- Added persisted report delivery runs:
-  - generation status
-  - delivery status
-  - reporting window
-  - scope (`ACCOUNT` or `LOCATION`)
-  - dashboard URL
-  - generated summary payload
-  - error summary and raw error JSON
-  - timestamps for generation and delivery
-- Extended the internal reconcile flow so it now:
-  - enqueues due schedules
-  - reuses the current Yelp report request and polling workflow
-  - hydrates ready runs from the current reporting aggregation layer
-  - sends pending deliveries when SMTP is configured
-- Added SMTP-based email delivery using environment variables:
-  - summary email body
-  - dashboard link
-  - CSV attachment
-- Added focused admin UI inside the existing Reporting module:
-  - schedule list
-  - create / edit form
-  - recent delivery runs
-  - generate-now control
-  - resend control
-- Kept source boundaries explicit in generated output:
-  - Yelp-native delayed batch metrics
-  - internal-derived CRM lead and outcome metrics
-- Kept unknown and unmapped buckets visible in the generated reporting payloads and CSV outputs.
+Recurring report delivery was already live in the repo. This pass aligned it with the richer grouped reporting output instead of rebuilding the scheduling system.
 
-## Assumptions
+Implemented in this pass:
 
-- Weekly schedules generate the previous 7 complete days ending the day before the scheduled send time.
-- Monthly schedules generate the previous full calendar month.
-- Schedules operate at the tenant account level.
-- When `deliverPerLocation` is enabled and location rows exist, the account run becomes the generation anchor and location-scoped runs become the deliverable emails.
-- SMTP is environment-level in this slice, not tenant-configurable from the admin UI.
-- The current report request pipeline remains the source for Yelp batch generation. This slice does not introduce a separate analytics job system.
+- delivery summaries now carry the fuller grouped metric set in [features/report-delivery/service.ts](/Users/ilias_iangurazov/Commercial/irbishvac-yelp-ads-api/features/report-delivery/service.ts) and [features/report-delivery/email.ts](/Users/ilias_iangurazov/Commercial/irbishvac-yelp-ads-api/features/report-delivery/email.ts)
+  - mapped leads
+  - active
+  - contacted
+  - booked
+  - scheduled
+  - job in progress
+  - completed
+  - won
+  - lost
+  - mapping / booked / scheduled / completion / win rates
+  - CPL
+  - cost per booked lead
+  - cost per completed job
+- delivery CSV rows now preserve source clarity with scoped column names
+- grouped location and service breakdown rows included in delivery summaries now carry the richer partner lifecycle fields too
 
-## Limitations
+## What Is Now Truly Live
 
-- PDF delivery is still out of scope.
-- Recipients are shared for all per-location fan-out emails in a schedule.
-- Schedule editing does not attempt to rewrite already-created historical runs.
-- If SMTP is missing, runs still generate and remain visible, but delivery fails explicitly.
-- The system does not yet expose a dedicated “preview email” surface.
-- Location fan-out depends on the current mapped reporting breakdown. Unknown location remains a first-class bucket instead of being dropped.
+These capabilities are live and persisted:
 
-## Manual QA Steps
+- weekly schedules
+- monthly schedules
+- timezone-aware send timing
+- recipient list management
+- enabled / disabled schedules
+- recent run history
+- sent / failed / pending visibility
+- manual generate now
+- manual resend for ready runs
+- account delivery with optional per-location fan-out
+- email summary plus CSV attachment when SMTP is configured
 
-1. Apply migrations and seed or log into an environment with at least one saved business and at least one ready report request path.
-2. Open `/reporting` and confirm the new recurring delivery section is visible.
-3. Create a weekly schedule with:
-   - valid timezone
-   - one or more recipients
-   - delivery enabled
-4. Confirm the schedule appears in the list with:
-   - readable cadence/timing
-   - recipient count
-   - active status
-5. Click `Generate now`.
-6. Confirm a recent delivery run appears with:
-   - correct reporting window
-   - `REQUESTED` or `PROCESSING` generation state first
-   - eventual `READY` generation state once the report is available
-7. If SMTP is configured:
+## What Remains Intentionally Out Of Scope
+
+- PDF delivery
+- client self-serve delivery management
+- tenant-specific SMTP credentials in the UI
+- separate recipient routing by location or service
+- a campaign-style automation builder
+
+## Assumptions and Limitations
+
+1. The scheduling model remains account-level.
+   - `deliverPerLocation` fans out delivery runs from the same account report window.
+
+2. Delivery still depends on the same honest reporting boundaries:
+   - Yelp-native delayed batch metrics
+   - partner lifecycle metrics from internal systems
+   - derived conversion metrics
+
+3. If SMTP is missing, generation can still succeed.
+   - delivery fails explicitly and remains visible in run history.
+
+4. Service-level spend remains conservative in delivery output too.
+   - if the saved Yelp payload cannot be mapped safely, service spend remains in `Unknown service`.
+
+## Exact Manual QA Steps
+
+1. Open `/reporting`.
+2. Create or edit a weekly or monthly schedule.
+3. Confirm the schedule appears in the recurring delivery list with readable cadence, recipient count, and enabled state.
+4. Click `Generate now`.
+5. Confirm a run appears in recent delivery runs.
+6. Wait for the underlying Yelp batch to reach `READY`.
+7. Confirm the run summary now includes the richer grouped metrics.
+8. If SMTP is configured:
    - confirm the run reaches `SENT`
-   - confirm the email contains:
+   - confirm the email shows:
      - spend
-     - leads
-     - booked / scheduled / job in progress / completed
+     - lead intake
+     - mapped / active / contacted / booked / scheduled / in progress / completed / won / lost
+     - conversion rates
      - source boundary language
      - dashboard link
      - CSV attachment
-8. If SMTP is not configured:
-   - confirm the run reaches `FAILED`
-   - confirm the error explains the missing SMTP configuration
-9. Create a schedule with `Per-location delivery` enabled and generate it.
-10. Confirm:
-    - the account run is used for generation
-    - location-scoped child runs are created when mapped location data exists
-    - unknown location remains visible when data is unmapped
-11. Use the `Resend` action on a `READY` run and confirm delivery state updates again.
-12. Open `/audit` and confirm report schedule create/generate/deliver events are visible.
+9. If `Per-location delivery` is enabled:
+   - confirm location runs are created
+   - confirm unknown location remains visible when relevant
+10. Use `Resend` on a ready run and confirm delivery state updates again.
 
-## Recommended Future Enhancements
+## Verification
 
-- Recipient routing by location or client contact group
-- Preview-before-send workflow
-- PDF rendering when a stable export pattern exists
-- Delivery throttling / batching controls
-- Better tenant-facing SMTP diagnostics in Settings
-- Explicit run filtering on the Reporting page for account-only vs location-only delivery records
+Validated with:
+
+- `pnpm test tests/unit/reporting-breakdowns.test.ts tests/unit/report-delivery.test.ts tests/integration/report-export-route.test.ts`
+- `pnpm typecheck`

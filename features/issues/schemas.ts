@@ -19,3 +19,31 @@ export const operatorIssueResolutionSchema = z.object({
 export const operatorIssueNoteSchema = z.object({
   note: z.string().trim().min(2).max(1000)
 });
+
+const operatorIssueIdsSchema = z.array(z.string().trim().min(1)).min(1).max(100);
+
+export const operatorIssueBulkActionSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("retry"),
+    issueIds: operatorIssueIdsSchema
+  }),
+  z.object({
+    action: z.literal("resolve"),
+    issueIds: operatorIssueIdsSchema,
+    reason: operatorIssueResolutionSchema.shape.reason,
+    note: operatorIssueResolutionSchema.shape.note
+  }),
+  z.object({
+    action: z.literal("ignore"),
+    issueIds: operatorIssueIdsSchema,
+    reason: operatorIssueResolutionSchema.shape.reason,
+    note: operatorIssueResolutionSchema.shape.note
+  }),
+  z.object({
+    action: z.literal("note"),
+    issueIds: operatorIssueIdsSchema,
+    note: operatorIssueNoteSchema.shape.note
+  })
+]);
+
+export type OperatorIssueBulkActionInput = z.infer<typeof operatorIssueBulkActionSchema>;

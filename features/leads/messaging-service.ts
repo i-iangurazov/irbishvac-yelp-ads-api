@@ -2,8 +2,9 @@ import "server-only";
 
 import type { LeadAutomationChannel } from "@prisma/client";
 
+import { canUseAiReplyAssistant } from "@/features/leads/ai-reply-service";
 import { recordAuditEvent } from "@/features/audit/service";
-import { leadReplyFormSchema } from "@/features/leads/schemas";
+import { leadMarkRepliedSchema, leadReplyFormSchema } from "@/features/leads/schemas";
 import { syncLeadSnapshotFromYelp } from "@/features/leads/yelp-sync";
 import { sendLeadAutomationEmail } from "@/features/autoresponder/email";
 import {
@@ -61,7 +62,9 @@ function getLatestUnreadEventId(lead: Awaited<ReturnType<typeof getLeadRecordByI
 function getLatestSuccessfulOutboundChannel(lead: Awaited<ReturnType<typeof getLeadRecordById>>) {
   return (
     lead.conversationActions.find(
-      (action) => action.actionType === "SEND_MESSAGE" && action.status === "SENT"
+      (action) =>
+        action.status === "SENT" &&
+        (action.actionType === "SEND_MESSAGE" || action.actionType === "MARK_REPLIED")
     )?.channel ?? null
   );
 }
@@ -232,32 +235,37 @@ async function sendLeadReplyInYelpThread(params: {
   }
 }
 
-async function markLeadAsRepliedAfterExternalReply(params: {
+async function markLeadAsRepliedOnYelp(params: {
   tenantId: string;
   lead: Awaited<ReturnType<typeof getLeadRecordById>>;
   actorId?: string | null;
   initiator: "AUTOMATION" | "OPERATOR";
   automationAttemptId?: string | null;
+  replyType: "EMAIL" | "PHONE";
   providerMetadataJson?: Record<string, unknown> | null;
 }) {
+  const actionChannel = params.replyType === "PHONE" ? "PHONE" : "EMAIL";
   const action = await createLeadConversationAction({
     tenantId: params.tenantId,
     leadId: params.lead.id,
     automationAttemptId: params.automationAttemptId ?? null,
     actorId: params.actorId ?? null,
     initiator: params.initiator,
-    channel: "EMAIL",
+    channel: actionChannel,
     actionType: "MARK_REPLIED",
     status: "PENDING",
     startedAt: new Date(),
-    providerMetadataJson: params.providerMetadataJson ?? null
+    providerMetadataJson: {
+      replyType: params.replyType,
+      ...(params.providerMetadataJson ?? {})
+    }
   });
 
   try {
     const { credential } = await ensureYelpLeadsAccess(params.tenantId);
     const client = new YelpLeadsClient(credential);
     const response = await client.markLeadAsReplied(params.lead.externalLeadId, {
-      reply_type: "EMAIL"
+      reply_type: params.replyType
     });
     const refreshWarning = await tryRefreshLeadFromYelp({
       tenantId: params.tenantId,
@@ -269,6 +277,7 @@ async function markLeadAsRepliedAfterExternalReply(params: {
       status: "SENT",
       providerStatus: "sent",
       providerMetadataJson: {
+        replyType: params.replyType,
         correlationId: response.correlationId,
         ...(params.providerMetadataJson ?? {}),
         ...(refreshWarning ? { refreshWarning } : {})
@@ -286,7 +295,10 @@ async function markLeadAsRepliedAfterExternalReply(params: {
     const saved = await updateLeadConversationAction(action.id, {
       status: "FAILED",
       providerStatus: "failed",
-      providerMetadataJson: params.providerMetadataJson ?? null,
+      providerMetadataJson: {
+        replyType: params.replyType,
+        ...(params.providerMetadataJson ?? {})
+      },
       errorSummary: normalized.message,
       completedAt: new Date()
     });
@@ -375,12 +387,13 @@ async function sendLeadReplyByEmail(params: {
       },
       completedAt: new Date()
     });
-    const markReplied = await markLeadAsRepliedAfterExternalReply({
+    const markReplied = await markLeadAsRepliedOnYelp({
       tenantId: params.tenantId,
       lead: params.lead,
       actorId: params.actorId ?? null,
       initiator: params.initiator,
       automationAttemptId: params.automationAttemptId ?? null,
+      replyType: "EMAIL",
       providerMetadataJson: {
         linkedSendActionId: sentAction.id
       }
@@ -391,7 +404,7 @@ async function sendLeadReplyByEmail(params: {
         status: "PARTIAL" as const,
         action: sentAction,
         markAction: markReplied.action,
-        warning: "External email sent, but Yelp could not be marked as replied.",
+        warning: "Yelp masked email sent, but Yelp could not be marked as replied.",
         error: markReplied.error
       };
     }
@@ -471,9 +484,40 @@ export async function sendLeadReplyWorkflow(
       error:
         result.status === "FAILED" || result.status === "PARTIAL"
           ? result.error?.message ?? null
+          : null,
+      aiDraft:
+        values.aiDraft
+          ? {
+              requestId: values.aiDraft.requestId,
+              draftId: values.aiDraft.draftId,
+              edited: values.aiDraft.edited,
+              warningCodes: values.aiDraft.warningCodes
+            }
           : null
     })
   });
+
+  if (values.aiDraft) {
+    await recordAuditEvent({
+      tenantId,
+      actorId,
+      businessId: lead.business?.id ?? lead.businessId ?? undefined,
+      actionType: "lead.reply.ai-draft.send",
+      status: "SUCCESS",
+      correlationId: values.aiDraft.requestId,
+      upstreamReference: lead.externalLeadId,
+      requestSummary: toJsonValue({
+        channel: values.channel,
+        draftId: values.aiDraft.draftId,
+        edited: values.aiDraft.edited,
+        warningCodes: values.aiDraft.warningCodes
+      }),
+      responseSummary: toJsonValue({
+        actionId: result.action.id,
+        status: result.status
+      })
+    });
+  }
 
   if (result.status === "FAILED") {
     throw result.error;
@@ -590,6 +634,57 @@ export async function markLeadAsReadWorkflow(tenantId: string, actorId: string, 
   }
 }
 
+export async function markLeadAsRepliedWorkflow(
+  tenantId: string,
+  actorId: string,
+  leadId: string,
+  input: unknown
+) {
+  const values = leadMarkRepliedSchema.parse(input);
+  const lead = await getLeadRecordById(tenantId, leadId);
+  const result = await markLeadAsRepliedOnYelp({
+    tenantId,
+    lead,
+    actorId,
+    initiator: "OPERATOR",
+    replyType: values.replyType
+  });
+
+  await recordAuditEvent({
+    tenantId,
+    actorId,
+    businessId: lead.business?.id ?? lead.businessId ?? undefined,
+    actionType: "lead.reply.mark-replied",
+    status: result.status === "FAILED" ? "FAILED" : "SUCCESS",
+    correlationId: result.action.id,
+    upstreamReference: lead.externalLeadId,
+    requestSummary: toJsonValue({
+      replyType: values.replyType
+    }),
+    responseSummary: toJsonValue({
+      warning: "warning" in result ? result.warning ?? null : null,
+      error: result.status === "FAILED" ? result.error.message : null
+    })
+  });
+
+  if (result.status === "FAILED") {
+    throw result.error;
+  }
+
+  logInfo("lead.reply.mark_replied", {
+    tenantId,
+    leadId,
+    actionId: result.action.id,
+    replyType: values.replyType
+  });
+
+  return {
+    status: result.status,
+    replyType: values.replyType,
+    warning: "warning" in result ? result.warning ?? null : null
+  };
+}
+
 export async function deliverLeadAutomationMessage(params: {
   tenantId: string;
   actorId?: string | null;
@@ -599,6 +694,7 @@ export async function deliverLeadAutomationMessage(params: {
   renderedSubject: string;
   renderedBody: string;
   recipient: string | null;
+  allowEmailFallback?: boolean;
 }) {
   const lead = await getLeadRecordById(params.tenantId, params.leadId);
 
@@ -621,7 +717,11 @@ export async function deliverLeadAutomationMessage(params: {
       };
     }
 
-    if (!shouldFallbackFromYelpThread(primary.error) || !getLeadMaskedEmail(lead)) {
+    if (
+      params.allowEmailFallback === false ||
+      !shouldFallbackFromYelpThread(primary.error) ||
+      !getLeadMaskedEmail(lead)
+    ) {
       return {
         status: "FAILED" as const,
         deliveryChannel: "YELP_THREAD" as const,
@@ -658,7 +758,7 @@ export async function deliverLeadAutomationMessage(params: {
       deliveryChannel: "EMAIL" as const,
       warning:
         fallback.status === "PARTIAL"
-          ? fallback.warning ?? "External email sent, but Yelp was not marked as replied."
+          ? fallback.warning ?? "Yelp masked email sent, but Yelp was not marked as replied."
           : fallback.warning ?? null,
       error: fallback.status === "PARTIAL" ? fallback.error ?? null : null
     };
@@ -688,7 +788,7 @@ export async function deliverLeadAutomationMessage(params: {
     deliveryChannel: "EMAIL" as const,
     warning:
       result.status === "PARTIAL"
-        ? result.warning ?? "External email sent, but Yelp was not marked as replied."
+        ? result.warning ?? "Yelp masked email sent, but Yelp was not marked as replied."
         : result.warning ?? null,
     error: result.status === "PARTIAL" ? result.error ?? null : null
   };
@@ -698,24 +798,32 @@ export async function getLeadReplyComposerState(tenantId: string, leadId: string
   const lead = await getLeadRecordById(tenantId, leadId);
   const maskedEmail = getLeadMaskedEmail(lead);
   let canUseYelpThread = true;
+  let canMarkAsReplied = true;
 
   try {
     await ensureYelpLeadsAccess(tenantId);
   } catch {
     canUseYelpThread = false;
+    canMarkAsReplied = false;
   }
 
   const canUseEmail = Boolean(maskedEmail) && isSmtpConfigured();
   const latestOutboundChannel = getLatestSuccessfulOutboundChannel(lead);
+  const preferredReplyChannel =
+    latestOutboundChannel === "YELP_THREAD" || latestOutboundChannel === "EMAIL"
+      ? latestOutboundChannel
+      : null;
 
   return {
     canUseYelpThread,
     canUseEmail,
+    canGenerateAiDrafts: await canUseAiReplyAssistant(tenantId, lead.businessId ?? lead.business?.id ?? null),
     defaultChannel:
-      latestOutboundChannel ??
+      preferredReplyChannel ??
       (canUseYelpThread ? "YELP_THREAD" : canUseEmail ? "EMAIL" : null),
     latestOutboundChannel,
     maskedEmail,
-    canMarkAsRead: Boolean(getLatestUnreadEventId(lead))
+    canMarkAsRead: Boolean(getLatestUnreadEventId(lead)),
+    canMarkAsReplied
   };
 }

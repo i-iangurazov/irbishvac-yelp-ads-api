@@ -3,12 +3,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Route } from "next";
-import { BarChart3, Building2, FileStack, Home, Inbox, MapPinned, Megaphone, PlugZap, Settings, Shield, Wrench } from "lucide-react";
+import { BarChart3, Building2, FileStack, Home, Inbox, MapPinned, Megaphone, MessageSquare, PlugZap, Settings, Shield, Wrench } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils/cn";
 
-const primaryNavigation: Array<{
+export const primaryNavigation: Array<{
   id: string;
   href: Route;
   label: string;
@@ -16,6 +16,7 @@ const primaryNavigation: Array<{
 }> = [
   { id: "dashboard", href: "/dashboard", label: "Dashboard", icon: Home },
   { id: "leads", href: "/leads", label: "Leads", icon: Inbox },
+  { id: "autoresponder", href: "/autoresponder", label: "Autoresponder", icon: MessageSquare },
   { id: "businesses", href: "/businesses", label: "Businesses", icon: Building2 },
   { id: "programs", href: "/programs", label: "Programs", icon: Megaphone },
   { id: "reporting", href: "/reporting", label: "Reporting", icon: BarChart3 },

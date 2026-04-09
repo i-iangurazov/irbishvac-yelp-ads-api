@@ -1,149 +1,123 @@
 # Report Delivery Plan
 
-## Current Reporting Foundation
+## Current Foundation
 
-- The current reporting stack already supports:
-  - manual report requests
-  - Yelp batch polling
-  - persisted `ReportRequest` and `ReportResult`
-  - raw combined payload export
-  - location and service breakdowns on top of saved report data plus lead/CRM outcome data
-- The reporting pipeline is honest about delayed Yelp data and keeps internal-derived metrics separate.
-- There is already an internal cron endpoint at `/api/internal/reconcile` that processes:
-  - pending program jobs
-  - pending Yelp reports
-- The app does **not** yet have:
-  - recurring schedule models
-  - persisted delivery runs
-  - email delivery infrastructure
-  - admin controls for scheduled deliveries
+Recurring delivery is already live in the repo.
 
-## Schedule Model
+Current components:
 
-### New schedule record
+- `ReportSchedule` for persisted schedule configuration
+- `ReportScheduleRun` for persisted generation and delivery history
+- schedule calculation helpers for weekly and monthly windows
+- internal reconcile processing for:
+  - due schedules
+  - pending generation
+  - pending delivery
+- SMTP email delivery with dashboard link and CSV attachment
+- admin UI on `/reporting` for:
+  - listing schedules
+  - editing schedules
+  - viewing recent runs
+  - generating now
+  - resending ready runs
 
-- Add `ReportSchedule` with:
-  - `tenantId`
-  - `name`
-  - `cadence` = `WEEKLY` or `MONTHLY`
-  - `timezone`
-  - `sendDayOfWeek` for weekly schedules
-  - `sendDayOfMonth` for monthly schedules
-  - `sendHour`
-  - `sendMinute`
-  - `deliverPerLocation`
-  - `recipientEmailsJson`
-  - `isEnabled`
-  - `lastTriggeredAt`
-  - `lastSuccessfulGenerationAt`
-  - `lastSuccessfulDeliveryAt`
-- Keep schedules account-level.
-  - `deliverPerLocation=true` means the same account run fans out into location-scoped delivery records.
+## What Is Already Trustworthy
 
-### New run record
+The following behavior is already real:
 
-- Add `ReportScheduleRun` with:
-  - `scheduleId`
-  - `tenantId`
-  - optional `reportRequestId`
-  - optional `locationId`
-  - `scope` = `ACCOUNT` or `LOCATION`
-  - `windowStart`
-  - `windowEnd`
-  - `scheduledFor`
-  - `generationStatus`
-  - `deliveryStatus`
-  - `recipientEmailsJson`
-  - `dashboardUrl`
-  - `errorSummary`
-  - `errorJson`
-  - timestamps for generation and delivery
-- One schedule execution may create:
-  - one account-level run
-  - zero or more per-location runs when `deliverPerLocation` is enabled
+- weekly and monthly cadence
+- timezone-aware send timing
+- recipient lists
+- enabled / disabled schedules
+- account-level runs with optional per-location fan-out
+- persisted generation state and delivery state
+- recent run visibility
+- resend / regenerate actions
+- audit logging for schedule create, generate, and deliver actions
 
-## Generation Flow
+## Gaps Remaining
 
-### Due schedule processing
+The remaining work is not structural. It is about making delivery output match the richer reporting model.
 
-- Extend the internal reconcile workflow to process due report schedules.
-- Due detection will be timezone-aware and based on:
-  - cadence
-  - configured send day
-  - configured send time
-  - whether a run already exists for the same window and scope
+Gaps:
 
-### Window calculation
+- delivery summaries still use a reduced metric set
+- CSV attachment rows need stronger source-scoped metric naming
+- delivery summaries should carry the richer grouped partner lifecycle metrics now available:
+  - active
+  - contacted
+  - won
+  - lost
+  - mapping rate
+  - booked rate
+  - scheduled rate
+  - completion rate
+  - win rate
 
-- Weekly schedules:
-  - generate the previous 7 complete days ending the day before the scheduled send time
-- Monthly schedules:
-  - generate the previous full calendar month
-- These assumptions are explicit and will be documented in the summary and UI copy.
+## Generation Flow To Preserve
 
-### Report generation
+This pass should keep the current operator-grade generation path:
 
-- For each due schedule:
-  - create or reuse a `ReportRequest` over the current business set for the tenant
-  - persist `ReportScheduleRun` rows immediately with generation status
-  - let the existing report polling flow bring the underlying `ReportRequest` to `READY`
-- Once the underlying report is ready:
-  - build the account delivery payload from the existing reporting aggregation layer
-  - if `deliverPerLocation` is enabled, build one filtered location delivery per mapped location plus `Unknown location` if data exists there
+1. due schedule is detected
+2. account-level report request is enqueued against the saved Yelp reporting pipeline
+3. saved report is polled until ready
+4. grouped breakdowns are computed from:
+   - saved Yelp batch data
+   - partner lifecycle lead data
+5. one account run or multiple location runs are hydrated
+6. ready runs send email plus CSV attachment
 
-## Delivery Flow
+## Delivery Output Requirements
 
-### Transport
+Generated content must continue to label:
 
-- Add SMTP-based email delivery using environment variables, not admin-stored secrets in this slice.
-- If SMTP is not configured:
-  - schedules and runs still exist
-  - generation can succeed
-  - delivery fails explicitly with a visible configuration error
-- Delivery email will include:
-  - summary text
-  - dashboard link
-  - CSV attachment
+- Yelp-native delayed batch metrics
+- partner lifecycle metrics
+- derived conversion metrics
 
-### Output contents
+Generated content should include where supported:
 
-- Include where data exists:
-  - Yelp-native spend
-  - internal-derived leads
-  - cost per lead
-  - booked
-  - scheduled
-  - job in progress
-  - completed
-  - conversion rate
-  - location breakdown
-  - service breakdown
-  - unknown/unmapped buckets
-- Every delivery must clearly label:
-  - Yelp-native metrics
-  - internal-derived metrics
+- spend
+- lead intake
+- mapped leads
+- active
+- contacted
+- booked
+- scheduled
+- job in progress
+- completed
+- won
+- lost
+- mapping rate
+- booked rate
+- scheduled rate
+- completion rate
+- win rate
+- CPL
+- cost per booked lead
+- cost per completed job
+- location breakdown
+- service breakdown
+- unknown / unmapped buckets
 
-## Admin UX
+## Admin UX To Preserve
 
-- Keep the UI inside the existing Reporting module.
-- Add a focused admin section with:
-  - schedule list
-  - create/edit schedule form
-  - recent run table
-  - delivery state visibility
-  - recipient visibility
-  - manual regenerate action
-  - manual resend action
-- Keep it dense and operator/admin-oriented.
+No new portal or campaign builder is needed.
 
-## Assumptions and Limits
+Keep:
 
-1. This slice reuses the existing report generation pipeline.
-   - it does not introduce a new analytics backend
-2. Schedules are account-level.
-   - per-location delivery is derived from the same account report
-3. Service-level spend stays subject to the same honesty rule as the current breakdown view.
-   - if the saved Yelp payload does not carry a safely mappable service key, spend remains in `Unknown service`
-4. SMTP config is environment-level for now.
-   - tenant-by-tenant email credentials are out of scope
-5. PDF delivery remains out of scope in this slice.
+- concise schedule list
+- focused schedule form
+- recent run history
+- visible sent / failed / pending states
+- manual generate / resend actions
+
+## Manual QA Strategy
+
+1. Open `/reporting` and confirm schedules and recent runs still render.
+2. Create or edit a weekly schedule.
+3. Generate a run manually.
+4. Verify the run moves through generation states correctly.
+5. If SMTP is configured, verify the delivered email and CSV attachment include the richer grouped metrics.
+6. Verify location fan-out still works when `Per-location delivery` is enabled.
+7. Verify failures remain visible when SMTP or recipient setup is invalid.

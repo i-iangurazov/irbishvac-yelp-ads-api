@@ -5,7 +5,7 @@ import { testCredentialConnection } from "@/features/settings/service";
 import { handleRouteError, requireApiPermission } from "@/lib/utils/http";
 
 const schema = z.object({
-  kind: z.enum(["ADS_BASIC_AUTH", "REPORTING_FUSION", "BUSINESS_MATCH", "DATA_INGESTION"])
+  kind: z.enum(["ADS_BASIC_AUTH", "REPORTING_FUSION", "BUSINESS_MATCH", "DATA_INGESTION", "CRM_SERVICETITAN"])
 });
 
 export async function POST(request: Request) {

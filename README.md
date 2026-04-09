@@ -136,6 +136,14 @@ pnpm prisma:migrate:dev
 pnpm prisma:generate
 ```
 
+Fresh-database verification:
+
+```bash
+VERIFY_POSTGRES_URL=postgresql://postgres:postgres@localhost:5432/postgres?sslmode=disable pnpm prisma:verify:fresh
+```
+
+This creates a throwaway database, runs `prisma migrate deploy`, and if Prisma CLI still fails, replays the raw SQL migration files so you can separate a Prisma schema-engine issue from a broken SQL migration chain.
+
 ## Testing
 
 Unit and integration:
@@ -169,6 +177,7 @@ pnpm build
 - Use PostgreSQL in the target environment.
 - Set strong production values for `SESSION_SECRET` and `APP_ENCRYPTION_KEY`.
 - Set a strong `CRON_SECRET` and keep an external scheduler enabled for `/api/internal/reconcile`.
+- Keep the dedicated follow-up worker scheduled as well at `/api/internal/autoresponder/followups`.
 - Save credentials per tenant through the admin UI after deployment.
 - Keep all Yelp credentials server-side only.
 - Review audit logs regularly for destructive actions and failed jobs.
@@ -178,6 +187,7 @@ pnpm build
 - This repository includes [`.github/workflows/reconcile.yml`](/Users/ilias_iangurazov/Commercial/irbishvac-yelp-ads-api/.github/workflows/reconcile.yml) to call the internal reconcile endpoint every 5 minutes from GitHub Actions.
 - Configure these GitHub repository secrets:
   - `RECONCILE_URL`: your deployed URL plus `/api/internal/reconcile`
+  - `AUTORESPONDER_FOLLOWUPS_URL`: optional explicit URL for `/api/internal/autoresponder/followups` if it does not share the same base URL
   - `CRON_SECRET`: the same value configured in Vercel
 
 ## Known live-account TODOs

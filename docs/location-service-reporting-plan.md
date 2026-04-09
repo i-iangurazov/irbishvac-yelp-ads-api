@@ -1,111 +1,131 @@
 # Location and Service Reporting Plan
 
-## Current State
+## Current Reporting State
 
-- The reporting index and detail pages are still centered on raw Yelp batch requests and saved payloads.
-- `ReportRequest` and `ReportResult` are operational, but the current detail view only renders:
-  - combined Yelp totals
-  - a generic trend chart
-  - a raw row table
-  - CSV export of the raw combined payload
-- The schema already has the dimensions needed for real grouping:
-  - `Business.locationId`
-  - `YelpLead.locationId`
-  - `YelpLead.serviceCategoryId`
-  - `YelpReportingSnapshot.locationId`
-  - `YelpReportingSnapshot.serviceCategoryId`
-- The current live pipeline does **not** populate `YelpReportingSnapshot`, so the active reporting slice still depends on `ReportResult`.
-- CRM enrichment now provides:
-  - resolved/unresolved mapping state
-  - `YelpLead.internalStatus`
-  - internal lifecycle status history
-- Service mapping is still sparse.
-  - We can only group by `serviceCategoryId` when it is explicitly set.
-  - Unmapped leads must stay visible in an explicit unknown bucket.
+The reporting stack is already operational, but it is uneven.
 
-## What This Slice Will Add
+Live today:
 
-### 1. Reporting dimensions
-
-- Use real dimensions only:
-  - location from `Business.locationId` and `YelpLead.locationId`
-  - service from `YelpLead.serviceCategoryId`
-- Add explicit unknown buckets:
+- `ReportRequest` and `ReportResult` persist delayed Yelp reporting batches.
+- `/reporting` supports manual report requests and recurring delivery administration.
+- `/reporting/[reportId]` already supports:
+  - a saved Yelp batch detail view
+  - grouped breakdowns by `location` and `service`
+  - filtered CSV export for grouped views
+- Grouped reporting already combines:
+  - Yelp-native spend from saved report payloads
+  - partner lifecycle outcomes from `YelpLead` + `CrmLeadMapping` + current internal status
+- Unknown buckets are already preserved for:
   - `Unknown location`
   - `Unknown service`
-- Never drop unmapped data from grouped views.
 
-### 2. Aggregation model
+## What Is Already Trustworthy
 
-- Build a reporting aggregation helper on top of:
-  - the selected `ReportRequest` / `ReportResult` set for Yelp spend
-  - `YelpLead` + CRM mapping/outcome state for internal metrics
-- Scope internal metrics to leads created inside the selected reporting window.
-- Treat internal outcomes as a lead cohort view:
-  - total leads
+These metrics are already grounded in real data:
+
+- Yelp-native:
+  - delayed batch spend
+  - lead-intake counts from persisted `YelpLead.createdAtYelp`
+- Partner lifecycle:
   - mapped leads
   - booked
   - scheduled
+  - job in progress
   - completed
+- Derived:
   - close rate
-- Add cost metrics where spend exists:
   - cost per lead
   - cost per booked job
   - cost per completed job
 
-### 3. Spend allocation rules
+## Current Dimension Coverage
 
-- Location spend:
-  - group Yelp spend by the business-to-location mapping when available
-  - otherwise place it in `Unknown location`
-- Service spend:
-  - use explicit service dimension rows only if the saved Yelp payload already contains a service key we can map safely
-  - otherwise keep Yelp spend in `Unknown service`
-- Do **not** distribute business-level Yelp spend across services heuristically.
+### Location
 
-## UI Changes
+Location grouping is based on real mappings already in the repo:
 
-- Extend the existing report detail route instead of adding new pages.
-- Add:
-  - a breakdown view switch: `By location` / `By service`
-  - filter controls for:
-    - date range within the report window
-    - location
-    - service category
-  - operator tables for the grouped rows
-  - filtered CSV export
-- Keep the existing honest reporting language:
-  - Yelp batch data is delayed
-  - internal outcome metrics are internal-derived
-  - unknown buckets are visible when mappings are missing
+- `YelpLead.locationId`
+- fallback to `Business.locationId`
+- report payload business-to-location association for spend rows
 
-## Backend Changes
+This is good enough for live operator reporting as long as unmapped businesses stay visible in `Unknown location`.
 
-- Add report breakdown filter parsing.
-- Add repository reads for:
-  - report detail
-  - location options
-  - service category options
-  - leads inside the report window and business scope
-- Add pure aggregation helpers for:
-  - grouped location rows
-  - grouped service rows
-  - totals and percentages
-  - filtered CSV shaping
+### Service
 
-## Tests
+Service grouping is based on:
 
-- Add tests for:
-  - grouping by location
-  - grouping by service
-  - unknown/unmapped bucket handling
-  - cost metric calculations
-  - filtered CSV export rows
+- `YelpLead.serviceCategoryId` for intake and lifecycle metrics
+- safe mapping from saved Yelp payload row keys for service-level spend when present
 
-## Explicit Boundaries
+This is intentionally conservative. If the saved Yelp batch does not carry a safely mappable service dimension, spend must stay in `Unknown service`.
 
-- This slice will not:
-  - create a new executive dashboard
-  - fake service-level Yelp spend where the payload is not mapped
-  - introduce location/service nav sections
-  - redesign the reporting module beyond the breakdown tables and filters
+## Gaps Remaining
+
+The missing pieces are mostly about breadth and clarity, not architecture.
+
+Current gaps:
+
+- grouped rows do not yet carry the full partner lifecycle set:
+  - `active`
+  - `contacted`
+  - `won`
+  - `lost`
+- grouped conversion rates are still too narrow
+- grouped CSV headers do not explain source boundaries strongly enough by name
+- the grouped table is still wider and thinner than it should be for operator scanning
+- delivery summaries should reuse the richer grouped metrics instead of a reduced subset
+
+## Handling Unknown / Unmapped Data
+
+Unknown data will remain explicit everywhere.
+
+- location:
+  - if neither the lead nor the business can resolve to a location, the row stays in `Unknown location`
+- service:
+  - if no service category is mapped on the lead, the row stays in `Unknown service`
+  - if the Yelp payload spend row cannot be mapped safely to a service, spend stays in `Unknown service`
+- export:
+  - unknown rows remain in the CSV
+- delivery:
+  - unknown rows remain in generated summaries instead of being dropped
+
+## UI Changes Needed
+
+The reporting UI does not need a redesign. It needs a tighter grouped operator view.
+
+Planned changes:
+
+- keep `/reporting` as the admin/operator entry point
+- keep `/reporting/[reportId]` as the working surface
+- expand grouped metrics to show:
+  - intake totals
+  - mapping coverage
+  - partner lifecycle coverage
+  - derived rates
+  - cost metrics
+- reduce spreadsheet-like column sprawl by using denser grouped cells
+- keep source/freshness language short:
+  - Yelp spend = delayed batch data
+  - outcomes = partner lifecycle data
+
+## Delivery Foundation That Can Be Reused
+
+The recurring delivery slice is already built and reusable:
+
+- `ReportSchedule`
+- `ReportScheduleRun`
+- generation in the internal reconcile flow
+- SMTP email delivery
+- CSV attachment generation
+- resend / regenerate actions
+
+This pass should not rebuild delivery. It should feed better grouped reporting into the existing delivery pipeline.
+
+## Manual QA Strategy
+
+1. Open an existing ready report at `/reporting/[reportId]`.
+2. Verify both `By location` and `By service` views render grouped rows.
+3. Verify unknown buckets remain visible when mappings are missing.
+4. Apply date, location, and service filters and verify totals and CSV export stay aligned.
+5. Confirm grouped rows show Yelp-native spend separately from partner lifecycle outcomes.
+6. Generate a recurring report and verify the summary email / CSV uses the same grouped metrics and labels.

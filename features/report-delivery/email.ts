@@ -13,10 +13,19 @@ export type ReportDeliverySummary = {
     yelpSpendCents: number;
     totalLeads: number;
     mappedLeads: number;
+    active: number;
+    contacted: number;
     booked: number;
     scheduled: number;
     jobInProgress: number;
     completed: number;
+    won: number;
+    lost: number;
+    mappingRate: number;
+    bookedRate: number;
+    scheduledRate: number;
+    completionRate: number;
+    winRate: number;
     closeRate: number;
     costPerLeadCents: number | null;
     costPerBookedJobCents: number | null;
@@ -26,10 +35,20 @@ export type ReportDeliverySummary = {
     bucketId: string;
     bucketLabel: string;
     totalLeads: number;
+    mappedLeads: number;
+    active: number;
+    contacted: number;
     booked: number;
     scheduled: number;
     jobInProgress: number;
     completed: number;
+    won: number;
+    lost: number;
+    mappingRate: number;
+    bookedRate: number;
+    scheduledRate: number;
+    completionRate: number;
+    winRate: number;
     closeRate: number;
     yelpSpendCents: number;
   }>;
@@ -37,10 +56,20 @@ export type ReportDeliverySummary = {
     bucketId: string;
     bucketLabel: string;
     totalLeads: number;
+    mappedLeads: number;
+    active: number;
+    contacted: number;
     booked: number;
     scheduled: number;
     jobInProgress: number;
     completed: number;
+    won: number;
+    lost: number;
+    mappingRate: number;
+    bookedRate: number;
+    scheduledRate: number;
+    completionRate: number;
+    winRate: number;
     closeRate: number;
     yelpSpendCents: number;
   }>;
@@ -68,14 +97,23 @@ export function buildReportDeliveryCsv(summary: ReportDeliverySummary) {
       yelpSpendCents: summary.totals.yelpSpendCents,
       totalLeads: summary.totals.totalLeads,
       mappedLeads: summary.totals.mappedLeads,
+      active: summary.totals.active,
+      contacted: summary.totals.contacted,
       booked: summary.totals.booked,
       scheduled: summary.totals.scheduled,
       jobInProgress: summary.totals.jobInProgress,
       completed: summary.totals.completed,
+      won: summary.totals.won,
+      lost: summary.totals.lost,
+      mappingRatePct: summary.totals.mappingRate,
+      bookedRatePct: summary.totals.bookedRate,
+      scheduledRatePct: summary.totals.scheduledRate,
+      completionRatePct: summary.totals.completionRate,
+      winRatePct: summary.totals.winRate,
       closeRatePct: summary.totals.closeRate,
-      costPerLeadCents: summary.totals.costPerLeadCents ?? "",
-      costPerBookedJobCents: summary.totals.costPerBookedJobCents ?? "",
-      costPerCompletedJobCents: summary.totals.costPerCompletedJobCents ?? "",
+      derivedCostPerLeadCents: summary.totals.costPerLeadCents ?? "",
+      derivedCostPerBookedLeadCents: summary.totals.costPerBookedJobCents ?? "",
+      derivedCostPerCompletedJobCents: summary.totals.costPerCompletedJobCents ?? "",
       sourceYelp: summary.sourceLabels.yelp,
       sourceInternal: summary.sourceLabels.internal
     }
@@ -88,15 +126,24 @@ export function buildReportDeliveryCsv(summary: ReportDeliverySummary) {
       window: summary.windowLabel,
       yelpSpendCents: row.yelpSpendCents,
       totalLeads: row.totalLeads,
-      mappedLeads: "",
+      mappedLeads: row.mappedLeads,
+      active: row.active,
+      contacted: row.contacted,
       booked: row.booked,
       scheduled: row.scheduled,
       jobInProgress: row.jobInProgress,
       completed: row.completed,
+      won: row.won,
+      lost: row.lost,
+      mappingRatePct: row.mappingRate,
+      bookedRatePct: row.bookedRate,
+      scheduledRatePct: row.scheduledRate,
+      completionRatePct: row.completionRate,
+      winRatePct: row.winRate,
       closeRatePct: row.closeRate,
-      costPerLeadCents: "",
-      costPerBookedJobCents: "",
-      costPerCompletedJobCents: "",
+      derivedCostPerLeadCents: "",
+      derivedCostPerBookedLeadCents: "",
+      derivedCostPerCompletedJobCents: "",
       sourceYelp: summary.sourceLabels.yelp,
       sourceInternal: summary.sourceLabels.internal
     });
@@ -109,15 +156,24 @@ export function buildReportDeliveryCsv(summary: ReportDeliverySummary) {
       window: summary.windowLabel,
       yelpSpendCents: row.yelpSpendCents,
       totalLeads: row.totalLeads,
-      mappedLeads: "",
+      mappedLeads: row.mappedLeads,
+      active: row.active,
+      contacted: row.contacted,
       booked: row.booked,
       scheduled: row.scheduled,
       jobInProgress: row.jobInProgress,
       completed: row.completed,
+      won: row.won,
+      lost: row.lost,
+      mappingRatePct: row.mappingRate,
+      bookedRatePct: row.bookedRate,
+      scheduledRatePct: row.scheduledRate,
+      completionRatePct: row.completionRate,
+      winRatePct: row.winRate,
       closeRatePct: row.closeRate,
-      costPerLeadCents: "",
-      costPerBookedJobCents: "",
-      costPerCompletedJobCents: "",
+      derivedCostPerLeadCents: "",
+      derivedCostPerBookedLeadCents: "",
+      derivedCostPerCompletedJobCents: "",
       sourceYelp: summary.sourceLabels.yelp,
       sourceInternal: summary.sourceLabels.internal
     });
@@ -138,13 +194,22 @@ export function buildReportDeliveryEmail(summary: ReportDeliverySummary) {
     `Spend: ${formatCurrency(summary.totals.yelpSpendCents)}`,
     `Leads: ${summary.totals.totalLeads}`,
     `Mapped leads: ${summary.totals.mappedLeads}`,
+    `Active: ${summary.totals.active}`,
+    `Contacted: ${summary.totals.contacted}`,
     `Booked: ${summary.totals.booked}`,
     `Scheduled: ${summary.totals.scheduled}`,
     `Job in progress: ${summary.totals.jobInProgress}`,
     `Completed: ${summary.totals.completed}`,
+    `Won: ${summary.totals.won}`,
+    `Lost: ${summary.totals.lost}`,
+    `Mapping rate: ${summary.totals.mappingRate}%`,
+    `Booked rate: ${summary.totals.bookedRate}%`,
+    `Scheduled rate: ${summary.totals.scheduledRate}%`,
+    `Completion rate: ${summary.totals.completionRate}%`,
+    `Win rate: ${summary.totals.winRate}%`,
     `Close rate: ${summary.totals.closeRate}%`,
     `Cost per lead: ${nullishCurrency(summary.totals.costPerLeadCents)}`,
-    `Cost per booked job: ${nullishCurrency(summary.totals.costPerBookedJobCents)}`,
+    `Cost per booked lead: ${nullishCurrency(summary.totals.costPerBookedJobCents)}`,
     `Cost per completed job: ${nullishCurrency(summary.totals.costPerCompletedJobCents)}`,
     "",
     `Dashboard link: ${summary.dashboardUrl}`
@@ -162,12 +227,20 @@ export function buildReportDeliveryEmail(summary: ReportDeliverySummary) {
           <tr><td style="padding:6px 0"><strong>Spend</strong></td><td style="padding:6px 0">${formatCurrency(summary.totals.yelpSpendCents)}</td></tr>
           <tr><td style="padding:6px 0"><strong>Leads</strong></td><td style="padding:6px 0">${summary.totals.totalLeads}</td></tr>
           <tr><td style="padding:6px 0"><strong>Mapped leads</strong></td><td style="padding:6px 0">${summary.totals.mappedLeads}</td></tr>
+          <tr><td style="padding:6px 0"><strong>Active</strong></td><td style="padding:6px 0">${summary.totals.active}</td></tr>
+          <tr><td style="padding:6px 0"><strong>Contacted</strong></td><td style="padding:6px 0">${summary.totals.contacted}</td></tr>
           <tr><td style="padding:6px 0"><strong>Booked</strong></td><td style="padding:6px 0">${summary.totals.booked}</td></tr>
           <tr><td style="padding:6px 0"><strong>Scheduled</strong></td><td style="padding:6px 0">${summary.totals.scheduled}</td></tr>
           <tr><td style="padding:6px 0"><strong>Job in progress</strong></td><td style="padding:6px 0">${summary.totals.jobInProgress}</td></tr>
           <tr><td style="padding:6px 0"><strong>Completed</strong></td><td style="padding:6px 0">${summary.totals.completed}</td></tr>
+          <tr><td style="padding:6px 0"><strong>Won</strong></td><td style="padding:6px 0">${summary.totals.won}</td></tr>
+          <tr><td style="padding:6px 0"><strong>Lost</strong></td><td style="padding:6px 0">${summary.totals.lost}</td></tr>
+          <tr><td style="padding:6px 0"><strong>Booked rate</strong></td><td style="padding:6px 0">${summary.totals.bookedRate}%</td></tr>
+          <tr><td style="padding:6px 0"><strong>Completion rate</strong></td><td style="padding:6px 0">${summary.totals.completionRate}%</td></tr>
+          <tr><td style="padding:6px 0"><strong>Win rate</strong></td><td style="padding:6px 0">${summary.totals.winRate}%</td></tr>
           <tr><td style="padding:6px 0"><strong>Close rate</strong></td><td style="padding:6px 0">${summary.totals.closeRate}%</td></tr>
           <tr><td style="padding:6px 0"><strong>Cost per lead</strong></td><td style="padding:6px 0">${nullishCurrency(summary.totals.costPerLeadCents)}</td></tr>
+          <tr><td style="padding:6px 0"><strong>Cost per booked lead</strong></td><td style="padding:6px 0">${nullishCurrency(summary.totals.costPerBookedJobCents)}</td></tr>
         </tbody>
       </table>
       <h3 style="margin:18px 0 8px">Top location rows</h3>

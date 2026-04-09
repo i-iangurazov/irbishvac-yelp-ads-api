@@ -59,3 +59,18 @@ export async function updateCredentialTestResult(
     }
   });
 }
+
+export async function listTenantIdsWithEnabledCredential(kind: CredentialKind) {
+  const rows = await prisma.credentialSet.findMany({
+    where: {
+      kind,
+      isEnabled: true
+    },
+    select: {
+      tenantId: true
+    },
+    distinct: ["tenantId"]
+  });
+
+  return rows.map((row) => row.tenantId);
+}

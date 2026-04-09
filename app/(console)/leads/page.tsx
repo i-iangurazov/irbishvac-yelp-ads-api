@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { UrlObject } from "node:url";
 
 import { LeadsFilterForm } from "@/components/forms/leads-filter-form";
 import { LeadSyncForm } from "@/components/forms/lead-sync-form";
@@ -20,6 +21,23 @@ function formatLeadCount(value: number) {
   return value.toLocaleString();
 }
 
+function buildLeadsQuery(values: Record<string, string | number | null | undefined>): UrlObject {
+  const query: Record<string, string> = {};
+
+  for (const [key, value] of Object.entries(values)) {
+    if (value === null || value === undefined || value === "") {
+      continue;
+    }
+
+    query[key] = String(value);
+  }
+
+  return {
+    pathname: "/leads",
+    query
+  };
+}
+
 export default async function LeadsPage({
   searchParams
 }: {
@@ -30,6 +48,8 @@ export default async function LeadsPage({
     internalStatus?: string;
     from?: string;
     to?: string;
+    page?: string;
+    pageSize?: string;
   }>;
 }) {
   const user = await requireUser();
@@ -38,21 +58,41 @@ export default async function LeadsPage({
   const canSyncLeads = hasPermission(user.role.code, "leads:write");
   const filtersApplied = Object.values(overview.filters).some(Boolean);
   const latestImport = overview.backfill.latestRun;
-  const showingSummary =
+  const queueSummary =
     overview.summary.totalSyncedLeads === 0
       ? "No synced leads yet."
       : filtersApplied
-        ? `Showing all ${formatLeadCount(overview.summary.visibleRows)} leads matching the current filters.`
-        : `Showing all ${formatLeadCount(overview.summary.visibleRows)} synced leads.`;
+        ? `Showing ${formatLeadCount(overview.pagination.visibleRows)} rows from ${formatLeadCount(overview.summary.filteredLeads)} matching leads. ${formatLeadCount(overview.summary.totalSyncedLeads)} synced total.`
+        : `Showing ${formatLeadCount(overview.pagination.visibleRows)} rows from ${formatLeadCount(overview.summary.totalSyncedLeads)} synced leads.`;
+  const historicalImportNote = latestImport
+    ? latestImport.hasMore
+      ? `Latest manual import scanned ${latestImport.returnedLeadIds} recent Yelp lead IDs across ${latestImport.pagesFetched} page${latestImport.pagesFetched === 1 ? "" : "s"}. Older Yelp history still exists beyond this 300-lead backfill window.`
+      : `Latest manual import scanned ${latestImport.returnedLeadIds} recent Yelp lead IDs across ${latestImport.pagesFetched} Yelp page${latestImport.pagesFetched === 1 ? "" : "s"}.`
+    : "Manual backfill has not run yet. Webhook intake stays primary, and manual backfill scans up to the latest 300 Yelp leads.";
+  const pageSummary =
+    overview.summary.filteredLeads === 0
+      ? "No matching rows."
+      : `${formatLeadCount(overview.pagination.pageRowStart)}-${formatLeadCount(overview.pagination.pageRowEnd)} of ${formatLeadCount(overview.summary.filteredLeads)} matching leads`;
+  const allBusinessCount = overview.businessSplit.reduce((total, business) => total + business.count, 0);
+  const previousPageHref = buildLeadsQuery({
+    ...overview.filters,
+    page: overview.pagination.currentPage - 1,
+    pageSize: overview.pagination.pageSize
+  });
+  const nextPageHref = buildLeadsQuery({
+    ...overview.filters,
+    page: overview.pagination.currentPage + 1,
+    pageSize: overview.pagination.pageSize
+  });
 
   return (
     <div>
       <PageHeader
         title="Leads"
-        description="Track Yelp intake and follow-through from one queue."
+        description="One queue for Yelp intake, partner lifecycle, and follow-through."
         actions={
           <Button asChild size="sm" variant="outline">
-            <Link href="/settings#autoresponder">Autoresponder settings</Link>
+            <Link href="/autoresponder">Open autoresponder</Link>
           </Button>
         }
       />
@@ -60,17 +100,31 @@ export default async function LeadsPage({
       {!overview.capabilityEnabled ? (
         <CapabilityState
           enabled={false}
-          message="Yelp Leads is disabled for this tenant. Stored records stay visible, but new webhook intake and manual imports will fail until access is enabled."
+          message="Yelp Leads is off. Stored records stay visible, but new webhook intake and manual imports are paused until access is enabled."
         />
       ) : null}
 
-      <Card className="mt-6">
-        <CardContent className="grid gap-5 p-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(18rem,0.8fr)]">
-          <div className="space-y-3">
-            <div>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Sync from Yelp</div>
-              <div className="mt-1 text-sm text-muted-foreground">Import lead history for one saved Yelp business.</div>
+      <Card className="mt-6 border-dashed border-border/80 bg-muted/10 shadow-none">
+        <CardContent className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,auto)] lg:items-start">
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Historical import</div>
+              {latestImport ? <StatusChip status={latestImport.status} /> : <Badge variant="outline">Not run</Badge>}
+              {latestImport?.hasMore ? <Badge variant="outline">More Yelp pages available</Badge> : null}
             </div>
+            <div className="text-sm text-muted-foreground">{historicalImportNote}</div>
+            {latestImport ? (
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                <span>{latestImport.businessName}</span>
+                <span>
+                  {latestImport.importedCount} new • {latestImport.updatedCount} refreshed • {latestImport.failedCount} failed
+                </span>
+                <span>{formatDateTime(latestImport.startedAt)}</span>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="lg:min-w-[18rem]">
             {canSyncLeads ? (
               <LeadSyncForm
                 businesses={overview.businesses.map((business) => ({ id: business.id, name: business.name }))}
@@ -78,63 +132,81 @@ export default async function LeadsPage({
                 capabilityEnabled={overview.capabilityEnabled}
               />
             ) : (
-              <div className="text-sm text-muted-foreground">You can review the queue, but only operators with write access can import leads.</div>
-            )}
-          </div>
-
-          <div className="rounded-2xl border border-border/80 bg-muted/10 px-4 py-4">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Latest Yelp import</div>
-            {latestImport ? (
-              <div className="mt-3 space-y-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <StatusChip status={latestImport.status} />
-                  <span className="text-sm font-medium">{latestImport.businessName}</span>
-                </div>
-                <div className="text-sm">
-                  {latestImport.returnedLeadIds} lead IDs fetched from Yelp
-                  {latestImport.hasMore ? ` (first page of ${latestImport.pageSize})` : ""}
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  {formatDateTime(latestImport.startedAt)}
-                  {latestImport.finishedAt ? ` • finished ${formatDateTime(latestImport.finishedAt)}` : ""}
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  {latestImport.importedCount} new • {latestImport.updatedCount} refreshed • {latestImport.failedCount} failed
-                </div>
-                {latestImport.hasMore ? (
-                  <div className="text-xs text-amber-700 dark:text-amber-300">Yelp reported more lead IDs beyond this first page.</div>
-                ) : null}
-                {latestImport.errorSummary ? <div className="text-xs text-muted-foreground">{latestImport.errorSummary}</div> : null}
-              </div>
-            ) : (
-              <div className="mt-3 text-sm text-muted-foreground">No manual import has run yet.</div>
+              <div className="text-sm text-muted-foreground">Write access is required to run a manual backfill.</div>
             )}
           </div>
         </CardContent>
       </Card>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-2xl border border-border/80 bg-background px-4 py-4">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Synced leads</div>
-          <div className="mt-2 text-2xl font-semibold tracking-tight">{formatLeadCount(overview.summary.totalSyncedLeads)}</div>
-          <div className="mt-1 text-xs text-muted-foreground">Stored in the console.</div>
-        </div>
-        <div className="rounded-2xl border border-border/80 bg-background px-4 py-4">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Matching filters</div>
-          <div className="mt-2 text-2xl font-semibold tracking-tight">{formatLeadCount(overview.summary.filteredLeads)}</div>
-          <div className="mt-1 text-xs text-muted-foreground">All matching leads are shown on this page.</div>
-        </div>
-        <div className="rounded-2xl border border-border/80 bg-background px-4 py-4">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Needs attention</div>
-          <div className="mt-2 text-2xl font-semibold tracking-tight">{formatLeadCount(overview.summary.needsAttention)}</div>
-          <div className="mt-1 text-xs text-muted-foreground">Mapping, intake, CRM, or automation issues.</div>
-        </div>
-        <div className="rounded-2xl border border-border/80 bg-background px-4 py-4">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Recent intake failures</div>
-          <div className="mt-2 text-2xl font-semibold tracking-tight">{formatLeadCount(overview.summary.failedDeliveries)}</div>
-          <div className="mt-1 text-xs text-muted-foreground">Recent webhook delivery or processing failures.</div>
-        </div>
-      </div>
+      <Card className="mt-4 shadow-none">
+        <CardContent className="grid gap-4 p-4 md:grid-cols-3">
+          <div className="space-y-1 md:border-r md:border-border/70 md:pr-4">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Synced leads</div>
+            <div className="text-2xl font-semibold tracking-tight">{formatLeadCount(overview.summary.totalSyncedLeads)}</div>
+            <div className="text-xs text-muted-foreground">Stored locally and ready for queue review.</div>
+          </div>
+          <div className="space-y-1 md:border-r md:border-border/70 md:px-1 md:pl-4 md:pr-4">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Current slice</div>
+            <div className="text-2xl font-semibold tracking-tight">{formatLeadCount(overview.summary.filteredLeads)}</div>
+            <div className="text-xs text-muted-foreground">
+              {overview.summary.filteredLeads === 0
+                ? "No leads match the current filters."
+                : `${formatLeadCount(overview.pagination.visibleRows)} rows on page ${overview.pagination.currentPage} of ${overview.pagination.totalPages}.`}
+            </div>
+          </div>
+          <div className="space-y-1 md:pl-4">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Attention now</div>
+            <div className="text-2xl font-semibold tracking-tight">{formatLeadCount(overview.summary.needsAttention)}</div>
+            <div className="text-xs text-muted-foreground">
+              {formatLeadCount(overview.summary.unresolvedLeads)} unmapped • {formatLeadCount(overview.summary.crmIssues)} lifecycle issues
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {overview.businessSplit.length > 0 ? (
+        <Card className="mt-4 border-border/70 shadow-none">
+          <CardContent className="flex flex-wrap gap-2 p-4">
+            <Button
+              asChild
+              size="sm"
+              variant={overview.filters.businessId ? "outline" : "default"}
+            >
+              <Link
+                href={buildLeadsQuery({
+                  ...overview.filters,
+                  businessId: null,
+                  page: 1,
+                  pageSize: overview.pagination.pageSize
+                })}
+              >
+                All businesses
+                <span className="ml-2 text-xs opacity-80">{formatLeadCount(allBusinessCount)}</span>
+              </Link>
+            </Button>
+            {overview.businessSplit.map((business) => (
+              <Button
+                key={business.id}
+                asChild
+                size="sm"
+                variant={business.isSelected ? "default" : "outline"}
+              >
+                <Link
+                  href={buildLeadsQuery({
+                    ...overview.filters,
+                    businessId: business.id,
+                    page: 1,
+                    pageSize: overview.pagination.pageSize
+                  })}
+                >
+                  {business.name}
+                  <span className="ml-2 text-xs opacity-80">{formatLeadCount(business.count)}</span>
+                </Link>
+              </Button>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
 
       <div className="mt-4">
         <LeadsFilterForm
@@ -148,20 +220,24 @@ export default async function LeadsPage({
           <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <CardTitle>Lead queue</CardTitle>
-              <div className="mt-1 text-sm text-muted-foreground">{showingSummary}</div>
+              <div className="mt-1 text-sm text-muted-foreground">{queueSummary}</div>
             </div>
-            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              <Badge variant="outline">Yelp reply state</Badge>
-              <Badge variant="secondary">Internal status</Badge>
-              <Badge variant="outline">Automation + sync</Badge>
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <Badge variant="outline">{pageSummary}</Badge>
+              <Badge variant="outline">
+                {formatLeadCount(overview.pagination.pageSize)} rows per page
+              </Badge>
+              {overview.summary.needsAttention > 0 ? (
+                <Badge variant="warning">{formatLeadCount(overview.summary.needsAttention)} need attention</Badge>
+              ) : null}
             </div>
           </div>
-          {latestImport ? (
-            <div className="text-xs text-muted-foreground">
-              Latest manual import fetched {latestImport.returnedLeadIds} lead IDs from Yelp
-              {latestImport.hasMore ? ` and stopped at the first page of ${latestImport.pageSize}.` : "."}
-            </div>
-          ) : null}
+          <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+            <span>{formatLeadCount(overview.summary.unresolvedLeads)} unmapped</span>
+            <span>{formatLeadCount(overview.summary.crmIssues)} partner lifecycle issues</span>
+            <span>{formatLeadCount(overview.summary.failedDeliveries)} recent intake failures</span>
+            <span>Page {overview.pagination.currentPage} of {overview.pagination.totalPages}</span>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           {overview.leads.length === 0 ? (
@@ -175,11 +251,10 @@ export default async function LeadsPage({
             <Table className="table-fixed">
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[34%]">Lead</TableHead>
-                  <TableHead className="w-[18%]">Activity</TableHead>
-                  <TableHead className="w-[16%]">Yelp</TableHead>
-                  <TableHead className="w-[18%]">Internal</TableHead>
-                  <TableHead className="w-[14%]">Attention</TableHead>
+                  <TableHead className="w-[36%]">Lead</TableHead>
+                  <TableHead className="w-[18%]">Timeline</TableHead>
+                  <TableHead className="w-[24%]">State</TableHead>
+                  <TableHead className="w-[22%]">Attention</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -197,7 +272,9 @@ export default async function LeadsPage({
                             <div className="truncate font-mono text-[11px] text-muted-foreground">{lead.externalLeadId}</div>
                           ) : null}
                           <div className="text-sm text-muted-foreground">{lead.mappedBusinessName ?? "Unmapped business"}</div>
-                          <div className="truncate text-[11px] text-muted-foreground">{lead.externalBusinessId ?? "Business ID unavailable"}</div>
+                          <div className="truncate text-[11px] text-muted-foreground">
+                            {[lead.locationLabel, lead.serviceLabel].filter(Boolean).join(" • ") || "Location or service still unmapped"}
+                          </div>
                         </div>
                       </TableCell>
                       <TableCell>
@@ -216,29 +293,37 @@ export default async function LeadsPage({
                         <div className="space-y-2">
                           <div className="flex flex-wrap gap-2">
                             <StatusChip status={lead.replyState} />
-                            <StatusChip status={lead.processingStatus} />
+                            <StatusChip status={lead.internalStatus} />
+                            <StatusChip status={lead.mappingState} />
+                          </div>
+                          <div className="text-xs text-muted-foreground">{lead.mappingReference}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {lead.processingStatus === "COMPLETED"
+                              ? lead.internalStatusSource
+                                ? lead.internalStatusSource === "CRM"
+                                  ? "CRM-sourced partner status"
+                                  : "Manual partner status"
+                                : "No partner lifecycle coverage yet"
+                              : `Intake ${lead.processingStatus.toLowerCase()}`}
                           </div>
                           {lead.processingError ? <div className="text-xs text-destructive">{lead.processingError}</div> : null}
                         </div>
                       </TableCell>
                       <TableCell>
                         <div className="space-y-2">
-                          <div className="flex flex-wrap gap-2">
-                            <StatusChip status={lead.mappingState} />
-                            <StatusChip status={lead.internalStatus} />
-                          </div>
-                          <div className="text-xs text-muted-foreground">{lead.mappingReference}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {lead.internalStatusSource ? (lead.internalStatusSource === "CRM" ? "CRM-synced" : "Manual/internal") : "No internal status yet"}
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="space-y-2">
                           {lead.requiresAttention ? (
-                            <Badge variant="warning">Needs attention</Badge>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Badge variant="warning">Needs attention</Badge>
+                              {lead.openIssueCount > 0 && lead.primaryIssue ? (
+                                <Button asChild size="sm" variant="ghost">
+                                  <Link href={`/audit/issues/${lead.primaryIssue.id}`}>
+                                    {lead.openIssueCount} open issue{lead.openIssueCount === 1 ? "" : "s"}
+                                  </Link>
+                                </Button>
+                              ) : null}
+                            </div>
                           ) : (
-                            <Badge variant="outline">No open issue</Badge>
+                            <div className="text-sm font-medium">Clear</div>
                           )}
                           <div className="space-y-1 text-xs text-muted-foreground">
                             {lead.requiresAttention ? (
@@ -259,34 +344,27 @@ export default async function LeadsPage({
               </TableBody>
             </Table>
           )}
+          {overview.summary.filteredLeads > 0 ? (
+            <div className="flex flex-col gap-3 border-t border-border/70 px-5 py-4 text-sm md:flex-row md:items-center md:justify-between">
+              <div className="text-muted-foreground">
+                {pageSummary} • page {overview.pagination.currentPage} of {overview.pagination.totalPages}
+              </div>
+              <div className="flex items-center gap-2">
+                <Button asChild disabled={!overview.pagination.hasPreviousPage} size="sm" variant="outline">
+                  <Link aria-disabled={!overview.pagination.hasPreviousPage} href={previousPageHref}>
+                    Previous
+                  </Link>
+                </Button>
+                <Button asChild disabled={!overview.pagination.hasNextPage} size="sm" variant="outline">
+                  <Link aria-disabled={!overview.pagination.hasNextPage} href={nextPageHref}>
+                    Next
+                  </Link>
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
-
-      {overview.failedDeliveries.length > 0 ? (
-        <Card className="mt-4">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Recent intake failures</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {overview.failedDeliveries.map((event) => (
-              <div
-                className="rounded-2xl border border-border/80 bg-muted/10 px-4 py-3"
-                key={event.id}
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <StatusChip status={event.status} />
-                  <span className="text-sm font-medium">{event.lead?.externalLeadId ?? "Lead not linked yet"}</span>
-                  <span className="text-xs text-muted-foreground">{formatDateTime(event.receivedAt)}</span>
-                </div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  {event.lead?.business?.name ?? "Unknown business"}
-                  {event.syncRun?.errors[0]?.message ? ` • ${event.syncRun.errors[0].message}` : ""}
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      ) : null}
     </div>
   );
 }

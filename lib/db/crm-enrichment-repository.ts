@@ -18,6 +18,65 @@ export async function getLeadForCrmEnrichment(tenantId: string, leadId: string) 
           name: true
         }
       },
+      location: {
+        select: {
+          id: true,
+          name: true,
+          externalCrmLocationId: true
+        }
+      },
+      crmLeadMappings: {
+        include: {
+          location: {
+            select: {
+              id: true,
+              name: true
+            }
+          }
+        }
+      },
+      crmStatusEvents: {
+        orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }]
+      }
+    }
+  });
+}
+
+export async function findLeadForCrmEnrichment(
+  tenantId: string,
+  identifiers: {
+    leadId?: string | null;
+    externalLeadId?: string | null;
+  }
+) {
+  const filters = [
+    identifiers.leadId ? { id: identifiers.leadId } : null,
+    identifiers.externalLeadId ? { externalLeadId: identifiers.externalLeadId } : null
+  ].filter(Boolean) as Prisma.YelpLeadWhereInput[];
+
+  if (filters.length === 0) {
+    return null;
+  }
+
+  return prisma.yelpLead.findFirst({
+    where: {
+      tenantId,
+      OR: filters
+    },
+    include: {
+      business: {
+        select: {
+          id: true,
+          name: true
+        }
+      },
+      location: {
+        select: {
+          id: true,
+          name: true,
+          externalCrmLocationId: true
+        }
+      },
       crmLeadMappings: {
         include: {
           location: {
@@ -101,6 +160,41 @@ export async function updateCrmSyncRun(
       ...(data.statsJson !== undefined ? { statsJson: toJsonValue(data.statsJson) } : {}),
       ...(data.responseJson !== undefined ? { responseJson: toJsonValue(data.responseJson) } : {}),
       ...(data.errorSummary !== undefined ? { errorSummary: data.errorSummary } : {})
+    }
+  });
+}
+
+export async function getCrmSyncRunById(tenantId: string, syncRunId: string) {
+  return prisma.syncRun.findFirstOrThrow({
+    where: {
+      tenantId,
+      id: syncRunId,
+      type: "CRM_LEAD_ENRICHMENT"
+    },
+    include: {
+      business: {
+        select: {
+          id: true,
+          name: true,
+          locationId: true
+        }
+      },
+      location: {
+        select: {
+          id: true,
+          name: true
+        }
+      },
+      lead: {
+        select: {
+          id: true,
+          externalLeadId: true,
+          customerName: true
+        }
+      },
+      errors: {
+        orderBy: [{ occurredAt: "desc" }]
+      }
     }
   });
 }

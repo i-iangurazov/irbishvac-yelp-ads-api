@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { LeadAiSummaryPanel } from "@/components/forms/lead-ai-summary-panel";
 import { LeadCrmMappingForm } from "@/components/forms/lead-crm-mapping-form";
 import { LeadCrmStatusForm } from "@/components/forms/lead-crm-status-form";
 import { LeadReplyForm } from "@/components/forms/lead-reply-form";
@@ -7,10 +8,13 @@ import { JsonViewer } from "@/components/shared/json-viewer";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusChip } from "@/components/shared/status-chip";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getLeadDetail } from "@/features/leads/service";
 import { requireUser } from "@/lib/auth/service";
 import { formatDateTime, titleCase } from "@/lib/utils/format";
+
+export const dynamic = "force-dynamic";
 
 function channelLabel(channel: string | null) {
   if (channel === "YELP_THREAD") {
@@ -18,10 +22,20 @@ function channelLabel(channel: string | null) {
   }
 
   if (channel === "EMAIL") {
-    return "External email";
+    return "Yelp masked email";
+  }
+
+  if (channel === "PHONE") {
+    return "Phone / SMS";
   }
 
   return "No outbound channel yet";
+}
+
+function asRecord(value: unknown) {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 export default async function LeadDetailPage({ params }: { params: Promise<{ leadId: string }> }) {
@@ -35,11 +49,11 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
     <div>
       <PageHeader
         title={detail.lead.externalLeadId}
-        description="Yelp intake detail with separate CRM mapping, internal lifecycle status, and sync diagnostics."
+        description="Yelp thread history, partner lifecycle status, and reply delivery diagnostics for this lead."
         actions={
           <div className="flex flex-wrap gap-2">
             <Badge>Yelp-native</Badge>
-            <Badge variant="secondary">CRM / internal</Badge>
+            <Badge variant="secondary">Partner lifecycle</Badge>
             <Badge variant="secondary">Local processing</Badge>
             <Badge variant="outline">Automation</Badge>
           </div>
@@ -101,8 +115,15 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
                 <StatusChip status={detail.crm.mapping?.state ?? "UNRESOLVED"} />
               </div>
               <div>
-                <div className="text-muted-foreground">Internal lifecycle</div>
+                <div className="text-muted-foreground">Partner lifecycle</div>
                 <StatusChip status={detail.crm.currentInternalStatus} />
+              </div>
+              <div>
+                <div className="text-muted-foreground">Partner sync health</div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <StatusChip status={detail.crm.health.status} />
+                  <span className="text-sm text-muted-foreground">{detail.crm.health.message}</span>
+                </div>
               </div>
               <div>
                 <div className="text-muted-foreground">First response</div>
@@ -113,11 +134,32 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
                 <div>{detail.automationSummary.message}</div>
               </div>
               <div>
+                <div className="text-muted-foreground">Automation scope</div>
+                <div>
+                  {detail.automationScope.scopeLabel}
+                  {detail.automationScope.followUp24hEnabled || detail.automationScope.followUp7dEnabled ? (
+                    <span className="text-muted-foreground">
+                      {" "}
+                      • {detail.automationScope.followUp24hEnabled ? `24h ${detail.automationScope.followUp24hDelayHours}h` : "24h off"} •{" "}
+                      {detail.automationScope.followUp7dEnabled ? `week-later ${detail.automationScope.followUp7dDelayDays}d` : "week-later off"}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Next follow-up due</div>
+                <div>
+                  {detail.nextFollowUp
+                    ? `${detail.nextFollowUp.cadence === "FOLLOW_UP_24H" ? "24-hour follow-up" : "Following-week follow-up"} • ${formatDateTime(detail.nextFollowUp.dueAt)}`
+                    : "No pending follow-up"}
+                </div>
+              </div>
+              <div>
                 <div className="text-muted-foreground">Latest outbound channel</div>
                 <div>{channelLabel(detail.replyComposer.latestOutboundChannel)}</div>
               </div>
               <div>
-                <div className="text-muted-foreground">Masked email fallback</div>
+                <div className="text-muted-foreground">Yelp masked email</div>
                 <div>{detail.replyComposer.maskedEmail ?? "Not available"}</div>
               </div>
               {latestIntake ? (
@@ -167,12 +209,12 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
 
           <Card>
             <CardHeader>
-              <CardTitle>Internal lifecycle timeline</CardTitle>
-              <CardDescription>CRM-synced or internal-only statuses recorded after the Yelp lead entered the system.</CardDescription>
+              <CardTitle>Partner lifecycle timeline</CardTitle>
+              <CardDescription>Partner lifecycle statuses mapped after Yelp intake. These are not official Yelp states.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               {detail.crm.statusTimeline.length === 0 ? (
-                <div className="text-sm text-muted-foreground">No internal lifecycle statuses were recorded for this lead yet.</div>
+                <div className="text-sm text-muted-foreground">No partner lifecycle statuses were recorded for this lead yet.</div>
               ) : (
                 detail.crm.statusTimeline.map((event) => (
                   <div className="rounded-xl border border-border/80 p-4" key={event.id}>
@@ -183,11 +225,19 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
                           <Badge variant={event.sourceSystem === "CRM" ? "outline" : "secondary"}>
                             {event.sourceSystem === "CRM" ? "CRM" : "Internal"}
                           </Badge>
+                          {asRecord(event.payloadJson)?.connector === "ServiceTitan" ? (
+                            <Badge variant="secondary">ServiceTitan</Badge>
+                          ) : null}
                         </div>
                         <div className="mt-2 text-sm text-muted-foreground">
                           {formatDateTime(event.occurredAt)}
                           {event.substatus ? ` • ${event.substatus}` : ""}
                         </div>
+                        {asRecord(event.payloadJson)?.connector === "ServiceTitan" ? (
+                          <div className="mt-2 text-xs text-muted-foreground">
+                            Connector-derived lifecycle update from the mapped ServiceTitan record.
+                          </div>
+                        ) : null}
                       </div>
                     </div>
                   </div>
@@ -229,10 +279,46 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
         </div>
 
         <div className="space-y-6">
+          <LeadAiSummaryPanel
+            leadId={detail.lead.id}
+            canGenerate={detail.aiAssist.envConfigured && detail.aiAssist.enabled}
+            modelLabel={detail.aiAssist.envConfigured ? detail.aiAssist.modelLabel : "Model unavailable"}
+          />
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Open operational issues</CardTitle>
+              <CardDescription>Queue items currently linked to this lead across intake, partner sync, automation, or stale follow-through.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {detail.linkedIssues.length === 0 ? (
+                <div className="text-sm text-muted-foreground">No open operator issues are linked to this lead right now.</div>
+              ) : (
+                detail.linkedIssues.map((issue) => (
+                  <div className="rounded-xl border border-border/80 p-4" key={issue.id}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <StatusChip status={issue.severity} />
+                          <span className="text-sm font-medium">{titleCase(issue.issueType.replaceAll("_", " ").toLowerCase())}</span>
+                        </div>
+                        <div className="text-xs text-muted-foreground">{issue.summary}</div>
+                        <div className="text-xs text-muted-foreground">Last seen {formatDateTime(issue.lastDetectedAt)}</div>
+                      </div>
+                      <Button asChild size="sm" variant="ghost">
+                        <Link href={`/audit/issues/${issue.id}`}>Open issue</Link>
+                      </Button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle>Reply</CardTitle>
-              <CardDescription>Reply in the Yelp thread when possible. Use external email only when you need the masked email fallback.</CardDescription>
+              <CardDescription>Prefer the Yelp thread. Use Yelp masked-email fallback or an outside-reply marker only when the real follow-up happened off-thread.</CardDescription>
             </CardHeader>
             <CardContent>
               <LeadReplyForm
@@ -243,6 +329,8 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
                 maskedEmail={detail.replyComposer.maskedEmail}
                 canMarkAsRead={detail.replyComposer.canMarkAsRead}
                 latestOutboundChannel={detail.replyComposer.latestOutboundChannel}
+                canMarkAsReplied={detail.replyComposer.canMarkAsReplied}
+                canGenerateAiDrafts={detail.replyComposer.canGenerateAiDrafts}
               />
             </CardContent>
           </Card>
@@ -250,7 +338,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
           <Card>
             <CardHeader>
               <CardTitle>Reply and message actions</CardTitle>
-              <CardDescription>Local delivery history for operator replies, Yelp thread sends, email fallback, and read or replied markers triggered by the console.</CardDescription>
+              <CardDescription>Local log of operator and automation actions: Yelp-thread posts, Yelp masked-email fallback, read markers, and outside-Yelp reply markers.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               {detail.messageHistory.length === 0 ? (
@@ -280,6 +368,9 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
                       </div>
                     </div>
                     {action.recipient ? <div className="mt-3 text-sm">Recipient: {action.recipient}</div> : null}
+                    {action.deliveryNote ? (
+                      <div className="mt-3 text-sm text-muted-foreground">{action.deliveryNote}</div>
+                    ) : null}
                     {action.renderedSubject ? <div className="mt-3 text-sm font-medium">{action.renderedSubject}</div> : null}
                     {action.renderedBody ? <div className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{action.renderedBody}</div> : null}
                     {action.errorSummary ? <div className="mt-3 text-sm text-destructive">{action.errorSummary}</div> : null}
@@ -302,8 +393,8 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
 
           <Card>
             <CardHeader>
-              <CardTitle>First-response automation</CardTitle>
-              <CardDescription>Internal automation rules, skip reasons, and first-response delivery outcomes. The actual channel actions are listed above.</CardDescription>
+              <CardTitle>Automation history</CardTitle>
+              <CardDescription>Internal automation decisions and outcomes across the initial response and later follow-ups. Automated replies are labeled before they post in Yelp.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               {detail.automationHistory.length === 0 ? (
@@ -315,10 +406,12 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
                       <div>
                         <div className="flex flex-wrap items-center gap-2">
                           <StatusChip status={attempt.status} />
+                          <Badge variant="secondary">{attempt.cadenceLabel}</Badge>
                           {attempt.deliveryChannelLabel ? <Badge variant="outline">{attempt.deliveryChannelLabel}</Badge> : null}
                         </div>
                         <div className="mt-2 text-sm text-muted-foreground">
                           Triggered {formatDateTime(attempt.triggeredAt)}
+                          {attempt.dueAt ? ` • Due ${formatDateTime(attempt.dueAt)}` : ""}
                           {attempt.completedAt ? ` • Completed ${formatDateTime(attempt.completedAt)}` : ""}
                         </div>
                         <div className="mt-2 text-xs text-muted-foreground">
@@ -390,8 +483,8 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
 
           <Card>
             <CardHeader>
-              <CardTitle>Internal status update</CardTitle>
-              <CardDescription>Add CRM or internal lifecycle milestones without changing the Yelp-native timeline.</CardDescription>
+              <CardTitle>Partner lifecycle update</CardTitle>
+              <CardDescription>Add partner lifecycle milestones without changing the Yelp-native thread history.</CardDescription>
             </CardHeader>
             <CardContent>
               <LeadCrmStatusForm disabled={!detail.crm.mappingResolved} leadId={detail.lead.id} />
@@ -401,7 +494,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
           <Card>
             <CardHeader>
               <CardTitle>Source boundaries</CardTitle>
-              <CardDescription>Keep Yelp, CRM/internal, and local processing records separate.</CardDescription>
+              <CardDescription>Keep Yelp-native activity, partner lifecycle records, and local processing logs separate.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               <div className="rounded-lg border border-border p-4">
@@ -413,15 +506,15 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
               </div>
               <div className="rounded-lg border border-border p-4">
                 <div className="flex items-center gap-2">
-                  <Badge variant="outline">CRM / internal</Badge>
-                  <span className="font-medium">Mapping state, CRM IDs, and internal lifecycle statuses</span>
+                  <Badge variant="outline">Partner lifecycle</Badge>
+                  <span className="font-medium">Mapping state, CRM IDs, and partner lifecycle statuses</span>
                 </div>
                 <div className="mt-2 text-xs text-muted-foreground">{detail.sourceBoundaries.crm}</div>
               </div>
               <div className="rounded-lg border border-border p-4">
                 <div className="flex items-center gap-2">
                   <Badge variant="secondary">Local</Badge>
-                  <span className="font-medium">Webhook history, external email fallback, and sync failures</span>
+                  <span className="font-medium">Webhook history, fallback delivery, outside-Yelp reply markers, and sync failures</span>
                 </div>
                 <div className="mt-2 text-xs text-muted-foreground">{detail.sourceBoundaries.local}</div>
               </div>

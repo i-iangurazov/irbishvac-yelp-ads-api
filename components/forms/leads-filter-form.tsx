@@ -15,13 +15,17 @@ export function LeadsFilterForm({
     internalStatus?: string;
     from?: string;
     to?: string;
+    page?: number;
+    pageSize?: number;
   };
 }) {
   return (
     <form
       action="/leads"
-      className="grid gap-4 rounded-[1.6rem] border border-border/80 bg-muted/10 p-5 md:grid-cols-2 2xl:grid-cols-[1.2fr_0.95fr_0.95fr_0.95fr_0.8fr_0.8fr_auto_auto]"
+      className="grid gap-3 rounded-[1.4rem] border border-border/80 bg-muted/10 p-4 md:grid-cols-2 2xl:grid-cols-[1.1fr_0.9fr_0.9fr_1fr_0.78fr_0.78fr_0.65fr_auto_auto]"
     >
+      <input name="page" type="hidden" value="1" />
+
       <div className="space-y-1">
         <label className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground" htmlFor="businessId">
           Business
@@ -83,7 +87,7 @@ export function LeadsFilterForm({
 
       <div className="space-y-1">
         <label className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground" htmlFor="internalStatus">
-          Internal status
+          Partner lifecycle
         </label>
         <select
           className="ui-native-select"
@@ -91,8 +95,9 @@ export function LeadsFilterForm({
           id="internalStatus"
           name="internalStatus"
         >
-          <option value="">All internal statuses</option>
+          <option value="">All partner lifecycle statuses</option>
           <option value="UNMAPPED">Unmapped</option>
+          <option value="ACTIVE">Active</option>
           <option value="NEW">New</option>
           <option value="CONTACTED">Contacted</option>
           <option value="BOOKED">Booked</option>
@@ -118,6 +123,22 @@ export function LeadsFilterForm({
           To
         </label>
         <Input defaultValue={values.to ?? ""} id="to" name="to" type="date" />
+      </div>
+
+      <div className="space-y-1">
+        <label className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground" htmlFor="pageSize">
+          Page size
+        </label>
+        <select
+          className="ui-native-select"
+          defaultValue={String(values.pageSize ?? 25)}
+          id="pageSize"
+          name="pageSize"
+        >
+          <option value="25">25 rows</option>
+          <option value="50">50 rows</option>
+          <option value="100">100 rows</option>
+        </select>
       </div>
 
       <div className="flex items-end">

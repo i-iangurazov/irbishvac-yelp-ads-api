@@ -2,47 +2,68 @@ import "server-only";
 
 import { Prisma } from "@prisma/client";
 
+import { approvedLeadAiModelOptions, LEAD_AUTORESPONDER_SETTING_KEY } from "@/features/autoresponder/constants";
 import {
+  getLeadAiModelLabel,
+  getLeadAutomationScopeConfig,
+  resolveLeadAiModel,
+  readLeadAutoresponderSettings
+} from "@/features/autoresponder/config";
+import {
+  applyLeadAutomationDisclosure,
   buildLeadAutomationVariables,
   evaluateLeadAutomationEligibility,
+  evaluateLeadAutomationFollowUpEligibility,
   formatWorkingDayLabels,
   formatMinuteOfDay,
+  getLeadAutomationCadenceDelayMs,
+  getNextWorkingWindowStart,
+  humanizeLeadAutomationCadence,
   renderLeadAutomationTemplate
 } from "@/features/autoresponder/logic";
 import { buildLeadAutomationHistory } from "@/features/autoresponder/normalize";
 import {
   leadAutomationRuleFormSchema,
   leadAutomationTemplateFormSchema,
-  leadAutoresponderSettingsSchema
+  leadAutoresponderBusinessOverrideSchema,
+  leadAutoresponderSettingsSchema,
+  type LeadAutomationTemplateFormValues
 } from "@/features/autoresponder/schemas";
-import { recordAuditEvent } from "@/features/audit/service";
+import { recordAuditEvent, getAuditLog } from "@/features/audit/service";
 import { isSmtpConfigured } from "@/features/report-delivery/email";
+import { getAiReplyAssistantState } from "@/features/leads/ai-reply-service";
 import { deliverLeadAutomationMessage } from "@/features/leads/messaging-service";
 import {
   createLeadAutomationAttempt,
+  claimLeadAutomationAttemptForProcessing,
+  deleteLeadAutomationBusinessOverride,
   createLeadAutomationRule,
+  getLeadAutomationBusinessAttemptHealth,
   createLeadAutomationTemplate,
+  getLeadAutomationBusinessOverrideByBusinessId,
   getLeadAutomationCandidate,
+  getLeadAutomationAttemptSummary,
   getLeadAutomationRuleById,
   getLeadAutomationTemplateById,
+  listDueLeadAutomationAttempts,
   listEnabledLeadAutomationRules,
+  listLeadAutomationBusinessOverrides,
   listLeadAutomationOptions,
+  listRecentLeadAutomationAttempts,
   listLeadAutomationRules,
   listLeadAutomationTemplates,
+  upsertLeadAutomationAttemptByLeadCadence,
+  upsertLeadAutomationBusinessOverride,
   updateLeadAutomationAttempt,
   updateLeadAutomationRule,
   updateLeadAutomationTemplate
 } from "@/lib/db/autoresponder-repository";
+import { listOperatorIssues } from "@/lib/db/issues-repository";
 import { getSystemSetting, upsertSystemSetting } from "@/lib/db/settings-repository";
 import { toJsonValue } from "@/lib/db/json";
 import { logError, logInfo } from "@/lib/utils/logging";
 import { normalizeUnknownError, YelpValidationError } from "@/lib/yelp/errors";
-
-const LEAD_AUTORESPONDER_SETTING_KEY = "leadAutoresponder";
-
-function readLeadAutoresponderSettings(value: unknown) {
-  return leadAutoresponderSettingsSchema.parse(value ?? {});
-}
+import { ensureYelpLeadsAccess } from "@/lib/yelp/runtime";
 
 function getFallbackSubject(params: {
   businessName: string | null;
@@ -68,16 +89,232 @@ function parseWorkingDaysJson(value: unknown) {
   return value.filter((item): item is number => Number.isInteger(item) && item >= 0 && item <= 6);
 }
 
+function asRecord(value: unknown) {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function getStringValue(value: unknown, key: string) {
+  const record = asRecord(value);
+  const candidate = record?.[key];
+  return typeof candidate === "string" && candidate.trim().length > 0 ? candidate.trim() : null;
+}
+
+function humanizeAiActivityAction(actionType: string) {
+  switch (actionType) {
+    case "lead.reply.ai-draft.generate":
+      return "AI draft generated";
+    case "lead.reply.ai-draft.discard":
+      return "AI draft discarded";
+    case "lead.reply.ai-draft.send":
+      return "AI-assisted reply sent";
+    default:
+      return actionType;
+  }
+}
+
+function normalizeAutomationDeliveryChannel(channel: string | null | undefined): "YELP_THREAD" | "EMAIL" {
+  return channel === "EMAIL" ? "EMAIL" : "YELP_THREAD";
+}
+
+function matchesBusinessInitialRule(params: {
+  business: {
+    id: string;
+    locationId?: string | null;
+  };
+  rule: {
+    cadence: "INITIAL" | "FOLLOW_UP_24H" | "FOLLOW_UP_7D";
+    isEnabled: boolean;
+    businessId?: string | null;
+    locationId?: string | null;
+    serviceCategoryId?: string | null;
+    template?: {
+      isEnabled?: boolean;
+    } | null;
+  };
+}) {
+  if (!params.rule.isEnabled || params.rule.cadence !== "INITIAL") {
+    return false;
+  }
+
+  if (params.rule.template && params.rule.template.isEnabled === false) {
+    return false;
+  }
+
+  if (params.rule.businessId && params.rule.businessId !== params.business.id) {
+    return false;
+  }
+
+  if (params.rule.locationId && params.rule.locationId !== (params.business.locationId ?? null)) {
+    return false;
+  }
+
+  return true;
+}
+
+function getLeadAutomationAuditActionType(
+  cadence: "INITIAL" | "FOLLOW_UP_24H" | "FOLLOW_UP_7D",
+  isRetry = false
+) {
+  if (isRetry) {
+    return "lead.autoresponder.retry";
+  }
+
+  switch (cadence) {
+    case "FOLLOW_UP_24H":
+      return "lead.autoresponder.follow-up-24h";
+    case "FOLLOW_UP_7D":
+      return "lead.autoresponder.follow-up-7d";
+    case "INITIAL":
+    default:
+      return "lead.autoresponder.first-response";
+  }
+}
+
+function getLeadAutomationActivityLabel(
+  cadence: "INITIAL" | "FOLLOW_UP_24H" | "FOLLOW_UP_7D",
+  status: "PENDING" | "SENT" | "FAILED" | "SKIPPED"
+) {
+  const cadenceLabel = humanizeLeadAutomationCadence(cadence);
+
+  if (status === "SENT") {
+    return `${cadenceLabel} sent`;
+  }
+
+  if (status === "FAILED") {
+    return `${cadenceLabel} failed`;
+  }
+
+  if (status === "SKIPPED") {
+    return `${cadenceLabel} skipped`;
+  }
+
+  return `${cadenceLabel} pending`;
+}
+
+async function ensureLeadAutomationFollowUpAttempts(params: {
+  tenantId: string;
+  lead: Awaited<ReturnType<typeof getLeadAutomationCandidate>>;
+  settings: {
+    followUp24hEnabled: boolean;
+    followUp24hDelayHours: number;
+    followUp7dEnabled: boolean;
+    followUp7dDelayDays: number;
+  };
+  initialAttemptCompletedAt: Date;
+}) {
+  const scheduled = [];
+  const baseContext = {
+    tenantId: params.tenantId,
+    leadId: params.lead.id,
+    businessId: params.lead.business?.id ?? null,
+    locationId: params.lead.location?.id ?? params.lead.business?.location?.id ?? null,
+    serviceCategoryId: params.lead.serviceCategory?.id ?? null,
+    sourceSystem: "INTERNAL" as const
+  };
+
+  if (params.settings.followUp24hEnabled) {
+    const dueAt = new Date(
+      params.initialAttemptCompletedAt.getTime() +
+        getLeadAutomationCadenceDelayMs(params.settings, "FOLLOW_UP_24H")
+    );
+    const attempt = await upsertLeadAutomationAttemptByLeadCadence({
+      ...baseContext,
+      cadence: "FOLLOW_UP_24H",
+      dueAt
+    });
+    scheduled.push(attempt);
+  }
+
+  if (params.settings.followUp7dEnabled) {
+    const dueAt = new Date(
+      params.initialAttemptCompletedAt.getTime() +
+        getLeadAutomationCadenceDelayMs(params.settings, "FOLLOW_UP_7D")
+    );
+    const attempt = await upsertLeadAutomationAttemptByLeadCadence({
+      ...baseContext,
+      cadence: "FOLLOW_UP_7D",
+      dueAt
+    });
+    scheduled.push(attempt);
+  }
+
+  return scheduled;
+}
+
+function asTemplateMetadata(value: unknown) {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? { ...(value as Record<string, unknown>) }
+    : {};
+}
+
+function buildTemplateMetadata(
+  currentValue: unknown,
+  values: Pick<LeadAutomationTemplateFormValues, "templateKind">,
+  actorId: string
+) {
+  return toJsonValue({
+    ...asTemplateMetadata(currentValue),
+    templateKind: values.templateKind,
+    updatedBy: actorId
+  });
+}
+
+function validateTemplateBusinessScope(params: {
+  template:
+    | {
+        businessId?: string | null;
+        business?: {
+          name: string;
+        } | null;
+      }
+    | null;
+  ruleBusinessId?: string | null;
+}) {
+  if (!params.template?.businessId) {
+    return;
+  }
+
+  if (!params.ruleBusinessId) {
+    throw new YelpValidationError(
+      `Template ${params.template.business?.name ? `for ${params.template.business.name}` : "scope"} can only be used by a business-specific rule.`
+    );
+  }
+
+  if (params.template.businessId !== params.ruleBusinessId) {
+    throw new YelpValidationError("Template scope does not match the selected Yelp business.");
+  }
+}
+
+function validateRuleCadenceScope(params: {
+  cadence: "INITIAL" | "FOLLOW_UP_24H" | "FOLLOW_UP_7D";
+  template: {
+    channel: "YELP_THREAD" | "EMAIL";
+  };
+}) {
+  if (params.cadence === "INITIAL") {
+    return;
+  }
+
+  if (params.template.channel !== "YELP_THREAD") {
+    throw new YelpValidationError(
+      `${humanizeLeadAutomationCadence(params.cadence)} must stay in the Yelp thread. Masked-email fallback is not available for automated follow-up.`
+    );
+  }
+}
+
 async function deliverLeadAutomationAttempt(params: {
   tenantId: string;
   actorId: string | null;
   lead: Awaited<ReturnType<typeof getLeadAutomationCandidate>>;
   attemptId: string;
-  actionType: "lead.autoresponder.first-response" | "lead.autoresponder.retry";
+  actionType: string;
   channel: "YELP_THREAD" | "EMAIL";
   renderedSubject: string;
   renderedBody: string;
   recipient: string | null;
+  allowEmailFallback?: boolean;
 }) {
   const result = await deliverLeadAutomationMessage({
     tenantId: params.tenantId,
@@ -87,7 +324,8 @@ async function deliverLeadAutomationAttempt(params: {
     channel: params.channel,
     renderedSubject: params.renderedSubject,
     renderedBody: params.renderedBody,
-    recipient: params.recipient
+    recipient: params.recipient,
+    allowEmailFallback: params.allowEmailFallback
   });
 
   if (result.status === "SENT" || result.status === "PARTIAL") {
@@ -161,25 +399,348 @@ async function deliverLeadAutomationAttempt(params: {
 }
 
 export async function getLeadAutomationAdminState(tenantId: string) {
-  const [settingsValue, templates, rules, options] = await Promise.all([
+  const [settingsValue, templates, rules, options, businessOverrides] = await Promise.all([
     getSystemSetting(tenantId, LEAD_AUTORESPONDER_SETTING_KEY),
     listLeadAutomationTemplates(tenantId),
     listLeadAutomationRules(tenantId),
-    listLeadAutomationOptions(tenantId)
+    listLeadAutomationOptions(tenantId),
+    listLeadAutomationBusinessOverrides(tenantId)
   ]);
 
   return {
     settings: readLeadAutoresponderSettings(settingsValue),
     smtpConfigured: isSmtpConfigured(),
+    businessOverrides,
     templates,
     rules: rules.map((rule) => ({
       ...rule,
       workingDays: parseWorkingDaysJson(rule.workingDaysJson),
+      cadenceLabel: humanizeLeadAutomationCadence(rule.cadence),
       workingHoursLabel: rule.onlyDuringWorkingHours
         ? `${rule.timezone ?? "Timezone missing"} • ${formatWorkingDayLabels(parseWorkingDaysJson(rule.workingDaysJson))} • ${formatMinuteOfDay(rule.startMinute)}-${formatMinuteOfDay(rule.endMinute)}`
         : "Any time"
     })),
     options
+  };
+}
+
+export async function getLeadAutomationModuleState(tenantId: string) {
+  const [adminState, attemptSummary, businessAttemptHealth, recentAttempts, aiAssist, aiAuditEvents, openIssues, yelpThreadAccess] = await Promise.all([
+    getLeadAutomationAdminState(tenantId),
+    getLeadAutomationAttemptSummary(tenantId),
+    getLeadAutomationBusinessAttemptHealth(tenantId),
+    listRecentLeadAutomationAttempts(tenantId, 8),
+    getAiReplyAssistantState(tenantId),
+    getAuditLog(tenantId, {
+      actionTypePrefix: "lead.reply.ai-draft",
+      take: 8
+    }),
+    listOperatorIssues(tenantId, {
+      issueType: "AUTORESPONDER_FAILURE",
+      status: "OPEN"
+    }),
+    ensureYelpLeadsAccess(tenantId)
+      .then(({ credential }) => ({
+        status: "READY" as const,
+        label: credential.label
+      }))
+      .catch((error) => ({
+        status: "FAILED" as const,
+        label: normalizeUnknownError(error).message
+      }))
+  ]);
+  const enabledTemplates = adminState.templates.filter((template) => template.isEnabled);
+  const enabledRules = adminState.rules.filter((rule) => rule.isEnabled);
+  const overrideByBusinessId = new Map(
+    adminState.businessOverrides.map((override) => [override.businessId, override])
+  );
+  const sentCountByBusiness = new Map(
+    businessAttemptHealth.sentCounts
+      .filter((entry) => entry.businessId)
+      .map((entry) => [entry.businessId as string, entry._count._all])
+  );
+  const failedCountByBusiness = new Map(
+    businessAttemptHealth.failedCounts
+      .filter((entry) => entry.businessId)
+      .map((entry) => [entry.businessId as string, entry._count._all])
+  );
+  const pendingDueCountByBusiness = new Map(
+    businessAttemptHealth.pendingDueCounts
+      .filter((entry) => entry.businessId)
+      .map((entry) => [entry.businessId as string, entry._count._all])
+  );
+  const lastSuccessfulAtByBusiness = new Map(
+    businessAttemptHealth.lastSuccessfulAttempts
+      .filter((attempt) => attempt.businessId)
+      .map((attempt) => [attempt.businessId as string, attempt.completedAt ?? attempt.triggeredAt ?? null])
+  );
+  const issueCountByBusiness = new Map<string, number>();
+
+  for (const issue of openIssues) {
+    const businessId = issue.business?.id;
+
+    if (!businessId) {
+      continue;
+    }
+
+    issueCountByBusiness.set(businessId, (issueCountByBusiness.get(businessId) ?? 0) + 1);
+  }
+
+  const businessHealth = adminState.options.businesses.map((business) => {
+    const override = overrideByBusinessId.get(business.id) ?? null;
+    const defaultsApply =
+      adminState.settings.scopeMode === "ALL_BUSINESSES" || adminState.settings.scopedBusinessIds.includes(business.id);
+    const isEnabled = override ? override.isEnabled : adminState.settings.isEnabled && defaultsApply;
+    const effectiveChannel = override
+      ? normalizeAutomationDeliveryChannel(override.defaultChannel)
+      : normalizeAutomationDeliveryChannel(adminState.settings.defaultChannel);
+    const matchingInitialRules = enabledRules.filter((rule) =>
+      matchesBusinessInitialRule({
+        business,
+        rule
+      })
+    );
+    const globalInitialRuleCount = matchingInitialRules.filter((rule) => !rule.serviceCategoryId).length;
+    const conditionalInitialRuleCount = matchingInitialRules.filter((rule) => Boolean(rule.serviceCategoryId)).length;
+    const sentCount = sentCountByBusiness.get(business.id) ?? 0;
+    const failedCount = failedCountByBusiness.get(business.id) ?? 0;
+    const pendingDueCount = pendingDueCountByBusiness.get(business.id) ?? 0;
+    const openIssueCount = issueCountByBusiness.get(business.id) ?? 0;
+    const lastSuccessfulAt = lastSuccessfulAtByBusiness.get(business.id) ?? null;
+    let healthStatus = "INACTIVE";
+    let healthLabel = "Off";
+    let detail = "Tenant defaults do not cover this business yet.";
+
+    if (!business.encryptedYelpBusinessId) {
+      healthStatus = "UNRESOLVED";
+      healthLabel = "Missing Yelp ID";
+      detail = "Save the Yelp business ID before thread automation can send.";
+    } else if (yelpThreadAccess.status !== "READY") {
+      healthStatus = "FAILED";
+      healthLabel = "Delivery blocked";
+      detail = yelpThreadAccess.label;
+    } else if (!isEnabled) {
+      healthStatus = "INACTIVE";
+      healthLabel = "Off";
+      detail = override ? "Business override is disabled." : "Tenant defaults are not active for this business.";
+    } else if (globalInitialRuleCount === 0 && conditionalInitialRuleCount === 0) {
+      healthStatus = "UNRESOLVED";
+      healthLabel = "Needs initial rule";
+      detail = "No enabled initial rule can reply for this business.";
+    } else if (globalInitialRuleCount === 0 && conditionalInitialRuleCount > 0) {
+      healthStatus = "PARTIAL";
+      healthLabel = "Conditional only";
+      detail = "Only service-scoped initial rules are active for this business.";
+    } else if (openIssueCount > 0 || failedCount > 0) {
+      healthStatus = "PARTIAL";
+      healthLabel = "Needs attention";
+      detail =
+        openIssueCount > 0
+          ? `${openIssueCount} open autoresponder issue${openIssueCount === 1 ? "" : "s"}.`
+          : `${failedCount} failed automation attempt${failedCount === 1 ? "" : "s"} recorded.`;
+    } else if (lastSuccessfulAt) {
+      healthStatus = "ACTIVE";
+      healthLabel = "Live";
+      detail = "This business has recorded a successful automated thread send.";
+    } else {
+      healthStatus = "READY";
+      healthLabel = "Ready";
+      detail = "Configured and eligible. No successful automated send recorded yet.";
+    }
+
+    if (pendingDueCount > 0) {
+      detail = `${detail} ${pendingDueCount} follow-up${pendingDueCount === 1 ? "" : "s"} due now.`;
+    }
+
+    return {
+      businessId: business.id,
+      businessName: business.name,
+      yelpBusinessId: business.encryptedYelpBusinessId,
+      isEnabled,
+      defaultsApply,
+      hasOverride: Boolean(override),
+      effectiveChannel,
+      healthStatus,
+      healthLabel,
+      detail,
+      openIssueCount,
+      sentCount,
+      failedCount,
+      pendingDueCount,
+      lastSuccessfulAt,
+      initialRuleCount: globalInitialRuleCount + conditionalInitialRuleCount
+    };
+  });
+  const recentAttemptContext = new Map(
+    recentAttempts.map((attempt) => [
+      attempt.id,
+      {
+        businessName: attempt.business?.name ?? "Unknown business",
+        externalLeadId: attempt.lead?.externalLeadId ?? "Unknown lead",
+        customerName: attempt.lead?.customerName ?? null
+      }
+    ])
+  );
+  const recentAttemptRows = buildLeadAutomationHistory(recentAttempts).map((attempt) => {
+    const context = recentAttemptContext.get(attempt.id);
+
+    return {
+      ...attempt,
+      businessName: context?.businessName ?? "Unknown business",
+      externalLeadId: context?.externalLeadId ?? "Unknown lead",
+      customerName: context?.customerName ?? null
+    };
+  });
+  const recentAiActivity = aiAuditEvents.map((event) => {
+    const requestSummary = asRecord(event.requestSummaryJson);
+    const responseSummaryWrapper = asRecord(event.responseSummaryJson);
+    const responseSummary = asRecord(responseSummaryWrapper?.summary);
+
+    return {
+      id: event.id,
+      createdAt: event.createdAt,
+      actionType: event.actionType,
+      actionLabel: humanizeAiActivityAction(event.actionType),
+      status: event.status,
+      businessName: event.business?.name ?? "Tenant-wide",
+      actorName: event.actor?.name ?? null,
+      channel: getStringValue(requestSummary, "channel"),
+      warningCodes:
+        Array.isArray(responseSummary?.warningCodes) && responseSummary?.warningCodes.length > 0
+          ? (responseSummary.warningCodes as string[])
+          : []
+    };
+  });
+  const recentActivity = [
+    ...recentAttemptRows.map((attempt) => ({
+      id: `attempt:${attempt.id}`,
+      createdAt: attempt.triggeredAt,
+      actionLabel: getLeadAutomationActivityLabel(attempt.cadence, attempt.status),
+      status: attempt.status,
+      targetLabel: attempt.customerName ?? attempt.externalLeadId,
+      businessName: attempt.businessName,
+      channelLabel: attempt.deliveryChannelLabel ?? (attempt.channel === "EMAIL" ? "Yelp masked email" : "Yelp thread"),
+      detail:
+        attempt.errorSummary ??
+        attempt.skipReasonLabel ??
+        (attempt.dueAt && attempt.status === "PENDING"
+          ? "Scheduled and waiting for its due window."
+          : attempt.ruleName ?? attempt.scopeLabel)
+    })),
+    ...recentAiActivity.map((event) => ({
+      id: `audit:${event.id}`,
+      createdAt: event.createdAt,
+      actionLabel: event.actionLabel,
+      status: event.status,
+      targetLabel: event.actorName ?? "Operator",
+      businessName: event.businessName,
+      channelLabel: event.channel === "EMAIL" ? "Yelp masked email" : event.channel === "YELP_THREAD" ? "Yelp thread" : "AI assist",
+      detail: event.warningCodes.length > 0 ? event.warningCodes.join(", ") : "Review-only"
+    }))
+  ]
+    .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())
+    .slice(0, 12);
+  const businessReadyCount = businessHealth.filter((business) => ["READY", "ACTIVE", "PARTIAL"].includes(business.healthStatus)).length;
+  const businessLiveCount = businessHealth.filter((business) => business.healthStatus === "ACTIVE").length;
+  const businessNeedsSetupCount = businessHealth.filter((business) => business.healthStatus === "UNRESOLVED").length;
+  const businessIssueCount = businessHealth.filter((business) => business.openIssueCount > 0 || business.failedCount > 0).length;
+
+  return {
+    ...adminState,
+    moduleSummary: {
+      isEnabled: adminState.settings.isEnabled,
+      scopeMode: adminState.settings.scopeMode,
+      scopedBusinessCount: adminState.settings.scopedBusinessIds.length,
+      defaultChannel: adminState.settings.defaultChannel,
+      emailFallbackEnabled: adminState.settings.emailFallbackEnabled,
+      aiAssistEnabled: adminState.settings.aiAssistEnabled,
+      aiModel: adminState.settings.aiModel,
+      smtpConfigured: adminState.smtpConfigured,
+      enabledTemplateCount: enabledTemplates.length,
+      enabledRuleCount: enabledRules.length,
+      businessOverrideCount: adminState.businessOverrides.length,
+      sentCount: attemptSummary.sentCount,
+      failedCount: attemptSummary.failedCount,
+      skippedCount: attemptSummary.skippedCount,
+      pendingCount: attemptSummary.pendingCount,
+      pendingDueCount: attemptSummary.pendingDueCount,
+      scheduledCount: attemptSummary.scheduledCount,
+      lastSuccessfulAt: attemptSummary.lastSuccessfulAt,
+      openIssueCount: openIssues.length,
+      deliveryAccessStatus: yelpThreadAccess.status,
+      deliveryAccessLabel: yelpThreadAccess.label,
+      businessReadyCount,
+      businessLiveCount,
+      businessNeedsSetupCount,
+      businessIssueCount
+    },
+    operatingMode: {
+      primaryChannel: adminState.settings.defaultChannel === "EMAIL" ? "Yelp masked email fallback" : "Yelp thread",
+      scopePolicy:
+        adminState.settings.scopeMode === "SELECTED_BUSINESSES"
+          ? adminState.settings.scopedBusinessIds.length > 0
+            ? `${adminState.settings.scopedBusinessIds.length} selected business${adminState.settings.scopedBusinessIds.length === 1 ? "" : "es"} use the tenant default. Others stay off unless they have an override.`
+            : "No businesses are selected for the tenant default yet. Only explicit overrides can send."
+          : "All businesses without an override use the tenant default.",
+      fallbackPolicy: adminState.settings.emailFallbackEnabled
+        ? adminState.smtpConfigured
+          ? "Masked email can be used only when thread delivery is unavailable."
+          : "Masked email fallback is enabled in policy, but SMTP is not configured."
+        : "Masked email fallback is disabled. Thread delivery must be available.",
+      afterHoursPolicy:
+        "Rules can gate by working hours. Due follow-ups outside the valid window are re-queued to the next working window instead of sending immediately.",
+      followUpPolicy:
+        adminState.settings.followUp24hEnabled || adminState.settings.followUp7dEnabled
+          ? [
+              adminState.settings.followUp24hEnabled
+                ? `24-hour follow-up after ${adminState.settings.followUp24hDelayHours}h`
+                : null,
+              adminState.settings.followUp7dEnabled
+                ? `following-week follow-up after ${adminState.settings.followUp7dDelayDays}d`
+                : null
+            ]
+              .filter(Boolean)
+              .join(" • ")
+          : "Automated follow-ups are disabled until a business or tenant scope enables them.",
+      liveTemplateMode: enabledTemplates.some((template) => template.channel === "YELP_THREAD")
+        ? "Thread-safe templates are live."
+        : "No live Yelp-thread template is enabled yet."
+    },
+    aiAssist: {
+      ...aiAssist,
+      availableModels: approvedLeadAiModelOptions
+    },
+    businessOverrides: adminState.businessOverrides.map((override) => ({
+      id: override.id,
+      businessId: override.businessId,
+      businessName: override.business.name,
+      yelpBusinessId: override.business.encryptedYelpBusinessId,
+      isEnabled: override.isEnabled,
+      defaultChannel: override.defaultChannel === "EMAIL" ? "EMAIL" : "YELP_THREAD",
+      emailFallbackEnabled: override.emailFallbackEnabled,
+      followUp24hEnabled: override.followUp24hEnabled,
+      followUp24hDelayHours: override.followUp24hDelayHours,
+      followUp7dEnabled: override.followUp7dEnabled,
+      followUp7dDelayDays: override.followUp7dDelayDays,
+      aiAssistEnabled: override.aiAssistEnabled,
+      aiModel: resolveLeadAiModel(override.aiModel),
+      aiModelLabel: getLeadAiModelLabel(override.aiModel),
+      updatedAt: override.updatedAt
+    })),
+    businessHealth,
+    recentActivity,
+    openIssues: openIssues.slice(0, 6).map((issue) => ({
+      id: issue.id,
+      issueType: issue.issueType,
+      severity: issue.severity,
+      summary: issue.summary,
+      lastDetectedAt: issue.lastDetectedAt,
+      targetLabel:
+        issue.lead?.customerName ??
+        issue.lead?.externalLeadId ??
+        issue.business?.name ??
+        "Tenant-wide"
+    }))
   };
 }
 
@@ -200,6 +761,69 @@ export async function saveLeadAutoresponderSettings(tenantId: string, actorId: s
   return saved;
 }
 
+export async function saveLeadAutomationBusinessOverrideWorkflow(
+  tenantId: string,
+  actorId: string,
+  input: unknown
+) {
+  const values = leadAutoresponderBusinessOverrideSchema.parse(input);
+  const existing = await getLeadAutomationBusinessOverrideByBusinessId(tenantId, values.businessId);
+  const saved = await upsertLeadAutomationBusinessOverride(tenantId, values.businessId, {
+    isEnabled: values.isEnabled,
+    defaultChannel: values.defaultChannel,
+    emailFallbackEnabled: values.emailFallbackEnabled,
+    followUp24hEnabled: values.followUp24hEnabled,
+    followUp24hDelayHours: values.followUp24hDelayHours,
+    followUp7dEnabled: values.followUp7dEnabled,
+    followUp7dDelayDays: values.followUp7dDelayDays,
+    aiAssistEnabled: values.aiAssistEnabled,
+    aiModel: values.aiModel,
+    metadataJson: toJsonValue({
+      updatedBy: actorId
+    })
+  });
+
+  await recordAuditEvent({
+    tenantId,
+    actorId,
+    businessId: values.businessId,
+    actionType: "settings.lead-autoresponder-business-override.save",
+    status: "SUCCESS",
+    before: toJsonValue(existing ?? {}),
+    after: toJsonValue(saved)
+  });
+
+  return saved;
+}
+
+export async function deleteLeadAutomationBusinessOverrideWorkflow(
+  tenantId: string,
+  actorId: string,
+  businessId: string
+) {
+  const existing = await getLeadAutomationBusinessOverrideByBusinessId(tenantId, businessId);
+
+  if (!existing) {
+    throw new YelpValidationError("Business-specific autoresponder override not found.");
+  }
+
+  await deleteLeadAutomationBusinessOverride(tenantId, businessId);
+
+  await recordAuditEvent({
+    tenantId,
+    actorId,
+    businessId,
+    actionType: "settings.lead-autoresponder-business-override.delete",
+    status: "SUCCESS",
+    before: toJsonValue(existing),
+    after: toJsonValue({})
+  });
+
+  return {
+    deleted: true
+  };
+}
+
 export async function createLeadAutomationTemplateWorkflow(
   tenantId: string,
   actorId: string,
@@ -207,15 +831,14 @@ export async function createLeadAutomationTemplateWorkflow(
 ) {
   const values = leadAutomationTemplateFormSchema.parse(input);
   const saved = await createLeadAutomationTemplate(tenantId, {
+    businessId: values.businessId || null,
     name: values.name,
     channel: values.channel,
     isEnabled: values.isEnabled,
     subjectTemplate: values.subjectTemplate || null,
     bodyTemplate: values.bodyTemplate,
     sourceSystem: "INTERNAL",
-    metadataJson: toJsonValue({
-      updatedBy: actorId
-    })
+    metadataJson: buildTemplateMetadata(null, values, actorId)
   });
 
   await recordAuditEvent({
@@ -227,7 +850,8 @@ export async function createLeadAutomationTemplateWorkflow(
       id: saved.id,
       name: saved.name,
       channel: saved.channel,
-      isEnabled: saved.isEnabled
+      isEnabled: saved.isEnabled,
+      businessId: saved.businessId
     })
   });
 
@@ -248,14 +872,13 @@ export async function updateLeadAutomationTemplateWorkflow(
   }
 
   const saved = await updateLeadAutomationTemplate(templateId, {
+    businessId: values.businessId || null,
     name: values.name,
     channel: values.channel,
     isEnabled: values.isEnabled,
     subjectTemplate: values.subjectTemplate || null,
     bodyTemplate: values.bodyTemplate,
-    metadataJson: toJsonValue({
-      updatedBy: actorId
-    })
+    metadataJson: buildTemplateMetadata(existing.metadataJson, values, actorId)
   });
 
   await recordAuditEvent({
@@ -282,12 +905,25 @@ export async function createLeadAutomationRuleWorkflow(
     throw new YelpValidationError("Select a valid automation template before saving the rule.");
   }
 
+  validateTemplateBusinessScope({
+    template,
+    ruleBusinessId: values.businessId || null
+  });
+  validateRuleCadenceScope({
+    cadence: values.cadence,
+    template: {
+      channel: normalizeAutomationDeliveryChannel(template.channel)
+    }
+  });
+
   const saved = await createLeadAutomationRule(tenantId, {
     templateId: values.templateId,
+    businessId: values.businessId || null,
     locationId: values.locationId || null,
     serviceCategoryId: values.serviceCategoryId || null,
     name: values.name,
     channel: template.channel,
+    cadence: values.cadence,
     isEnabled: values.isEnabled,
     priority: values.priority,
     onlyDuringWorkingHours: values.onlyDuringWorkingHours,
@@ -332,12 +968,25 @@ export async function updateLeadAutomationRuleWorkflow(
     throw new YelpValidationError("Select a valid automation template before saving the rule.");
   }
 
+  validateTemplateBusinessScope({
+    template,
+    ruleBusinessId: values.businessId || null
+  });
+  validateRuleCadenceScope({
+    cadence: values.cadence,
+    template: {
+      channel: normalizeAutomationDeliveryChannel(template.channel)
+    }
+  });
+
   const saved = await updateLeadAutomationRule(ruleId, {
     templateId: values.templateId,
+    businessId: values.businessId || null,
     locationId: values.locationId || null,
     serviceCategoryId: values.serviceCategoryId || null,
     name: values.name,
     channel: template.channel,
+    cadence: values.cadence,
     isEnabled: values.isEnabled,
     priority: values.priority,
     onlyDuringWorkingHours: values.onlyDuringWorkingHours,
@@ -363,24 +1012,25 @@ export async function updateLeadAutomationRuleWorkflow(
 }
 
 export async function processLeadAutoresponderForNewLead(tenantId: string, leadId: string) {
-  const [settingsValue, lead, rules] = await Promise.all([
-    getSystemSetting(tenantId, LEAD_AUTORESPONDER_SETTING_KEY),
+  const [lead, rules] = await Promise.all([
     getLeadAutomationCandidate(tenantId, leadId),
     listEnabledLeadAutomationRules(tenantId)
   ]);
-  const settings = readLeadAutoresponderSettings(settingsValue);
+  const { effectiveSettings } = await getLeadAutomationScopeConfig(tenantId, lead.business?.id ?? null);
   const smtpConfigured = isSmtpConfigured();
   const eligibility = evaluateLeadAutomationEligibility({
-    settings,
+    settings: effectiveSettings,
     smtpConfigured,
     lead,
-    rules
+    rules,
+    cadence: "INITIAL"
   });
 
   if (!eligibility.eligible && eligibility.skipReason === "DUPLICATE") {
     logInfo("lead.autoresponder.duplicate", {
       tenantId,
-      leadId
+      leadId,
+      cadence: "INITIAL"
     });
 
     return {
@@ -397,7 +1047,8 @@ export async function processLeadAutoresponderForNewLead(tenantId: string, leadI
       serviceCategoryId: lead.serviceCategoryId ?? lead.serviceCategory?.id ?? null,
       ruleId: eligibility.rule?.id ?? null,
       templateId: eligibility.rule?.template.id ?? null,
-      channel: eligibility.rule?.channel ?? settings.defaultChannel,
+      channel: eligibility.rule?.channel ?? effectiveSettings.defaultChannel,
+      cadence: "INITIAL",
       status: "SKIPPED",
       skipReason: eligibility.skipReason,
       sourceSystem: "INTERNAL",
@@ -409,11 +1060,12 @@ export async function processLeadAutoresponderForNewLead(tenantId: string, leadI
     await recordAuditEvent({
       tenantId,
       businessId: lead.business?.id ?? undefined,
-      actionType: "lead.autoresponder.first-response",
+      actionType: getLeadAutomationAuditActionType("INITIAL"),
       status: "SUCCESS",
       correlationId: attempt.id,
       upstreamReference: lead.externalLeadId,
       requestSummary: {
+        cadence: attempt.cadence,
         channel: attempt.channel,
         ruleId: attempt.ruleId,
         templateId: attempt.templateId
@@ -428,6 +1080,7 @@ export async function processLeadAutoresponderForNewLead(tenantId: string, leadI
     logInfo("lead.autoresponder.skipped", {
       tenantId,
       leadId,
+      cadence: "INITIAL",
       skipReason: eligibility.skipReason
     });
 
@@ -443,6 +1096,12 @@ export async function processLeadAutoresponderForNewLead(tenantId: string, leadI
       leadReference: lead.externalLeadId
     });
   const renderedBody = renderLeadAutomationTemplate(eligibility.rule.template.bodyTemplate, variables);
+  const disclosedMessage = applyLeadAutomationDisclosure({
+    channel: eligibility.rule.channel,
+    subject: renderedSubject,
+    body: renderedBody,
+    businessName: lead.business?.name ?? null
+  });
 
   let attempt;
 
@@ -456,18 +1115,20 @@ export async function processLeadAutoresponderForNewLead(tenantId: string, leadI
       ruleId: eligibility.rule.id,
       templateId: eligibility.rule.template.id,
       channel: eligibility.rule.channel,
+      cadence: "INITIAL",
       status: "PENDING",
       sourceSystem: "INTERNAL",
       recipient: eligibility.recipient,
-      renderedSubject,
-      renderedBody,
+      renderedSubject: disclosedMessage.subject,
+      renderedBody: disclosedMessage.body,
       startedAt: new Date()
     });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       logInfo("lead.autoresponder.duplicate", {
         tenantId,
-        leadId
+        leadId,
+        cadence: "INITIAL"
       });
 
       return {
@@ -483,18 +1144,27 @@ export async function processLeadAutoresponderForNewLead(tenantId: string, leadI
     actorId: null,
     lead,
     attemptId: attempt.id,
-    actionType: "lead.autoresponder.first-response",
-    channel: eligibility.rule.channel,
-    renderedSubject,
-    renderedBody,
-    recipient: eligibility.recipient
+    actionType: getLeadAutomationAuditActionType("INITIAL"),
+    channel: normalizeAutomationDeliveryChannel(eligibility.rule.channel),
+    renderedSubject: disclosedMessage.subject,
+    renderedBody: disclosedMessage.body,
+    recipient: eligibility.recipient,
+    allowEmailFallback: effectiveSettings.emailFallbackEnabled
   });
 
   if (result.status === "SENT") {
+    await ensureLeadAutomationFollowUpAttempts({
+      tenantId,
+      lead,
+      settings: effectiveSettings,
+      initialAttemptCompletedAt: result.completedAt ?? new Date()
+    });
+
     logInfo("lead.autoresponder.sent", {
       tenantId,
       leadId,
       attemptId: result.id,
+      cadence: "INITIAL",
       recipient: eligibility.recipient
     });
   } else {
@@ -502,6 +1172,7 @@ export async function processLeadAutoresponderForNewLead(tenantId: string, leadI
       tenantId,
       leadId,
       attemptId: result.id,
+      cadence: "INITIAL",
       message: result.errorSummary
     });
   }
@@ -509,17 +1180,292 @@ export async function processLeadAutoresponderForNewLead(tenantId: string, leadI
   return result;
 }
 
+async function processDueLeadAutomationAttempt(params: {
+  tenantId: string;
+  leadId: string;
+  attemptId: string;
+  cadence: "FOLLOW_UP_24H" | "FOLLOW_UP_7D";
+  actorId?: string | null;
+  isRetry?: boolean;
+}) {
+  const [lead, rules] = await Promise.all([
+    getLeadAutomationCandidate(params.tenantId, params.leadId),
+    listEnabledLeadAutomationRules(params.tenantId)
+  ]);
+  const { effectiveSettings } = await getLeadAutomationScopeConfig(
+    params.tenantId,
+    lead.business?.id ?? null
+  );
+  const attempt =
+    lead.automationAttempts.find(
+      (candidate) => candidate.id === params.attemptId && (candidate.cadence ?? "INITIAL") === params.cadence
+    ) ?? null;
+
+  if (!attempt) {
+    throw new YelpValidationError("The follow-up attempt no longer exists for this lead.");
+  }
+
+  if (attempt.status === "SENT") {
+    throw new YelpValidationError(`${humanizeLeadAutomationCadence(params.cadence)} already sent successfully.`);
+  }
+
+  const eligibility = evaluateLeadAutomationFollowUpEligibility({
+    settings: effectiveSettings,
+    lead,
+    rules,
+    cadence: params.cadence,
+    currentAttemptId: attempt.id
+  });
+
+  if (!eligibility.eligible) {
+    if (eligibility.skipReason === "OUTSIDE_WORKING_HOURS" && eligibility.rule) {
+      const nextDueAt = getNextWorkingWindowStart(eligibility.rule, new Date());
+
+      if (nextDueAt) {
+        const requeuedAttempt = await updateLeadAutomationAttempt(attempt.id, {
+          status: "PENDING",
+          skipReason: null,
+          ruleId: eligibility.rule.id,
+          templateId: eligibility.rule.template.id,
+          channel: "YELP_THREAD",
+          errorSummary: `Re-queued until ${nextDueAt.toISOString()} because the follow-up became due outside working hours.`,
+          dueAt: nextDueAt,
+          startedAt: null,
+          completedAt: null
+        });
+
+        await recordAuditEvent({
+          tenantId: params.tenantId,
+          actorId: params.actorId ?? undefined,
+          businessId: lead.business?.id ?? undefined,
+          actionType: getLeadAutomationAuditActionType(params.cadence, params.isRetry),
+          status: "SUCCESS",
+          correlationId: requeuedAttempt.id,
+          upstreamReference: lead.externalLeadId,
+          requestSummary: {
+            cadence: requeuedAttempt.cadence,
+            channel: requeuedAttempt.channel,
+            ruleId: requeuedAttempt.ruleId,
+            templateId: requeuedAttempt.templateId
+          },
+          responseSummary: {
+            attemptStatus: requeuedAttempt.status,
+            message: eligibility.message,
+            requeuedUntil: nextDueAt.toISOString()
+          }
+        });
+
+        logInfo("lead.autoresponder.requeued", {
+          tenantId: params.tenantId,
+          leadId: lead.id,
+          attemptId: requeuedAttempt.id,
+          cadence: params.cadence,
+          dueAt: nextDueAt.toISOString()
+        });
+
+        return requeuedAttempt;
+      }
+    }
+
+    const skippedAttempt = await updateLeadAutomationAttempt(attempt.id, {
+      status: "SKIPPED",
+      skipReason: eligibility.skipReason,
+      ruleId: eligibility.rule?.id ?? null,
+      templateId: eligibility.rule?.template.id ?? null,
+      channel: eligibility.rule?.channel ?? "YELP_THREAD",
+      errorSummary: eligibility.message,
+      completedAt: new Date()
+    });
+
+    await recordAuditEvent({
+      tenantId: params.tenantId,
+      actorId: params.actorId ?? undefined,
+      businessId: lead.business?.id ?? undefined,
+      actionType: getLeadAutomationAuditActionType(params.cadence, params.isRetry),
+      status: "SUCCESS",
+      correlationId: skippedAttempt.id,
+      upstreamReference: lead.externalLeadId,
+      requestSummary: {
+        cadence: skippedAttempt.cadence,
+        channel: skippedAttempt.channel,
+        ruleId: skippedAttempt.ruleId,
+        templateId: skippedAttempt.templateId
+      },
+      responseSummary: {
+        attemptStatus: skippedAttempt.status,
+        skipReason: skippedAttempt.skipReason,
+        message: eligibility.message
+      }
+    });
+
+    logInfo("lead.autoresponder.skipped", {
+      tenantId: params.tenantId,
+      leadId: lead.id,
+      attemptId: skippedAttempt.id,
+      cadence: params.cadence,
+      skipReason: eligibility.skipReason
+    });
+
+    return skippedAttempt;
+  }
+
+  const variables = buildLeadAutomationVariables(lead);
+  const renderedSubject =
+    attempt.renderedSubject ||
+    renderLeadAutomationTemplate(eligibility.rule.template.subjectTemplate, variables) ||
+    getFallbackSubject({
+      businessName: lead.business?.name ?? null,
+      customerName: lead.customerName ?? null,
+      leadReference: lead.externalLeadId
+    });
+  const renderedBody =
+    attempt.renderedBody ||
+    renderLeadAutomationTemplate(eligibility.rule.template.bodyTemplate, variables);
+  const disclosedMessage = applyLeadAutomationDisclosure({
+    channel: "YELP_THREAD",
+    subject: renderedSubject,
+    body: renderedBody,
+    businessName: lead.business?.name ?? null
+  });
+
+  await updateLeadAutomationAttempt(attempt.id, {
+    status: "PENDING",
+    skipReason: null,
+    ruleId: eligibility.rule.id,
+    templateId: eligibility.rule.template.id,
+    channel: "YELP_THREAD",
+    recipient: null,
+    renderedSubject: disclosedMessage.subject,
+    renderedBody: disclosedMessage.body,
+    errorSummary: null,
+    providerMessageId: null,
+    providerStatus: null,
+    providerMetadataJson: null,
+    startedAt: new Date(),
+    completedAt: null
+  });
+
+  const result = await deliverLeadAutomationAttempt({
+    tenantId: params.tenantId,
+    actorId: params.actorId ?? null,
+    lead,
+    attemptId: attempt.id,
+    actionType: getLeadAutomationAuditActionType(params.cadence, params.isRetry),
+    channel: "YELP_THREAD",
+    renderedSubject: disclosedMessage.subject,
+    renderedBody: disclosedMessage.body,
+    recipient: null,
+    allowEmailFallback: false
+  });
+
+  if (result.status === "SENT") {
+    logInfo("lead.autoresponder.sent", {
+      tenantId: params.tenantId,
+      leadId: lead.id,
+      attemptId: result.id,
+      cadence: params.cadence
+    });
+  } else {
+    logError("lead.autoresponder.failed", {
+      tenantId: params.tenantId,
+      leadId: lead.id,
+      attemptId: result.id,
+      cadence: params.cadence,
+      message: result.errorSummary
+    });
+  }
+
+  return result;
+}
+
+export async function reconcileDueLeadAutomationFollowUps(limit = 20) {
+  const now = new Date();
+  const dueAttempts = await listDueLeadAutomationAttempts(limit * 3, now);
+  const results = [];
+
+  for (const attempt of dueAttempts) {
+    const claimed = await claimLeadAutomationAttemptForProcessing(attempt.id, now);
+
+    if (!claimed) {
+      continue;
+    }
+
+    try {
+      const processed = await processDueLeadAutomationAttempt({
+        tenantId: attempt.tenantId,
+        leadId: attempt.leadId,
+        attemptId: attempt.id,
+        cadence: attempt.cadence as "FOLLOW_UP_24H" | "FOLLOW_UP_7D"
+      });
+
+      results.push({
+        attemptId: processed.id,
+        leadId: processed.leadId,
+        cadence: processed.cadence,
+        status: processed.status
+      });
+    } catch (error) {
+      const normalized = normalizeUnknownError(error);
+
+      results.push({
+        attemptId: attempt.id,
+        leadId: attempt.leadId,
+        cadence: attempt.cadence,
+        status: "FAILED" as const,
+        code: normalized.code,
+        message: normalized.message
+      });
+    }
+
+    if (results.length >= limit) {
+      break;
+    }
+  }
+
+  return results;
+}
+
+export async function runLeadAutomationFollowUpWorker(limit = 20) {
+  return reconcileDueLeadAutomationFollowUps(limit);
+}
+
 export async function getLeadAutomationHistoryForLead(tenantId: string, leadId: string) {
   const lead = await getLeadAutomationCandidate(tenantId, leadId);
   return buildLeadAutomationHistory(lead.automationAttempts);
 }
 
-export async function retryLeadAutomationAttemptWorkflow(tenantId: string, actorId: string, leadId: string) {
+export async function retryLeadAutomationAttemptWorkflow(
+  tenantId: string,
+  actorId: string,
+  leadId: string,
+  attemptId?: string | null
+) {
   const lead = await getLeadAutomationCandidate(tenantId, leadId);
-  const attempt = lead.automationAttempts[0] ?? null;
+  const { effectiveSettings } = await getLeadAutomationScopeConfig(tenantId, lead.business?.id ?? null);
+  const attempt =
+    (attemptId
+      ? lead.automationAttempts.find((candidate) => candidate.id === attemptId)
+      : [...(lead.automationAttempts ?? [])].sort((left, right) => {
+          const leftTime = (left.completedAt ?? left.triggeredAt ?? new Date(0)).getTime();
+          const rightTime = (right.completedAt ?? right.triggeredAt ?? new Date(0)).getTime();
+          return rightTime - leftTime;
+        }).find((candidate) => candidate.status !== "SENT")) ?? null;
 
   if (!attempt) {
-    throw new YelpValidationError("No first-response attempt exists for this lead.");
+    throw new YelpValidationError("No retryable autoresponder attempt exists for this lead.");
+  }
+
+  const cadence = (attempt.cadence ?? "INITIAL") as "INITIAL" | "FOLLOW_UP_24H" | "FOLLOW_UP_7D";
+
+  if (cadence !== "INITIAL") {
+    return processDueLeadAutomationAttempt({
+      tenantId,
+      leadId,
+      attemptId: attempt.id,
+      cadence,
+      actorId,
+      isRetry: true
+    });
   }
 
   if (attempt.status === "SENT") {
@@ -542,21 +1488,28 @@ export async function retryLeadAutomationAttemptWorkflow(tenantId: string, actor
   const renderedBody =
     attempt.renderedBody ||
     renderLeadAutomationTemplate(attempt.template?.bodyTemplate ?? "", variables);
+  const disclosedMessage = applyLeadAutomationDisclosure({
+    channel: attempt.channel ?? "EMAIL",
+    subject: renderedSubject,
+    body: renderedBody,
+    businessName: lead.business?.name ?? null
+  });
 
-  if (!renderedBody.trim()) {
+  if (!disclosedMessage.body.trim()) {
     throw new YelpValidationError("This attempt does not have a rendered message body to retry.");
   }
 
   await updateLeadAutomationAttempt(attempt.id, {
     status: "PENDING",
+    skipReason: null,
     startedAt: new Date(),
     completedAt: null,
     errorSummary: null,
     providerMessageId: null,
     providerStatus: null,
     providerMetadataJson: null,
-    renderedSubject,
-    renderedBody
+    renderedSubject: disclosedMessage.subject,
+    renderedBody: disclosedMessage.body
   });
 
   const result = await deliverLeadAutomationAttempt({
@@ -564,18 +1517,27 @@ export async function retryLeadAutomationAttemptWorkflow(tenantId: string, actor
     actorId,
     lead,
     attemptId: attempt.id,
-    actionType: "lead.autoresponder.retry",
-    channel: attempt.channel ?? "EMAIL",
-    renderedSubject,
-    renderedBody,
-    recipient: attempt.recipient
+    actionType: getLeadAutomationAuditActionType("INITIAL", true),
+    channel: normalizeAutomationDeliveryChannel(attempt.channel),
+    renderedSubject: disclosedMessage.subject,
+    renderedBody: disclosedMessage.body,
+    recipient: attempt.recipient,
+    allowEmailFallback: effectiveSettings.emailFallbackEnabled
   });
 
   if (result.status === "SENT") {
+    await ensureLeadAutomationFollowUpAttempts({
+      tenantId,
+      lead,
+      settings: effectiveSettings,
+      initialAttemptCompletedAt: result.completedAt ?? new Date()
+    });
+
     logInfo("lead.autoresponder.retry_sent", {
       tenantId,
       leadId,
       attemptId: result.id,
+      cadence: "INITIAL",
       recipient: attempt.recipient
     });
   } else {
@@ -583,6 +1545,7 @@ export async function retryLeadAutomationAttemptWorkflow(tenantId: string, actor
       tenantId,
       leadId,
       attemptId: result.id,
+      cadence: "INITIAL",
       message: result.errorSummary
     });
   }

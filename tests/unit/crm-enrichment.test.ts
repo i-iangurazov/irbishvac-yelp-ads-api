@@ -5,6 +5,7 @@ import {
   buildInternalStatusTimeline,
   buildLeadConversionMetrics,
   deriveCrmHealth,
+  getCurrentPartnerLifecycleStatus,
   isResolvedCrmMappingState
 } from "@/features/crm-enrichment/normalize";
 
@@ -103,6 +104,28 @@ describe("CRM enrichment helpers", () => {
     expect(timeline.map((item) => item.status)).toEqual(["BOOKED", "SCHEDULED"]);
   });
 
+  it("keeps the latest partner lifecycle status when older events are replayed", () => {
+    const status = getCurrentPartnerLifecycleStatus(
+      [
+        {
+          id: "crm-status-older",
+          status: "BOOKED",
+          occurredAt: new Date("2026-04-01T09:00:00.000Z"),
+          createdAt: new Date("2026-04-01T09:00:00.000Z")
+        },
+        {
+          id: "crm-status-newer",
+          status: "SCHEDULED",
+          occurredAt: new Date("2026-04-02T09:00:00.000Z"),
+          createdAt: new Date("2026-04-02T09:00:00.000Z")
+        }
+      ],
+      "UNMAPPED"
+    );
+
+    expect(status).toBe("SCHEDULED");
+  });
+
   it("keeps Yelp-native and internal timelines separate", () => {
     const yelpTimeline = buildLeadTimeline([
       {
@@ -134,6 +157,10 @@ describe("CRM enrichment helpers", () => {
   it("derives internal conversion metrics from current lead outcomes", () => {
     const metrics = buildLeadConversionMetrics([
       {
+        internalStatus: "ACTIVE",
+        crmLeadMappings: [{ state: "MATCHED" }]
+      },
+      {
         internalStatus: "BOOKED",
         crmLeadMappings: [{ state: "MANUAL_OVERRIDE" }]
       },
@@ -148,15 +175,38 @@ describe("CRM enrichment helpers", () => {
       {
         internalStatus: "SCHEDULED",
         crmLeadMappings: []
+      },
+      {
+        internalStatus: "JOB_IN_PROGRESS",
+        crmLeadMappings: []
+      },
+      {
+        internalStatus: "CLOSED_WON",
+        crmLeadMappings: [{ state: "MATCHED" }]
+      },
+      {
+        internalStatus: "CLOSED_LOST",
+        crmLeadMappings: [{ state: "MATCHED" }]
       }
     ]);
 
     expect(metrics).toEqual({
-      totalLeads: 4,
-      mappedLeads: 2,
+      totalLeads: 8,
+      mappedLeads: 5,
+      activeLeads: 1,
+      contactedLeads: 0,
       bookedLeads: 1,
       scheduledJobs: 1,
-      completedJobs: 1,
+      jobInProgressJobs: 1,
+      completedJobs: 2,
+      wonLeads: 1,
+      lostLeads: 1,
+      bookingRate: 12.5,
+      schedulingRate: 12.5,
+      progressRate: 12.5,
+      completionRate: 25,
+      winRate: 12.5,
+      lossRate: 12.5,
       closeRate: 25
     });
   });

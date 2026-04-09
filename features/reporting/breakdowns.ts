@@ -37,10 +37,19 @@ export type ReportBreakdownRow = {
   bucketLabel: string;
   totalLeads: number;
   mappedLeads: number;
+  active: number;
+  contacted: number;
   booked: number;
   scheduled: number;
   jobInProgress: number;
   completed: number;
+  won: number;
+  lost: number;
+  mappingRate: number;
+  bookedRate: number;
+  scheduledRate: number;
+  completionRate: number;
+  winRate: number;
   closeRate: number;
   yelpSpendCents: number;
   costPerLeadCents: number | null;
@@ -266,10 +275,19 @@ export function buildReportBreakdown(params: {
         params.view === "location" ? resolveLocationLabel(bucketId, params.options) : resolveServiceLabel(bucketId, params.options),
       totalLeads: 0,
       mappedLeads: 0,
+      active: 0,
+      contacted: 0,
       booked: 0,
       scheduled: 0,
       jobInProgress: 0,
       completed: 0,
+      won: 0,
+      lost: 0,
+      mappingRate: 0,
+      bookedRate: 0,
+      scheduledRate: 0,
+      completionRate: 0,
+      winRate: 0,
       closeRate: 0,
       yelpSpendCents: 0,
       costPerLeadCents: null,
@@ -307,6 +325,14 @@ export function buildReportBreakdown(params: {
       row.mappedLeads += 1;
     }
 
+    if (lead.internalStatus === "ACTIVE") {
+      row.active += 1;
+    }
+
+    if (lead.internalStatus === "CONTACTED") {
+      row.contacted += 1;
+    }
+
     if (lead.internalStatus === "BOOKED") {
       row.booked += 1;
     }
@@ -321,6 +347,14 @@ export function buildReportBreakdown(params: {
 
     if (lead.internalStatus === "COMPLETED" || lead.internalStatus === "CLOSED_WON") {
       row.completed += 1;
+    }
+
+    if (lead.internalStatus === "CLOSED_WON") {
+      row.won += 1;
+    }
+
+    if (lead.internalStatus === "CLOSED_LOST" || lead.internalStatus === "LOST") {
+      row.lost += 1;
     }
   }
 
@@ -367,24 +401,37 @@ export function buildReportBreakdown(params: {
     (combined, row) => ({
       totalLeads: combined.totalLeads + row.totalLeads,
       mappedLeads: combined.mappedLeads + row.mappedLeads,
+      active: combined.active + row.active,
+      contacted: combined.contacted + row.contacted,
       booked: combined.booked + row.booked,
       scheduled: combined.scheduled + row.scheduled,
       jobInProgress: combined.jobInProgress + row.jobInProgress,
       completed: combined.completed + row.completed,
+      won: combined.won + row.won,
+      lost: combined.lost + row.lost,
       yelpSpendCents: combined.yelpSpendCents + row.yelpSpendCents
     }),
     {
       totalLeads: 0,
       mappedLeads: 0,
+      active: 0,
+      contacted: 0,
       booked: 0,
       scheduled: 0,
       jobInProgress: 0,
       completed: 0,
+      won: 0,
+      lost: 0,
       yelpSpendCents: 0
     }
   );
 
   for (const row of outputRows) {
+    row.mappingRate = row.totalLeads > 0 ? roundPct((row.mappedLeads / row.totalLeads) * 100) : 0;
+    row.bookedRate = row.totalLeads > 0 ? roundPct((row.booked / row.totalLeads) * 100) : 0;
+    row.scheduledRate = row.totalLeads > 0 ? roundPct((row.scheduled / row.totalLeads) * 100) : 0;
+    row.completionRate = row.totalLeads > 0 ? roundPct((row.completed / row.totalLeads) * 100) : 0;
+    row.winRate = row.totalLeads > 0 ? roundPct((row.won / row.totalLeads) * 100) : 0;
     row.closeRate = row.totalLeads > 0 ? roundPct((row.completed / row.totalLeads) * 100) : 0;
     row.costPerLeadCents = row.totalLeads > 0 ? Math.round(row.yelpSpendCents / row.totalLeads) : null;
     row.costPerBookedJobCents = row.booked > 0 ? Math.round(row.yelpSpendCents / row.booked) : null;
@@ -398,6 +445,11 @@ export function buildReportBreakdown(params: {
     rows: outputRows,
     totals: {
       ...totals,
+      mappingRate: totals.totalLeads > 0 ? roundPct((totals.mappedLeads / totals.totalLeads) * 100) : 0,
+      bookedRate: totals.totalLeads > 0 ? roundPct((totals.booked / totals.totalLeads) * 100) : 0,
+      scheduledRate: totals.totalLeads > 0 ? roundPct((totals.scheduled / totals.totalLeads) * 100) : 0,
+      completionRate: totals.totalLeads > 0 ? roundPct((totals.completed / totals.totalLeads) * 100) : 0,
+      winRate: totals.totalLeads > 0 ? roundPct((totals.won / totals.totalLeads) * 100) : 0,
       closeRate: totals.totalLeads > 0 ? roundPct((totals.completed / totals.totalLeads) * 100) : 0,
       costPerLeadCents: totals.totalLeads > 0 ? Math.round(totals.yelpSpendCents / totals.totalLeads) : null,
       costPerBookedJobCents: totals.booked > 0 ? Math.round(totals.yelpSpendCents / totals.booked) : null,
@@ -409,18 +461,27 @@ export function buildReportBreakdown(params: {
 export function buildBreakdownCsvRows(breakdown: { rows: ReportBreakdownRow[] }) {
   return breakdown.rows.map((row) => ({
     bucket: row.bucketLabel,
-    totalLeads: row.totalLeads,
-    mappedLeads: row.mappedLeads,
-    booked: row.booked,
-    scheduled: row.scheduled,
-    jobInProgress: row.jobInProgress,
-    completed: row.completed,
-    closeRatePct: row.closeRate,
+    yelpLeadIntakeCount: row.totalLeads,
+    partnerMappedLeads: row.mappedLeads,
+    partnerActive: row.active,
+    partnerContacted: row.contacted,
+    partnerBooked: row.booked,
+    partnerScheduled: row.scheduled,
+    partnerJobInProgress: row.jobInProgress,
+    partnerCompleted: row.completed,
+    partnerWon: row.won,
+    partnerLost: row.lost,
+    derivedMappingRatePct: row.mappingRate,
+    derivedBookedRatePct: row.bookedRate,
+    derivedScheduledRatePct: row.scheduledRate,
+    derivedCompletionRatePct: row.completionRate,
+    derivedWinRatePct: row.winRate,
+    derivedCloseRatePct: row.closeRate,
     yelpSpendCents: row.yelpSpendCents,
     leadSharePct: row.leadSharePct,
     spendSharePct: row.spendSharePct,
-    costPerLeadCents: row.costPerLeadCents,
-    costPerBookedJobCents: row.costPerBookedJobCents,
-    costPerCompletedJobCents: row.costPerCompletedJobCents
+    derivedCostPerLeadCents: row.costPerLeadCents,
+    derivedCostPerBookedLeadCents: row.costPerBookedJobCents,
+    derivedCostPerCompletedJobCents: row.costPerCompletedJobCents
   }));
 }

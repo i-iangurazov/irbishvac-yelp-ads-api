@@ -60,6 +60,8 @@ export type LeadListEntry = {
   externalBusinessId: string | null;
   mappedBusinessName: string | null;
   mappedBusinessId: string | null;
+  locationLabel: string | null;
+  serviceLabel: string | null;
   customerLabel: string;
   createdAtYelp: Date;
   latestActivityAt: Date | null;
@@ -77,6 +79,13 @@ export type LeadListEntry = {
   crmHealthMessage: string;
   requiresAttention: boolean;
   attentionReasons: string[];
+  openIssueCount: number;
+  primaryIssue: {
+    id: string;
+    issueType: string;
+    severity: string;
+    summary: string;
+  } | null;
 };
 
 type NormalizedLeadSnapshotParams = {
@@ -108,6 +117,7 @@ type LeadConversationActionTimelineItem = {
   channel: string;
   channelLabel: string;
   status: string;
+  deliveryNote: string | null;
   recipient: string | null;
   renderedSubject: string | null;
   renderedBody: string | null;
@@ -136,9 +146,9 @@ function humanizeConversationActionType(actionType: string) {
     case "SEND_MESSAGE":
       return "Reply sent";
     case "MARK_READ":
-      return "Marked read";
+      return "Marked read on Yelp";
     case "MARK_REPLIED":
-      return "Marked replied";
+      return "Marked replied on Yelp";
     default:
       return actionType.replaceAll("_", " ").toLowerCase();
   }
@@ -160,7 +170,9 @@ function humanizeConversationChannel(channel: string) {
     case "YELP_THREAD":
       return "Yelp thread";
     case "EMAIL":
-      return "External email";
+      return "Yelp masked email";
+    case "PHONE":
+      return "Phone / SMS";
     default:
       return channel.replaceAll("_", " ").toLowerCase();
   }
@@ -452,7 +464,9 @@ export function buildLeadListEntry(lead: {
   latestInteractionAt: Date | null;
   lastSyncedAt?: Date | null;
   replyState: YelpLeadReplyState;
-  business?: { id: string; name: string } | null;
+  business?: { id: string; name: string; location?: { id: string; name: string } | null } | null;
+  location?: { id: string; name: string } | null;
+  serviceCategory?: { id: string; name: string } | null;
   webhookEvents?: Array<{ status: SyncRunStatus; errorJson?: unknown | null }>;
   crmLeadMappings?: Array<{
     state: CrmLeadMappingState;
@@ -470,11 +484,13 @@ export function buildLeadListEntry(lead: {
     sourceSystem: RecordSourceSystem;
   }>;
   automationAttempts?: Array<{
+    cadence?: "INITIAL" | "FOLLOW_UP_24H" | "FOLLOW_UP_7D" | null;
     status: LeadAutomationAttemptStatus;
     recipient?: string | null;
     errorSummary?: string | null;
     skipReason?: LeadAutomationSkipReason | null;
     template?: { name: string } | null;
+    dueAt?: Date | null;
   }>;
   syncRuns?: Array<{
     status: SyncRunStatus;
@@ -482,7 +498,7 @@ export function buildLeadListEntry(lead: {
     errors?: Array<{ message: string }>;
   }>;
   internalStatus: InternalLeadStatus;
-}) {
+}): LeadListEntry {
   const latestWebhook = lead.webhookEvents?.[0] ?? null;
   const mapping = lead.crmLeadMappings?.[0] ?? null;
   const latestInternalStatus = lead.crmStatusEvents?.[0] ?? null;
@@ -517,6 +533,8 @@ export function buildLeadListEntry(lead: {
     externalBusinessId: lead.externalBusinessId,
     mappedBusinessName: lead.business?.name ?? null,
     mappedBusinessId: lead.business?.id ?? null,
+    locationLabel: lead.location?.name ?? lead.business?.location?.name ?? null,
+    serviceLabel: lead.serviceCategory?.name ?? null,
     customerLabel: lead.customerName ?? lead.externalLeadId,
     createdAtYelp: lead.createdAtYelp,
     latestActivityAt: lead.latestInteractionAt ?? null,
@@ -533,7 +551,9 @@ export function buildLeadListEntry(lead: {
     crmHealthStatus: crmHealth.status,
     crmHealthMessage: crmHealth.message,
     requiresAttention: attentionReasons.length > 0,
-    attentionReasons
+    attentionReasons,
+    openIssueCount: 0,
+    primaryIssue: null
   } satisfies LeadListEntry;
 }
 
@@ -603,6 +623,17 @@ export function buildLeadConversationActionTimeline(
       const providerMetadata = asRecord(action.providerMetadataJson);
       const deliveryChannel =
         getStringValue(providerMetadata, "deliveryChannel") ?? action.channel;
+      const fallbackFrom = getStringValue(providerMetadata, "fallbackFrom");
+      const refreshWarning = getStringValue(providerMetadata, "refreshWarning");
+      const replyType = getStringValue(providerMetadata, "replyType");
+      const deliveryNotes = [
+        fallbackFrom ? `Fallback from ${humanizeConversationChannel(fallbackFrom)}.` : null,
+        replyType === "PHONE" ? "Marked replied after phone or SMS follow-up outside Yelp." : null,
+        replyType === "EMAIL" && action.actionType === "MARK_REPLIED"
+          ? "Marked replied after Yelp masked email follow-up outside the Yelp thread."
+          : null,
+        refreshWarning ?? null
+      ].filter(Boolean);
 
       return {
         id: action.id,
@@ -613,6 +644,7 @@ export function buildLeadConversationActionTimeline(
         channel: action.channel,
         channelLabel: humanizeConversationChannel(deliveryChannel),
         status: action.status,
+        deliveryNote: deliveryNotes.length > 0 ? deliveryNotes.join(" ") : null,
         recipient: action.recipient,
         renderedSubject: action.renderedSubject,
         renderedBody: action.renderedBody,

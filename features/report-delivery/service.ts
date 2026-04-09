@@ -1,7 +1,7 @@
 import "server-only";
 
 import { Prisma } from "@prisma/client";
-import type { ReportScheduleRunScope } from "@prisma/client";
+import type { ReportScheduleDeliveryScope, ReportScheduleRunScope } from "@prisma/client";
 import Papa from "papaparse";
 
 import { recordAuditEvent } from "@/features/audit/service";
@@ -15,13 +15,20 @@ import {
 import {
   isReadyForDelivery,
   mapReportStatusToGenerationStatus,
-  shouldFanOutLocationDelivery
+  shouldFanOutLocationDelivery,
+  shouldSendAccountDelivery
 } from "@/features/report-delivery/logic";
+import {
+  getReportScheduleDeliveryScopeLabel,
+  readLocationRecipientOverridesJson,
+  resolveRecipientRoute
+} from "@/features/report-delivery/routing";
 import { buildReportScheduleRunKey, describeSchedule, getLatestScheduleWindow } from "@/features/report-delivery/schedule";
 import { parseRecipientEmails, reportScheduleFormSchema } from "@/features/report-delivery/schemas";
 import { reportMetrics, reportUnknownBucketValue } from "@/features/reporting/schemas";
 import { getReportBreakdownView, getReportDetail, pollReportWorkflow, requestReportByValues } from "@/features/reporting/service";
 import { listBusinesses } from "@/lib/db/businesses-repository";
+import { listOpenOperatorIssuesForReportScheduleRunIds } from "@/lib/db/issues-repository";
 import { toJsonValue } from "@/lib/db/json";
 import {
   createReportSchedule,
@@ -30,6 +37,7 @@ import {
   getReportScheduleRunById,
   listEnabledReportSchedules,
   listRecentReportScheduleRuns,
+  listReportScheduleLocations,
   listReportScheduleRunsForOccurrence,
   listReportSchedules,
   listPendingReportScheduleRuns,
@@ -48,6 +56,19 @@ function readRecipientEmailsJson(value: unknown) {
   }
 
   return value.filter((item): item is string => typeof item === "string" && item.length > 0);
+}
+
+function readRecipientContextJson(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+
+  return {
+    routingMode: typeof record.routingMode === "string" ? record.routingMode : null,
+    routingLabel: typeof record.routingLabel === "string" ? record.routingLabel : null
+  };
 }
 
 function buildDashboardUrl(reportRequestId: string, params?: Record<string, string | undefined>) {
@@ -130,10 +151,19 @@ async function buildRunSummary(params: {
       yelpSpendCents: locationView.breakdown.totals.yelpSpendCents,
       totalLeads: locationView.breakdown.totals.totalLeads,
       mappedLeads: locationView.breakdown.totals.mappedLeads,
+      active: locationView.breakdown.totals.active,
+      contacted: locationView.breakdown.totals.contacted,
       booked: locationView.breakdown.totals.booked,
       scheduled: locationView.breakdown.totals.scheduled,
       jobInProgress: locationView.breakdown.totals.jobInProgress,
       completed: locationView.breakdown.totals.completed,
+      won: locationView.breakdown.totals.won,
+      lost: locationView.breakdown.totals.lost,
+      mappingRate: locationView.breakdown.totals.mappingRate,
+      bookedRate: locationView.breakdown.totals.bookedRate,
+      scheduledRate: locationView.breakdown.totals.scheduledRate,
+      completionRate: locationView.breakdown.totals.completionRate,
+      winRate: locationView.breakdown.totals.winRate,
       closeRate: locationView.breakdown.totals.closeRate,
       costPerLeadCents: locationView.breakdown.totals.costPerLeadCents,
       costPerBookedJobCents: locationView.breakdown.totals.costPerBookedJobCents,
@@ -143,10 +173,20 @@ async function buildRunSummary(params: {
       bucketId: row.bucketId,
       bucketLabel: row.bucketLabel,
       totalLeads: row.totalLeads,
+      mappedLeads: row.mappedLeads,
+      active: row.active,
+      contacted: row.contacted,
       booked: row.booked,
       scheduled: row.scheduled,
       jobInProgress: row.jobInProgress,
       completed: row.completed,
+      won: row.won,
+      lost: row.lost,
+      mappingRate: row.mappingRate,
+      bookedRate: row.bookedRate,
+      scheduledRate: row.scheduledRate,
+      completionRate: row.completionRate,
+      winRate: row.winRate,
       closeRate: row.closeRate,
       yelpSpendCents: row.yelpSpendCents
     })),
@@ -154,10 +194,20 @@ async function buildRunSummary(params: {
       bucketId: row.bucketId,
       bucketLabel: row.bucketLabel,
       totalLeads: row.totalLeads,
+      mappedLeads: row.mappedLeads,
+      active: row.active,
+      contacted: row.contacted,
       booked: row.booked,
       scheduled: row.scheduled,
       jobInProgress: row.jobInProgress,
       completed: row.completed,
+      won: row.won,
+      lost: row.lost,
+      mappingRate: row.mappingRate,
+      bookedRate: row.bookedRate,
+      scheduledRate: row.scheduledRate,
+      completionRate: row.completionRate,
+      winRate: row.winRate,
       closeRate: row.closeRate,
       yelpSpendCents: row.yelpSpendCents
     })),
@@ -222,6 +272,10 @@ async function enqueueScheduleOccurrence(params: {
       generationStatus: "PENDING",
       deliveryStatus: "PENDING",
       recipientEmailsJson: recipientEmails,
+      recipientContextJson: toJsonValue({
+        routingMode: "ACCOUNT_DEFAULT",
+        routingLabel: "Default account recipients"
+      }),
       generationStartedAt: startedAt
     },
     update: {
@@ -237,7 +291,11 @@ async function enqueueScheduleOccurrence(params: {
       lastAttemptedAt: null,
       errorSummary: null,
       errorJson: Prisma.JsonNull,
-      recipientEmailsJson: recipientEmails
+      recipientEmailsJson: recipientEmails,
+      recipientContextJson: toJsonValue({
+        routingMode: "ACCOUNT_DEFAULT",
+        routingLabel: "Default account recipients"
+      })
     }
   });
 
@@ -331,16 +389,63 @@ async function enqueueScheduleOccurrence(params: {
 }
 
 export async function getReportDeliveryAdminState(tenantId: string, selectedScheduleId?: string) {
-  const [schedules, recentRuns, selectedSchedule] = await Promise.all([
+  const [schedules, recentRuns, selectedSchedule, locations] = await Promise.all([
     listReportSchedules(tenantId),
     listRecentReportScheduleRuns(tenantId, 20),
-    selectedScheduleId ? getReportScheduleById(selectedScheduleId, tenantId).catch(() => null) : Promise.resolve(null)
+    selectedScheduleId ? getReportScheduleById(selectedScheduleId, tenantId).catch(() => null) : Promise.resolve(null),
+    listReportScheduleLocations(tenantId)
   ]);
+  const linkedIssues = await listOpenOperatorIssuesForReportScheduleRunIds(
+    tenantId,
+    recentRuns.map((run) => run.id)
+  );
+  const issuesByRunId = new Map<string, typeof linkedIssues>();
+
+  for (const issue of linkedIssues) {
+    const key = issue.reportScheduleRunId;
+
+    if (!key) {
+      continue;
+    }
+
+    const current = issuesByRunId.get(key) ?? [];
+    current.push(issue);
+    issuesByRunId.set(key, current);
+  }
 
   return {
-    schedules,
-    recentRuns,
+    schedules: schedules.map((schedule) => {
+      const defaultRecipients = readRecipientEmailsJson(schedule.recipientEmailsJson);
+      const locationOverrides = readLocationRecipientOverridesJson(schedule.locationRecipientOverridesJson);
+
+      return {
+        ...schedule,
+        deliveryScopeLabel: getReportScheduleDeliveryScopeLabel(schedule.deliveryScope),
+        defaultRecipientCount: defaultRecipients.length,
+        locationOverrideCount: locationOverrides.length
+      };
+    }),
+    recentRuns: recentRuns.map((run) => {
+      const openIssues = issuesByRunId.get(run.id) ?? [];
+      const primaryIssue = openIssues[0] ?? null;
+      const recipientContext = readRecipientContextJson(run.recipientContextJson);
+
+      return {
+        ...run,
+        recipientRoutingLabel: recipientContext?.routingLabel ?? "Default account recipients",
+        openIssueCount: openIssues.length,
+        primaryIssue: primaryIssue
+          ? {
+              id: primaryIssue.id,
+              issueType: primaryIssue.issueType,
+              severity: primaryIssue.severity,
+              summary: primaryIssue.summary
+            }
+          : null
+      };
+    }),
     selectedSchedule,
+    locations,
     smtpConfigured: isSmtpConfigured()
   };
 }
@@ -348,17 +453,23 @@ export async function getReportDeliveryAdminState(tenantId: string, selectedSche
 export async function createReportScheduleWorkflow(tenantId: string, actorId: string, input: unknown) {
   const values = reportScheduleFormSchema.parse(input);
   const recipients = parseRecipientEmails(values.recipientEmails);
+  const locationRecipientOverrides = values.locationRecipientOverrides.map((override) => ({
+    locationId: override.locationId,
+    recipientEmails: parseRecipientEmails(override.recipientEmails)
+  }));
   const schedule = await createReportSchedule(tenantId, {
     tenantId,
     name: values.name,
     cadence: values.cadence,
+    deliveryScope: values.deliveryScope,
     timezone: values.timezone,
     sendDayOfWeek: values.cadence === "WEEKLY" ? values.sendDayOfWeek ?? 0 : null,
     sendDayOfMonth: values.cadence === "MONTHLY" ? values.sendDayOfMonth ?? 1 : null,
     sendHour: values.sendHour,
     sendMinute: values.sendMinute,
-    deliverPerLocation: values.deliverPerLocation,
+    deliverPerLocation: values.deliveryScope !== "ACCOUNT_ONLY",
     recipientEmailsJson: recipients,
+    locationRecipientOverridesJson: locationRecipientOverrides,
     isEnabled: values.isEnabled
   });
 
@@ -371,8 +482,10 @@ export async function createReportScheduleWorkflow(tenantId: string, actorId: st
       scheduleId: schedule.id,
       name: schedule.name,
       cadence: schedule.cadence,
+      deliveryScope: schedule.deliveryScope,
       timing: describeSchedule(schedule),
-      recipientCount: recipients.length
+      recipientCount: recipients.length,
+      locationOverrideCount: locationRecipientOverrides.length
     })
   });
 
@@ -383,17 +496,23 @@ export async function updateReportScheduleWorkflow(tenantId: string, actorId: st
   const current = await getReportScheduleById(scheduleId, tenantId);
   const values = reportScheduleFormSchema.parse(input);
   const recipients = parseRecipientEmails(values.recipientEmails);
+  const locationRecipientOverrides = values.locationRecipientOverrides.map((override) => ({
+    locationId: override.locationId,
+    recipientEmails: parseRecipientEmails(override.recipientEmails)
+  }));
 
   await updateReportSchedule(scheduleId, tenantId, {
     name: values.name,
     cadence: values.cadence,
+    deliveryScope: values.deliveryScope,
     timezone: values.timezone,
     sendDayOfWeek: values.cadence === "WEEKLY" ? values.sendDayOfWeek ?? 0 : null,
     sendDayOfMonth: values.cadence === "MONTHLY" ? values.sendDayOfMonth ?? 1 : null,
     sendHour: values.sendHour,
     sendMinute: values.sendMinute,
-    deliverPerLocation: values.deliverPerLocation,
+    deliverPerLocation: values.deliveryScope !== "ACCOUNT_ONLY",
     recipientEmailsJson: recipients,
+    locationRecipientOverridesJson: locationRecipientOverrides,
     isEnabled: values.isEnabled
   });
 
@@ -408,13 +527,17 @@ export async function updateReportScheduleWorkflow(tenantId: string, actorId: st
       name: current.name,
       cadence: current.cadence,
       recipientEmails: readRecipientEmailsJson(current.recipientEmailsJson),
+      deliveryScope: current.deliveryScope,
+      locationRecipientOverrides: readLocationRecipientOverridesJson(current.locationRecipientOverridesJson),
       isEnabled: current.isEnabled
     }),
     after: toJsonValue({
       scheduleId: updated.id,
       name: updated.name,
       cadence: updated.cadence,
+      deliveryScope: updated.deliveryScope,
       recipientEmails: recipients,
+      locationRecipientOverrides,
       isEnabled: updated.isEnabled
     })
   });
@@ -435,11 +558,13 @@ export async function generateReportScheduleNowWorkflow(tenantId: string, actorI
       ? await hydrateScheduledRun(queuedRun.id, tenantId)
       : await getReportScheduleRunById(queuedRun.id, tenantId);
 
+  let result = hydrated;
+
   if (isReadyForDelivery(hydrated.generationStatus, hydrated.deliveryStatus)) {
-    return resendReportScheduleRunWorkflow(tenantId, actorId, hydrated.id);
+    result = await resendReportScheduleRunWorkflow(tenantId, actorId, hydrated.id);
   }
 
-  if (hydrated.scope === "ACCOUNT" && hydrated.deliveryStatus === "SKIPPED") {
+  if (hydrated.scope === "ACCOUNT" && hydrated.schedule.deliveryScope !== "ACCOUNT_ONLY") {
     const siblingRuns = await listReportScheduleRunsForOccurrence({
       scheduleId: hydrated.scheduleId,
       scheduledFor: hydrated.scheduledFor,
@@ -454,7 +579,7 @@ export async function generateReportScheduleNowWorkflow(tenantId: string, actorI
     }
   }
 
-  return hydrated;
+  return result;
 }
 
 export async function resendReportScheduleRunWorkflow(tenantId: string, actorId: string | null, runId: string) {
@@ -476,6 +601,12 @@ export async function resendReportScheduleRunWorkflow(tenantId: string, actorId:
   const email = buildReportDeliveryEmail(summary);
   const csv = Papa.unparse(buildReportDeliveryCsv(summary));
   const recipientEmails = readRecipientEmailsJson(run.recipientEmailsJson);
+  const recipientContext = readRecipientContextJson(run.recipientContextJson);
+
+  if (recipientEmails.length === 0) {
+    throw new YelpValidationError("This run has no routed recipients.");
+  }
+
   const attemptStartedAt = new Date();
 
   await updateReportScheduleRun(run.id, {
@@ -518,7 +649,8 @@ export async function resendReportScheduleRunWorkflow(tenantId: string, actorId:
       requestSummary: toJsonValue({
         scheduleId: run.scheduleId,
         runId: run.id,
-        recipients: recipientEmails
+        recipients: recipientEmails,
+        recipientContext
       }),
       responseSummary: toJsonValue({
         accepted: delivery.accepted,
@@ -530,6 +662,8 @@ export async function resendReportScheduleRunWorkflow(tenantId: string, actorId:
       scheduleId: run.scheduleId,
       runId: run.id,
       recipients: recipientEmails
+      ,
+      recipientContext
     });
   } catch (error) {
     const normalized = normalizeUnknownError(error);
@@ -551,7 +685,8 @@ export async function resendReportScheduleRunWorkflow(tenantId: string, actorId:
       requestSummary: toJsonValue({
         scheduleId: run.scheduleId,
         runId: run.id,
-        recipients: recipientEmails
+        recipients: recipientEmails,
+        recipientContext
       }),
       responseSummary: toJsonValue({ message: normalized.message })
     });
@@ -559,7 +694,8 @@ export async function resendReportScheduleRunWorkflow(tenantId: string, actorId:
       tenantId,
       scheduleId: run.scheduleId,
       runId: run.id,
-      message: normalized.message
+      message: normalized.message,
+      recipientContext
     });
   }
 
@@ -567,8 +703,16 @@ export async function resendReportScheduleRunWorkflow(tenantId: string, actorId:
 }
 
 async function materializeLocationRunsForAccountRun(accountRun: Awaited<ReturnType<typeof getReportScheduleRunById>>, summary: ReportDeliverySummary) {
+  const defaultRecipients = readRecipientEmailsJson(accountRun.schedule.recipientEmailsJson);
+  const locationOverrides = readLocationRecipientOverridesJson(accountRun.schedule.locationRecipientOverridesJson);
+
   for (const row of summary.locationBreakdown) {
     const locationId = row.bucketId === reportUnknownBucketValue ? null : row.bucketId;
+    const recipientRoute = resolveRecipientRoute({
+      defaultRecipients,
+      locationId,
+      overrides: locationOverrides
+    });
     const locationSummary = await buildRunSummary({
       tenantId: accountRun.tenantId,
       reportRequestId: accountRun.reportRequestId!,
@@ -602,7 +746,11 @@ async function materializeLocationRunsForAccountRun(accountRun: Awaited<ReturnTy
         scheduledFor: accountRun.scheduledFor,
         generationStatus: "READY",
         deliveryStatus: "PENDING",
-        recipientEmailsJson: accountRun.recipientEmailsJson as never,
+        recipientEmailsJson: recipientRoute.recipientEmails,
+        recipientContextJson: toJsonValue({
+          routingMode: recipientRoute.routingMode,
+          routingLabel: recipientRoute.routingLabel
+        }),
         dashboardUrl: locationSummary.dashboardUrl,
         summaryJson: toJsonValue(locationSummary),
         generatedAt: new Date()
@@ -612,6 +760,11 @@ async function materializeLocationRunsForAccountRun(accountRun: Awaited<ReturnTy
         locationId,
         generationStatus: "READY",
         deliveryStatus: "PENDING",
+        recipientEmailsJson: recipientRoute.recipientEmails,
+        recipientContextJson: toJsonValue({
+          routingMode: recipientRoute.routingMode,
+          routingLabel: recipientRoute.routingLabel
+        }),
         dashboardUrl: locationSummary.dashboardUrl,
         summaryJson: toJsonValue(locationSummary),
         generatedAt: new Date(),
@@ -661,7 +814,8 @@ async function hydrateScheduledRun(runId: string, tenantId: string) {
     windowStart: run.windowStart,
     windowEnd: run.windowEnd
   });
-  const shouldFanOutLocations = shouldFanOutLocationDelivery(run.scope, run.schedule.deliverPerLocation, summary.locationBreakdown.length);
+  const shouldFanOutLocations = shouldFanOutLocationDelivery(run.scope, run.schedule.deliveryScope, summary.locationBreakdown.length);
+  const shouldDeliverAccount = shouldSendAccountDelivery(run.schedule.deliveryScope);
   const now = new Date();
 
   await updateReportScheduleRun(run.id, {
@@ -669,8 +823,12 @@ async function hydrateScheduledRun(runId: string, tenantId: string) {
     generatedAt: now,
     dashboardUrl: summary.dashboardUrl,
     summaryJson: toJsonValue(summary),
-    deliveryStatus: shouldFanOutLocations ? "SKIPPED" : "PENDING",
-    errorSummary: shouldFanOutLocations ? "Per-location delivery enabled. Account email skipped." : null,
+    deliveryStatus: shouldDeliverAccount ? "PENDING" : "SKIPPED",
+    errorSummary: shouldDeliverAccount
+      ? null
+      : shouldFanOutLocations
+        ? "Location-scoped delivery enabled. Account rollup email skipped."
+        : "Location-scoped delivery enabled, but no location rows were available to send.",
     errorJson: Prisma.JsonNull
   });
   await updateReportSchedule(run.scheduleId, tenantId, {
@@ -744,6 +902,21 @@ export async function reconcilePendingReportScheduleRuns(limit = 20) {
 
       if (isReadyForDelivery(latest.generationStatus, latest.deliveryStatus)) {
         await resendReportScheduleRunWorkflow(latest.tenantId, null, latest.id);
+      }
+
+      if (latest.scope === "ACCOUNT" && latest.schedule.deliveryScope !== "ACCOUNT_ONLY") {
+        const siblingRuns = await listReportScheduleRunsForOccurrence({
+          scheduleId: latest.scheduleId,
+          scheduledFor: latest.scheduledFor,
+          windowStart: latest.windowStart,
+          windowEnd: latest.windowEnd
+        });
+
+        for (const sibling of siblingRuns) {
+          if (sibling.scope === "LOCATION" && isReadyForDelivery(sibling.generationStatus, sibling.deliveryStatus)) {
+            await resendReportScheduleRunWorkflow(latest.tenantId, null, sibling.id);
+          }
+        }
       }
 
       results.push({

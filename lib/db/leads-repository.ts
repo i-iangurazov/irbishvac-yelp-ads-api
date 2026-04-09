@@ -5,6 +5,39 @@ import type { Prisma, RecordSourceSystem, SyncRunStatus, SyncRunType } from "@pr
 import { prisma } from "@/lib/db/prisma";
 import { toJsonValue } from "@/lib/db/json";
 
+type LeadRecordFilters = {
+  businessId?: string;
+  mappingState?: string;
+  internalStatus?: string;
+  from?: Date;
+  to?: Date;
+};
+
+function buildLeadRecordWhere(tenantId: string, filters?: LeadRecordFilters): Prisma.YelpLeadWhereInput {
+  return {
+    tenantId,
+    ...(filters?.businessId ? { businessId: filters.businessId } : {}),
+    ...(filters?.mappingState
+      ? {
+          crmLeadMappings: {
+            some: {
+              state: filters.mappingState as never
+            }
+          }
+        }
+      : {}),
+    ...(filters?.internalStatus ? { internalStatus: filters.internalStatus as never } : {}),
+    ...(filters?.from || filters?.to
+      ? {
+          createdAtYelp: {
+            ...(filters.from ? { gte: filters.from } : {}),
+            ...(filters.to ? { lte: filters.to } : {})
+          }
+        }
+      : {})
+  };
+}
+
 export async function findBusinessesByExternalYelpBusinessId(externalBusinessId: string) {
   return prisma.business.findMany({
     where: {
@@ -63,6 +96,7 @@ export async function createLeadSyncRun(data: {
   businessId?: string | null;
   leadId?: string | null;
   type?: SyncRunType;
+  status?: SyncRunStatus;
   capabilityKey?: string | null;
   correlationId?: string | null;
   requestJson?: unknown;
@@ -73,7 +107,7 @@ export async function createLeadSyncRun(data: {
       businessId: data.businessId ?? null,
       leadId: data.leadId ?? null,
       type: data.type ?? "YELP_LEADS_WEBHOOK",
-      status: "PROCESSING",
+      status: data.status ?? "PROCESSING",
       sourceSystem: "YELP",
       capabilityKey: data.capabilityKey ?? null,
       correlationId: data.correlationId ?? null,
@@ -169,8 +203,11 @@ export async function updateWebhookEventRecord(
   data: {
     leadId?: string | null;
     syncRunId?: string | null;
+    deliveryId?: string | null;
     status?: SyncRunStatus;
     processedAt?: Date | null;
+    headersJson?: unknown;
+    payloadJson?: unknown;
     errorJson?: unknown;
   }
 ) {
@@ -179,9 +216,78 @@ export async function updateWebhookEventRecord(
     data: {
       ...(data.leadId !== undefined ? { leadId: data.leadId } : {}),
       ...(data.syncRunId !== undefined ? { syncRunId: data.syncRunId } : {}),
+      ...(data.deliveryId !== undefined ? { deliveryId: data.deliveryId } : {}),
       ...(data.status !== undefined ? { status: data.status } : {}),
       ...(data.processedAt !== undefined ? { processedAt: data.processedAt } : {}),
+      ...(data.headersJson !== undefined ? { headersJson: toJsonValue(data.headersJson) } : {}),
+      ...(data.payloadJson !== undefined ? { payloadJson: toJsonValue(data.payloadJson) } : {}),
       ...(data.errorJson !== undefined ? { errorJson: toJsonValue(data.errorJson) } : {})
+    }
+  });
+}
+
+export async function listLeadWebhookSyncRunsForReconcile(limit = 20) {
+  return prisma.syncRun.findMany({
+    where: {
+      type: "YELP_LEADS_WEBHOOK",
+      status: {
+        in: ["QUEUED", "FAILED"]
+      }
+    },
+    include: {
+      business: {
+        select: {
+          id: true,
+          name: true,
+          encryptedYelpBusinessId: true,
+          locationId: true
+        }
+      },
+      webhookEvents: {
+        orderBy: [{ receivedAt: "desc" }, { createdAt: "desc" }],
+        take: 1
+      },
+      errors: {
+        orderBy: [{ occurredAt: "desc" }]
+      }
+    },
+    orderBy: [{ startedAt: "asc" }, { createdAt: "asc" }],
+    take: limit
+  });
+}
+
+export async function getLeadSyncRunById(tenantId: string, syncRunId: string) {
+  return prisma.syncRun.findFirstOrThrow({
+    where: {
+      tenantId,
+      id: syncRunId,
+      type: {
+        in: ["YELP_LEADS_WEBHOOK", "YELP_LEADS_BACKFILL"]
+      }
+    },
+    include: {
+      business: {
+        select: {
+          id: true,
+          name: true,
+          encryptedYelpBusinessId: true,
+          locationId: true
+        }
+      },
+      lead: {
+        select: {
+          id: true,
+          externalLeadId: true,
+          customerName: true
+        }
+      },
+      webhookEvents: {
+        orderBy: [{ receivedAt: "desc" }, { createdAt: "desc" }],
+        take: 1
+      },
+      errors: {
+        orderBy: [{ occurredAt: "desc" }]
+      }
     }
   });
 }
@@ -263,44 +369,38 @@ export async function upsertLeadEventRecords(
 
 export async function listLeadRecords(
   tenantId: string,
-  filters?: {
-    businessId?: string;
-    mappingState?: string;
-    internalStatus?: string;
-    from?: Date;
-    to?: Date;
+  filters?: LeadRecordFilters & {
+    skip?: number;
+    take?: number;
   }
 ) {
   return prisma.yelpLead.findMany({
-    where: {
-      tenantId,
-      ...(filters?.businessId ? { businessId: filters.businessId } : {}),
-      ...(filters?.mappingState
-        ? {
-            crmLeadMappings: {
-              some: {
-                state: filters.mappingState as never
-              }
-            }
-          }
-        : {}),
-      ...(filters?.internalStatus ? { internalStatus: filters.internalStatus as never } : {}),
-      ...(filters?.from || filters?.to
-        ? {
-            createdAtYelp: {
-              ...(filters.from ? { gte: filters.from } : {}),
-              ...(filters.to ? { lte: filters.to } : {})
-            }
-          }
-        : {})
-    },
+    where: buildLeadRecordWhere(tenantId, filters),
     include: {
       business: {
         select: {
           id: true,
           name: true,
           locationId: true,
+          location: {
+            select: {
+              id: true,
+              name: true
+            }
+          },
           encryptedYelpBusinessId: true
+        }
+      },
+      location: {
+        select: {
+          id: true,
+          name: true
+        }
+      },
+      serviceCategory: {
+        select: {
+          id: true,
+          name: true
         }
       },
       webhookEvents: {
@@ -353,14 +453,24 @@ export async function listLeadRecords(
         }
       }
     },
+    ...(filters?.skip !== undefined ? { skip: filters.skip } : {}),
+    ...(filters?.take !== undefined ? { take: filters.take } : {}),
     orderBy: [{ latestInteractionAt: "desc" }, { createdAtYelp: "desc" }, { updatedAt: "desc" }]
   });
 }
 
-export async function countLeadRecords(tenantId: string) {
+export async function countLeadRecords(tenantId: string, filters?: LeadRecordFilters) {
   return prisma.yelpLead.count({
-    where: {
-      tenantId
+    where: buildLeadRecordWhere(tenantId, filters)
+  });
+}
+
+export async function countLeadRecordsByBusiness(tenantId: string, filters?: Omit<LeadRecordFilters, "businessId">) {
+  return prisma.yelpLead.groupBy({
+    by: ["businessId"],
+    where: buildLeadRecordWhere(tenantId, filters),
+    _count: {
+      _all: true
     }
   });
 }

@@ -229,6 +229,55 @@ export async function listOperatorIssues(
   });
 }
 
+export async function listOperatorIssuesByIds(tenantId: string, issueIds: string[]) {
+  return prisma.operatorIssue.findMany({
+    where: {
+      tenantId,
+      id: {
+        in: issueIds
+      }
+    },
+    include: {
+      business: {
+        select: {
+          id: true,
+          name: true
+        }
+      },
+      location: {
+        select: {
+          id: true,
+          name: true
+        }
+      },
+      lead: {
+        select: {
+          id: true,
+          externalLeadId: true,
+          customerName: true
+        }
+      },
+      reportScheduleRun: {
+        include: {
+          schedule: {
+            select: {
+              id: true,
+              name: true
+            }
+          }
+        }
+      },
+      syncRun: {
+        select: {
+          id: true,
+          type: true,
+          status: true
+        }
+      }
+    }
+  });
+}
+
 export async function listOperatorIssueFilterOptions(tenantId: string) {
   const [businesses, locations] = await Promise.all([
     prisma.business.findMany({
@@ -256,6 +305,76 @@ export async function listOperatorIssueFilterOptions(tenantId: string) {
     businesses,
     locations
   };
+}
+
+export async function listOpenOperatorIssuesForLeadIds(tenantId: string, leadIds: string[]) {
+  if (leadIds.length === 0) {
+    return [];
+  }
+
+  return prisma.operatorIssue.findMany({
+    where: {
+      tenantId,
+      status: "OPEN",
+      leadId: {
+        in: leadIds
+      }
+    },
+    select: {
+      id: true,
+      leadId: true,
+      issueType: true,
+      severity: true,
+      summary: true,
+      lastDetectedAt: true
+    },
+    orderBy: [{ severity: "desc" }, { lastDetectedAt: "desc" }, { createdAt: "desc" }]
+  });
+}
+
+export async function listOpenOperatorIssuesForLead(tenantId: string, leadId: string, take = 10) {
+  return prisma.operatorIssue.findMany({
+    where: {
+      tenantId,
+      status: "OPEN",
+      leadId
+    },
+    select: {
+      id: true,
+      issueType: true,
+      severity: true,
+      summary: true,
+      lastDetectedAt: true,
+      syncRunId: true
+    },
+    orderBy: [{ severity: "desc" }, { lastDetectedAt: "desc" }, { createdAt: "desc" }],
+    take
+  });
+}
+
+export async function listOpenOperatorIssuesForReportScheduleRunIds(tenantId: string, runIds: string[]) {
+  if (runIds.length === 0) {
+    return [];
+  }
+
+  return prisma.operatorIssue.findMany({
+    where: {
+      tenantId,
+      status: "OPEN",
+      reportScheduleRunId: {
+        in: runIds
+      }
+    },
+    select: {
+      id: true,
+      reportScheduleRunId: true,
+      issueType: true,
+      severity: true,
+      summary: true,
+      lastDetectedAt: true
+    },
+    orderBy: [{ severity: "desc" }, { lastDetectedAt: "desc" }, { createdAt: "desc" }]
+  });
 }
 
 export async function listLeadSyncFailureCandidates(tenantId: string) {
@@ -352,7 +471,9 @@ export async function listCrmSyncFailureCandidates(tenantId: string) {
   return prisma.syncRun.findMany({
     where: {
       tenantId,
-      type: "CRM_LEAD_ENRICHMENT",
+      type: {
+        in: ["CRM_LEAD_ENRICHMENT", "LOCATION_MAPPING", "SERVICE_MAPPING"]
+      },
       status: {
         in: ["FAILED", "PARTIAL"]
       }
@@ -386,6 +507,69 @@ export async function listCrmSyncFailureCandidates(tenantId: string) {
       }
     },
     orderBy: [{ startedAt: "desc" }]
+  });
+}
+
+export async function listStaleLifecycleSyncCandidates(tenantId: string, staleBefore: Date) {
+  return prisma.crmLeadMapping.findMany({
+    where: {
+      tenantId,
+      state: {
+        in: ["MATCHED", "MANUAL_OVERRIDE"]
+      },
+      OR: [
+        {
+          externalCrmLeadId: {
+            not: null
+          }
+        },
+        {
+          externalJobId: {
+            not: null
+          }
+        }
+      ],
+      AND: [
+        {
+          OR: [
+            {
+              lastSyncedAt: null
+            },
+            {
+              lastSyncedAt: {
+                lte: staleBefore
+              }
+            }
+          ]
+        }
+      ]
+    },
+    include: {
+      lead: {
+        include: {
+          business: {
+            select: {
+              id: true,
+              name: true,
+              locationId: true
+            }
+          },
+          serviceCategory: {
+            select: {
+              id: true,
+              name: true
+            }
+          }
+        }
+      },
+      location: {
+        select: {
+          id: true,
+          name: true
+        }
+      }
+    },
+    orderBy: [{ lastSyncedAt: "asc" }, { updatedAt: "asc" }]
   });
 }
 
@@ -428,9 +612,19 @@ export async function listAutoresponderFailureCandidates(tenantId: string, pendi
         },
         {
           status: "PENDING",
-          triggeredAt: {
-            lte: pendingBefore
-          }
+          OR: [
+            {
+              dueAt: {
+                lte: pendingBefore
+              }
+            },
+            {
+              dueAt: null,
+              triggeredAt: {
+                lte: pendingBefore
+              }
+            }
+          ]
         }
       ]
     },
@@ -468,7 +662,8 @@ export async function listAutoresponderFailureCandidates(tenantId: string, pendi
       rule: {
         select: {
           id: true,
-          name: true
+          name: true,
+          cadence: true
         }
       },
       template: {
@@ -478,7 +673,7 @@ export async function listAutoresponderFailureCandidates(tenantId: string, pendi
         }
       }
     },
-    orderBy: [{ triggeredAt: "desc" }]
+    orderBy: [{ dueAt: "asc" }, { triggeredAt: "desc" }]
   });
 }
 
@@ -533,7 +728,7 @@ export async function listStaleLeadCandidates(tenantId: string, staleBefore: Dat
     where: {
       tenantId,
       internalStatus: {
-        in: ["NEW", "CONTACTED", "BOOKED", "SCHEDULED", "JOB_IN_PROGRESS"]
+        in: ["ACTIVE", "NEW", "CONTACTED", "BOOKED", "SCHEDULED", "JOB_IN_PROGRESS"]
       },
       OR: [
         {

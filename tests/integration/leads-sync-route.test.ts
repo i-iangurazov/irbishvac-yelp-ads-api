@@ -21,7 +21,10 @@ describe("lead sync route", () => {
       updatedCount: 2,
       failedCount: 0,
       returnedLeadIds: 7,
-      hasMore: false
+      hasMore: false,
+      pagesFetched: 1,
+      pageSize: 20,
+      pageLimit: 5
     });
 
     const { POST } = await import("@/app/api/leads/sync/route");

@@ -1,5 +1,6 @@
 "use client";
 
+import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -12,6 +13,10 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  leadAutomationStarterTemplates,
+  leadAutomationTemplateKinds
+} from "@/features/autoresponder/constants";
 import {
   leadAutomationTemplateFormSchema,
   type LeadAutomationTemplateFormValues
@@ -26,12 +31,24 @@ const variableExamples = [
   "{{lead_reference}}"
 ] as const;
 
+function humanizeTemplateKind(kind: LeadAutomationTemplateFormValues["templateKind"]) {
+  return kind
+    .toLowerCase()
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 export function LeadAutomationTemplateForm({
   initialValues,
-  templateId
+  templateId,
+  businesses,
+  returnPath = "/autoresponder" as Route
 }: {
   initialValues?: Partial<LeadAutomationTemplateFormValues> | null;
   templateId?: string | null;
+  businesses: Array<{ id: string; name: string; yelpBusinessId: string | null }>;
+  returnPath?: Route;
 }) {
   const router = useRouter();
   const isEditing = Boolean(templateId);
@@ -45,12 +62,26 @@ export function LeadAutomationTemplateForm({
     resolver: zodResolver(leadAutomationTemplateFormSchema),
     defaultValues: {
       name: initialValues?.name ?? "",
+      businessId: initialValues?.businessId ?? "",
       channel: initialValues?.channel ?? "YELP_THREAD",
+      templateKind: initialValues?.templateKind ?? "ACKNOWLEDGMENT",
       isEnabled: initialValues?.isEnabled ?? true,
       subjectTemplate: initialValues?.subjectTemplate ?? "",
       bodyTemplate: initialValues?.bodyTemplate ?? ""
     }
   });
+  const templateKind = watch("templateKind");
+
+  const loadStarterCopy = () => {
+    if (templateKind === "CUSTOM") {
+      return;
+    }
+
+    const starter = leadAutomationStarterTemplates[templateKind];
+    setValue("name", starter.name, { shouldValidate: true });
+    setValue("subjectTemplate", starter.subject, { shouldValidate: true });
+    setValue("bodyTemplate", starter.body, { shouldValidate: true });
+  };
 
   const submit = handleSubmit(async (values) => {
     try {
@@ -63,7 +94,7 @@ export function LeadAutomationTemplateForm({
       });
 
       toast.success(isEditing ? "Automation template updated." : "Automation template created.");
-      router.replace("/settings");
+      router.replace(returnPath);
       router.refresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to save automation template.");
@@ -72,48 +103,90 @@ export function LeadAutomationTemplateForm({
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="pb-3">
         <CardTitle>{isEditing ? "Edit template" : "New template"}</CardTitle>
-        <CardDescription>Use explicit variables only. The template body becomes either a Yelp thread message or an external email reply, depending on the selected channel.</CardDescription>
+        <CardDescription>Short, explicit copy for initial responses and follow-ups.</CardDescription>
       </CardHeader>
       <CardContent>
         <form className="space-y-4" onSubmit={submit}>
-          <div className="space-y-2">
-            <Label htmlFor="automation-template-name">Template name</Label>
-            <Input id="automation-template-name" placeholder="Default first response" {...register("name")} />
-            {errors.name ? <p className="text-sm text-destructive">{errors.name.message}</p> : null}
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="automation-template-name">Template name</Label>
+              <Input id="automation-template-name" placeholder="Default first response" {...register("name")} />
+              {errors.name ? <p className="text-sm text-destructive">{errors.name.message}</p> : null}
+            </div>
+
+            <div className="space-y-2">
+              <Label>Business scope</Label>
+              <Select value={watch("businessId") || "all"} onValueChange={(value) => setValue("businessId", value === "all" ? "" : value)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All businesses</SelectItem>
+                  {businesses.map((business) => (
+                    <SelectItem key={business.id} value={business.id}>
+                      {business.name}
+                      {business.yelpBusinessId ? ` • ${business.yelpBusinessId}` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
-          <div className="space-y-2">
-            <Label>Delivery channel</Label>
-            <Select defaultValue={watch("channel")} onValueChange={(value) => setValue("channel", value as "YELP_THREAD" | "EMAIL")}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="YELP_THREAD">Yelp thread</SelectItem>
-                <SelectItem value="EMAIL">External email</SelectItem>
-              </SelectContent>
-            </Select>
+          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+            <div className="space-y-2">
+              <Label>Template type</Label>
+              <Select value={templateKind} onValueChange={(value) => setValue("templateKind", value as LeadAutomationTemplateFormValues["templateKind"])}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {leadAutomationTemplateKinds.map((kind) => (
+                    <SelectItem key={kind} value={kind}>
+                      {humanizeTemplateKind(kind)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Delivery channel</Label>
+              <Select value={watch("channel")} onValueChange={(value) => setValue("channel", value as "YELP_THREAD" | "EMAIL")}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="YELP_THREAD">Yelp thread</SelectItem>
+                  <SelectItem value="EMAIL">Yelp masked email fallback</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-end">
+              <Button onClick={loadStarterCopy} type="button" variant="outline">
+                Load starter
+              </Button>
+            </div>
           </div>
 
           {watch("channel") === "EMAIL" ? (
             <div className="space-y-2">
               <Label htmlFor="automation-template-subject">Email subject</Label>
-              <Input id="automation-template-subject" placeholder="Thanks for contacting {{business_name}}" {...register("subjectTemplate")} />
-              {errors.subjectTemplate ? <p className="text-sm text-destructive">{errors.subjectTemplate.message}</p> : <p className="text-xs text-muted-foreground">Leave blank to use a safe fallback subject.</p>}
+              <Input id="automation-template-subject" placeholder="Automated message from {{business_name}} via Yelp" {...register("subjectTemplate")} />
+              {errors.subjectTemplate ? <p className="text-sm text-destructive">{errors.subjectTemplate.message}</p> : <p className="text-xs text-muted-foreground">Leave blank to use the default fallback subject.</p>}
             </div>
           ) : (
-            <div className="rounded-xl border border-border/80 bg-muted/10 px-4 py-3 text-xs text-muted-foreground">
-              Yelp thread templates do not use an email subject. If this template falls back to email, the console uses a safe default subject.
-            </div>
+            <div className="text-xs text-muted-foreground">Yelp thread templates do not use a subject.</div>
           )}
 
           <div className="space-y-2">
             <Label htmlFor="automation-template-body">{watch("channel") === "EMAIL" ? "Email body" : "Yelp thread message"}</Label>
             <Textarea
               id="automation-template-body"
-              placeholder={"Hi {{customer_name}},\n\nThanks for contacting {{business_name}} about {{service_type}}. We received your Yelp request and will follow up shortly.\n\nReference: {{lead_reference}}"}
+              placeholder={"Automated message from {{business_name}} via Yelp - a team member may follow up with more details.\n\nHi {{customer_name}}, thanks for reaching out about {{service_type}}. Please reply here with any photos, the address, and a short description so we can review the next step."}
               rows={8}
               {...register("bodyTemplate")}
             />
@@ -121,13 +194,13 @@ export function LeadAutomationTemplateForm({
           </div>
 
           <div className="rounded-xl border border-border/80 bg-muted/10 px-4 py-3 text-xs text-muted-foreground">
-            Available variables: {variableExamples.join(", ")}
+            Variables: {variableExamples.join(", ")}
           </div>
 
           <div className="flex items-center justify-between rounded-xl border border-border/80 bg-muted/10 px-4 py-3">
             <div>
               <div className="text-sm font-medium">Enabled</div>
-              <div className="text-xs text-muted-foreground">Disabled templates stay available for historical attempts but will not be selected by rules.</div>
+              <div className="text-xs text-muted-foreground">Disabled templates stay in history but are not chosen by live rules.</div>
             </div>
             <Switch checked={watch("isEnabled")} onCheckedChange={(checked) => setValue("isEnabled", checked)} />
           </div>
@@ -137,7 +210,7 @@ export function LeadAutomationTemplateForm({
               {isSubmitting ? "Saving..." : isEditing ? "Save template" : "Create template"}
             </Button>
             {isEditing ? (
-              <Button onClick={() => router.replace("/settings")} type="button" variant="outline">
+              <Button onClick={() => router.replace(returnPath)} type="button" variant="outline">
                 Cancel
               </Button>
             ) : null}

@@ -14,9 +14,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Call internal reconcile endpoint
+      - name: Call internal reconcile and follow-up workers
         env:
           RECONCILE_URL: ${{ secrets.RECONCILE_URL }}
+          AUTORESPONDER_FOLLOWUPS_URL: ${{ secrets.AUTORESPONDER_FOLLOWUPS_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           if [ -z "$RECONCILE_URL" ]; then
@@ -29,6 +30,12 @@ jobs:
             exit 1
           fi
 
+          FOLLOWUPS_URL="${AUTORESPONDER_FOLLOWUPS_URL:-${RECONCILE_URL%/api/internal/reconcile}/api/internal/autoresponder/followups}"
+
           curl --fail-with-body --silent --show-error \
             -H "Authorization: Bearer $CRON_SECRET" \
             "$RECONCILE_URL"
+
+          curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$FOLLOWUPS_URL"

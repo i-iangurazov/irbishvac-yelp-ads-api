@@ -4,6 +4,10 @@ const resolvedMappingStates = new Set<CrmLeadMappingState>(["MATCHED", "MANUAL_O
 const positiveCloseStatuses = new Set<InternalLeadStatus>(["COMPLETED", "CLOSED_WON"]);
 const staleWindowMs = 1000 * 60 * 60 * 24 * 7;
 
+function eventTime(event: { occurredAt: Date; createdAt?: Date | null }) {
+  return (event.occurredAt ?? event.createdAt ?? new Date(0)).getTime();
+}
+
 export type CrmHealthStatus = "CURRENT" | "STALE" | "FAILED" | "UNRESOLVED" | "CONFLICT" | "ERROR";
 
 export function isResolvedCrmMappingState(state: CrmLeadMappingState | null | undefined) {
@@ -133,6 +137,32 @@ export function buildInternalStatusTimeline(
     }));
 }
 
+export function getCurrentPartnerLifecycleStatus(
+  events: Array<{
+    id: string;
+    status: InternalLeadStatus;
+    occurredAt: Date;
+    createdAt?: Date | null;
+  }>,
+  fallback: InternalLeadStatus
+) {
+  if (events.length === 0) {
+    return fallback;
+  }
+
+  const latest = [...events].sort((left, right) => {
+    const timeDelta = eventTime(right) - eventTime(left);
+
+    if (timeDelta !== 0) {
+      return timeDelta;
+    }
+
+    return right.id.localeCompare(left.id);
+  })[0];
+
+  return latest?.status ?? fallback;
+}
+
 export function buildLeadConversionMetrics(
   leads: Array<{
     internalStatus: InternalLeadStatus;
@@ -141,16 +171,32 @@ export function buildLeadConversionMetrics(
 ) {
   const totalLeads = leads.length;
   const mappedLeads = leads.filter((lead) => isResolvedCrmMappingState(lead.crmLeadMappings?.[0]?.state)).length;
+  const activeLeads = leads.filter((lead) => lead.internalStatus === "ACTIVE").length;
+  const contactedLeads = leads.filter((lead) => lead.internalStatus === "CONTACTED").length;
   const bookedLeads = leads.filter((lead) => lead.internalStatus === "BOOKED").length;
   const scheduledJobs = leads.filter((lead) => lead.internalStatus === "SCHEDULED").length;
+  const jobInProgressJobs = leads.filter((lead) => lead.internalStatus === "JOB_IN_PROGRESS").length;
   const completedJobs = leads.filter((lead) => positiveCloseStatuses.has(lead.internalStatus)).length;
+  const wonLeads = leads.filter((lead) => lead.internalStatus === "CLOSED_WON").length;
+  const lostLeads = leads.filter((lead) => lead.internalStatus === "CLOSED_LOST" || lead.internalStatus === "LOST").length;
 
   return {
     totalLeads,
     mappedLeads,
+    activeLeads,
+    contactedLeads,
     bookedLeads,
     scheduledJobs,
+    jobInProgressJobs,
     completedJobs,
+    wonLeads,
+    lostLeads,
+    bookingRate: totalLeads > 0 ? Number(((bookedLeads / totalLeads) * 100).toFixed(1)) : 0,
+    schedulingRate: totalLeads > 0 ? Number(((scheduledJobs / totalLeads) * 100).toFixed(1)) : 0,
+    progressRate: totalLeads > 0 ? Number(((jobInProgressJobs / totalLeads) * 100).toFixed(1)) : 0,
+    completionRate: totalLeads > 0 ? Number(((completedJobs / totalLeads) * 100).toFixed(1)) : 0,
+    winRate: totalLeads > 0 ? Number(((wonLeads / totalLeads) * 100).toFixed(1)) : 0,
+    lossRate: totalLeads > 0 ? Number(((lostLeads / totalLeads) * 100).toFixed(1)) : 0,
     closeRate: totalLeads > 0 ? Number(((completedJobs / totalLeads) * 100).toFixed(1)) : 0
   };
 }

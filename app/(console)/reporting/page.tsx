@@ -12,7 +12,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getBusinessesIndex } from "@/features/businesses/service";
+import { getServiceTitanLifecycleSyncOverview } from "@/features/crm-connector/lifecycle-service";
 import { getLeadConversionSummary } from "@/features/crm-enrichment/service";
+import { readLocationRecipientOverridesJson } from "@/features/report-delivery/routing";
 import { describeSchedule } from "@/features/report-delivery/schedule";
 import { getReportDeliveryAdminState } from "@/features/report-delivery/service";
 import { getReportingIndex } from "@/features/reporting/service";
@@ -28,11 +30,12 @@ export default async function ReportingPage({
 }) {
   const user = await requireUser();
   const params = await searchParams;
-  const [reports, businesses, conversionMetrics, deliveryAdminState] = await Promise.all([
+  const [reports, businesses, conversionMetrics, deliveryAdminState, lifecycleOverview] = await Promise.all([
     getReportingIndex(user.tenantId),
     getBusinessesIndex(user.tenantId),
     getLeadConversionSummary(user.tenantId),
-    getReportDeliveryAdminState(user.tenantId, params?.schedule)
+    getReportDeliveryAdminState(user.tenantId, params?.schedule),
+    getServiceTitanLifecycleSyncOverview(user.tenantId)
   ]);
   const pendingReports = reports.filter((report) => report.status === "REQUESTED" || report.status === "PROCESSING");
   const readyReports = reports.filter((report) => report.status === "READY");
@@ -50,7 +53,7 @@ export default async function ReportingPage({
     <div>
       <PageHeader
         title="Reporting"
-        description="Request Yelp batch reports and review saved snapshots without treating them as live attribution."
+        description="Request Yelp batch reports for lead creation and on-Yelp engagement, then compare them with separate partner lifecycle outcomes."
       />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -70,20 +73,45 @@ export default async function ReportingPage({
       <Card className="mt-6 border-border/70 bg-muted/10">
         <CardHeader>
           <CardTitle>Internal conversion foundation</CardTitle>
-          <CardDescription>Derived from CRM mapping and lifecycle records. These metrics are internal-only and do not come from Yelp reporting batches.</CardDescription>
+          <CardDescription>
+            Derived from CRM mapping and partner lifecycle records. These metrics are internal-only and do not come from Yelp reporting batches.
+            {lifecycleOverview.latestSuccessfulRun
+              ? ` Last ServiceTitan lifecycle refresh: ${formatDateTime(lifecycleOverview.latestSuccessfulRun.finishedAt ?? lifecycleOverview.latestSuccessfulRun.startedAt)}.`
+              : " No ServiceTitan lifecycle refresh has completed yet."}
+          </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-4">
+        <CardContent className="grid gap-3 md:grid-cols-3 xl:grid-cols-8">
           <div className="rounded-xl border border-border/80 bg-background px-4 py-3">
             <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Mapped leads</div>
             <div className="mt-1 text-lg font-semibold">{conversionMetrics.mappedLeads}</div>
+          </div>
+          <div className="rounded-xl border border-border/80 bg-background px-4 py-3">
+            <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Active</div>
+            <div className="mt-1 text-lg font-semibold">{conversionMetrics.activeLeads}</div>
+          </div>
+          <div className="rounded-xl border border-border/80 bg-background px-4 py-3">
+            <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Contacted</div>
+            <div className="mt-1 text-lg font-semibold">{conversionMetrics.contactedLeads}</div>
           </div>
           <div className="rounded-xl border border-border/80 bg-background px-4 py-3">
             <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Booked</div>
             <div className="mt-1 text-lg font-semibold">{conversionMetrics.bookedLeads}</div>
           </div>
           <div className="rounded-xl border border-border/80 bg-background px-4 py-3">
+            <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Scheduled</div>
+            <div className="mt-1 text-lg font-semibold">{conversionMetrics.scheduledJobs}</div>
+          </div>
+          <div className="rounded-xl border border-border/80 bg-background px-4 py-3">
+            <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">In progress</div>
+            <div className="mt-1 text-lg font-semibold">{conversionMetrics.jobInProgressJobs}</div>
+          </div>
+          <div className="rounded-xl border border-border/80 bg-background px-4 py-3">
             <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Completed</div>
             <div className="mt-1 text-lg font-semibold">{conversionMetrics.completedJobs}</div>
+          </div>
+          <div className="rounded-xl border border-border/80 bg-background px-4 py-3">
+            <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Won / lost</div>
+            <div className="mt-1 text-lg font-semibold">{conversionMetrics.wonLeads} / {conversionMetrics.lostLeads}</div>
           </div>
           <div className="rounded-xl border border-border/80 bg-background px-4 py-3">
             <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Close rate</div>
@@ -148,8 +176,16 @@ export default async function ReportingPage({
                         <div className="font-medium">{schedule.name}</div>
                         <div className="text-xs text-muted-foreground">{describeSchedule(schedule)}</div>
                       </TableCell>
-                      <TableCell>{schedule.deliverPerLocation ? `${schedule.cadence} • per location` : schedule.cadence}</TableCell>
-                      <TableCell>{Array.isArray(schedule.recipientEmailsJson) ? schedule.recipientEmailsJson.length : 0}</TableCell>
+                      <TableCell>
+                        <div>{schedule.cadence}</div>
+                        <div className="text-xs text-muted-foreground">{schedule.deliveryScopeLabel}</div>
+                      </TableCell>
+                      <TableCell>
+                        <div>{schedule.defaultRecipientCount} default</div>
+                        <div className="text-xs text-muted-foreground">
+                          {schedule.locationOverrideCount > 0 ? `${schedule.locationOverrideCount} location override${schedule.locationOverrideCount === 1 ? "" : "s"}` : "No location overrides"}
+                        </div>
+                      </TableCell>
                       <TableCell>{schedule.lastSuccessfulGenerationAt ? formatDateTime(schedule.lastSuccessfulGenerationAt) : "Not yet"}</TableCell>
                       <TableCell>{schedule.lastSuccessfulDeliveryAt ? formatDateTime(schedule.lastSuccessfulDeliveryAt) : "Not yet"}</TableCell>
                       <TableCell><StatusChip status={schedule.isEnabled ? "ACTIVE" : "INACTIVE"} /></TableCell>
@@ -170,12 +206,14 @@ export default async function ReportingPage({
         </Card>
 
         <ReportScheduleForm
+          locations={deliveryAdminState.locations}
           initialValues={
             deliveryAdminState.selectedSchedule
               ? {
                   id: deliveryAdminState.selectedSchedule.id,
                   name: deliveryAdminState.selectedSchedule.name,
                   cadence: deliveryAdminState.selectedSchedule.cadence,
+                  deliveryScope: deliveryAdminState.selectedSchedule.deliveryScope,
                   timezone: deliveryAdminState.selectedSchedule.timezone,
                   sendDayOfWeek: deliveryAdminState.selectedSchedule.sendDayOfWeek ?? undefined,
                   sendDayOfMonth: deliveryAdminState.selectedSchedule.sendDayOfMonth ?? undefined,
@@ -185,7 +223,13 @@ export default async function ReportingPage({
                   isEnabled: deliveryAdminState.selectedSchedule.isEnabled,
                   recipientEmails: Array.isArray(deliveryAdminState.selectedSchedule.recipientEmailsJson)
                     ? deliveryAdminState.selectedSchedule.recipientEmailsJson.join("\n")
-                    : ""
+                    : "",
+                  locationRecipientOverrides: readLocationRecipientOverridesJson(
+                    deliveryAdminState.selectedSchedule.locationRecipientOverridesJson
+                  ).map((override) => ({
+                    locationId: override.locationId,
+                    recipientEmails: override.recipientEmails.join("\n")
+                  }))
                 }
               : null
           }
@@ -225,19 +269,31 @@ export default async function ReportingPage({
               </TableHeader>
               <TableBody>
                 {deliveryAdminState.recentRuns.map((run) => (
-                  <TableRow key={run.id}>
+                    <TableRow key={run.id}>
                     <TableCell>{formatDateTime(run.scheduledFor)}</TableCell>
                     <TableCell>{run.schedule.name}</TableCell>
-                    <TableCell>{run.scope === "LOCATION" ? run.location?.name ?? "Unknown location" : "Account"}</TableCell>
+                    <TableCell>
+                      <div>{run.scope === "LOCATION" ? run.location?.name ?? "Unknown location" : "Account rollup"}</div>
+                      <div className="text-xs text-muted-foreground">{run.recipientRoutingLabel}</div>
+                    </TableCell>
                     <TableCell>{`${formatDateTime(run.windowStart, "MMM d, yyyy")} to ${formatDateTime(run.windowEnd, "MMM d, yyyy")}`}</TableCell>
                     <TableCell><StatusChip status={run.generationStatus} /></TableCell>
+                      <TableCell>
+                        <div className="space-y-1">
+                          <StatusChip status={run.deliveryStatus} />
+                          {run.errorSummary ? <div className="text-xs text-destructive">{run.errorSummary}</div> : null}
+                          {run.primaryIssue ? (
+                            <Button asChild className="px-0" size="sm" variant="ghost">
+                              <Link href={`/audit/issues/${run.primaryIssue.id}`}>
+                                Open issue
+                              </Link>
+                            </Button>
+                          ) : null}
+                        </div>
+                      </TableCell>
                     <TableCell>
-                      <div className="space-y-1">
-                        <StatusChip status={run.deliveryStatus} />
-                        {run.errorSummary ? <div className="text-xs text-destructive">{run.errorSummary}</div> : null}
-                      </div>
+                      {Array.isArray(run.recipientEmailsJson) ? run.recipientEmailsJson.length : 0}
                     </TableCell>
-                    <TableCell>{Array.isArray(run.recipientEmailsJson) ? run.recipientEmailsJson.length : 0}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-2">
                         {run.reportRequestId ? (

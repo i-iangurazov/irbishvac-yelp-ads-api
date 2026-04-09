@@ -433,7 +433,7 @@ export const yelpMarkLeadEventAsReadRequestSchema = z.object({
 });
 
 export const yelpMarkLeadAsRepliedRequestSchema = z.object({
-  reply_type: z.literal("EMAIL")
+  reply_type: z.enum(["EMAIL", "PHONE"])
 });
 
 export type YelpCreateProgramRequestDto = z.infer<typeof yelpCreateProgramRequestSchema>;

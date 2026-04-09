@@ -18,7 +18,8 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
-    "prisma:seed": "tsx prisma/seed.ts"
+    "prisma:seed": "tsx prisma/seed.ts",
+    "prisma:verify:fresh": "node scripts/verify-fresh-migrations.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

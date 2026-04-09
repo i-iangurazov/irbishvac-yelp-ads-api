@@ -13,6 +13,7 @@ import { crmLeadStatusFormSchema, type CrmLeadStatusFormValues } from "@/feature
 import { apiFetch } from "@/lib/utils/client-api";
 
 const lifecycleStatuses = [
+  ["ACTIVE", "Active"],
   ["NEW", "New"],
   ["CONTACTED", "Contacted"],
   ["BOOKED", "Booked"],
@@ -62,10 +63,10 @@ export function LeadCrmStatusForm({
           occurredAt: new Date(values.occurredAt).toISOString()
         })
       });
-      toast.success("Internal lifecycle status saved.");
+      toast.success("Partner lifecycle status saved.");
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to save internal lifecycle status.");
+      toast.error(error instanceof Error ? error.message : "Unable to save partner lifecycle status.");
     }
   });
 
@@ -73,7 +74,7 @@ export function LeadCrmStatusForm({
     <form className="space-y-4" onSubmit={submit}>
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2">
-          <Label htmlFor="crm-status">Internal status</Label>
+          <Label htmlFor="crm-status">Partner lifecycle status</Label>
           <select
             className="ui-native-select"
             disabled={disabled}
@@ -104,7 +105,7 @@ export function LeadCrmStatusForm({
         <Textarea
           disabled={disabled}
           id="crm-note"
-          placeholder="Record the internal source or context for this lifecycle change."
+          placeholder="Record the CRM source or operating context for this lifecycle change."
           {...register("note")}
         />
       </div>
@@ -112,8 +113,8 @@ export function LeadCrmStatusForm({
       <div className="flex items-center justify-between gap-3 rounded-xl border border-border/80 bg-muted/10 px-4 py-3 text-xs text-muted-foreground">
         <span>
           {disabled
-            ? "Resolve the CRM mapping before recording internal lifecycle states."
-            : "These statuses are internal-only. They do not come from Yelp and will render separately from the Yelp timeline."}
+            ? "Resolve the CRM mapping before recording partner lifecycle states."
+            : "These statuses are partner-managed outcomes based on the Yelp lead. They render separately from the Yelp timeline."}
         </span>
         <Button disabled={disabled || isSubmitting} type="submit">
           {isSubmitting ? "Saving..." : "Add status"}

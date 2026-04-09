@@ -1,9 +1,15 @@
+import { randomUUID } from "node:crypto";
+
 import "server-only";
 
 import type { OperatorIssueSeverity, OperatorIssueStatus, OperatorIssueType, RecordSourceSystem } from "@prisma/client";
 
 import {
+  humanizeLeadAutomationCadence
+} from "@/features/autoresponder/logic";
+import {
   buildOperatorIssueSummary,
+  getRetryLabel,
   getIssueRemapHref,
   getIssueStatusActionability,
   getStaleLeadSeverity,
@@ -12,14 +18,17 @@ import {
   operatorIssueTypeLabels
 } from "@/features/issues/normalize";
 import {
+  operatorIssueBulkActionSchema,
   operatorIssueFiltersSchema,
   operatorIssueNoteSchema,
   operatorIssueResolutionSchema,
   type OperatorIssueFiltersInput
 } from "@/features/issues/schemas";
 import { recordAuditEvent } from "@/features/audit/service";
+import { retryCrmSyncRunWorkflow } from "@/features/crm-enrichment/service";
 import { resendReportScheduleRunWorkflow } from "@/features/report-delivery/service";
 import { retryLeadAutomationAttemptWorkflow } from "@/features/autoresponder/service";
+import { retryLeadSyncRunWorkflow } from "@/features/leads/service";
 import {
   createOperatorIssue,
   getOperatorIssueById,
@@ -31,13 +40,15 @@ import {
   listMappingConflictCandidates,
   listOperatorIssueFilterOptions,
   listOperatorIssues,
+  listOperatorIssuesByIds,
   listReportDeliveryFailureCandidates,
+  listStaleLifecycleSyncCandidates,
   listStaleLeadCandidates,
   listUnmappedLeadCandidates,
   updateOperatorIssue
 } from "@/lib/db/issues-repository";
 import { toJsonValue } from "@/lib/db/json";
-import { YelpValidationError } from "@/lib/yelp/errors";
+import { normalizeUnknownError, YelpValidationError } from "@/lib/yelp/errors";
 
 type DetectedIssue = {
   dedupeKey: string;
@@ -55,6 +66,30 @@ type DetectedIssue = {
   detailsJson: unknown;
 };
 
+function canRetryIssue(issue: {
+  issueType: OperatorIssueType;
+  leadId?: string | null;
+  syncRunId?: string | null;
+  reportScheduleRunId?: string | null;
+  status: OperatorIssueStatus;
+}) {
+  if (!getIssueStatusActionability(issue.status) || !isRetryableIssueType(issue.issueType)) {
+    return false;
+  }
+
+  switch (issue.issueType) {
+    case "LEAD_SYNC_FAILURE":
+    case "CRM_SYNC_FAILURE":
+      return Boolean(issue.syncRunId);
+    case "AUTORESPONDER_FAILURE":
+      return Boolean(issue.leadId);
+    case "REPORT_DELIVERY_FAILURE":
+      return Boolean(issue.reportScheduleRunId);
+    default:
+      return false;
+  }
+}
+
 function latestByKey<T>(rows: T[], getKey: (row: T) => string, getTime: (row: T) => number) {
   const deduped = new Map<string, T>();
 
@@ -68,6 +103,20 @@ function latestByKey<T>(rows: T[], getKey: (row: T) => string, getTime: (row: T)
   }
 
   return [...deduped.values()];
+}
+
+function getSyncRunAction(value: unknown) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+
+  return typeof (value as { action?: unknown }).action === "string" ? (value as { action: string }).action : null;
+}
+
+function asRecord(value: unknown) {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 function summarizeErrors(rows: Array<{ message: string; code?: string | null }>) {
@@ -140,25 +189,72 @@ function buildCrmSyncDetectedIssues(
   return deduped.map((run) => {
     const errorMessages = summarizeErrors(run.errors);
     const summary = run.errorSummary ?? errorMessages[0] ?? "CRM enrichment failed and needs review.";
+    const action = getSyncRunAction(run.requestJson);
+    const title =
+      action === "servicetitan_lifecycle_sync"
+        ? "ServiceTitan lifecycle sync failed"
+        : run.type === "LOCATION_MAPPING"
+        ? "Connector location sync failed"
+        : run.type === "SERVICE_MAPPING"
+          ? "Connector service sync failed"
+          : "CRM enrichment failed";
+    const defaultSummary =
+      action === "servicetitan_lifecycle_sync"
+        ? "ServiceTitan lifecycle sync failed and needs review."
+        : run.type === "LOCATION_MAPPING"
+        ? "ServiceTitan location reference sync failed and needs review."
+        : run.type === "SERVICE_MAPPING"
+          ? "ServiceTitan service reference sync failed and needs review."
+          : "CRM enrichment failed and needs review.";
 
     return {
       dedupeKey: run.leadId ? `crm-sync:lead:${run.leadId}` : `crm-sync:run:${run.id}`,
       issueType: "CRM_SYNC_FAILURE",
       severity: "HIGH",
       sourceSystem: run.sourceSystem,
-      title: "CRM enrichment failed",
-      summary,
+      title,
+      summary: summary || defaultSummary,
       businessId: run.businessId ?? run.lead?.businessId ?? null,
       locationId: run.locationId ?? run.lead?.locationId ?? run.business?.locationId ?? null,
       leadId: run.leadId ?? null,
       syncRunId: run.id,
       detailsJson: {
         type: run.type,
+        action,
         status: run.status,
         startedAt: run.startedAt,
         finishedAt: run.finishedAt,
         errorSummary: run.errorSummary,
         errors: errorMessages
+      }
+    };
+  });
+}
+
+function buildStaleLifecycleDetectedIssues(
+  rows: Awaited<ReturnType<typeof listStaleLifecycleSyncCandidates>>,
+  now: Date
+): DetectedIssue[] {
+  return rows.map((mapping) => {
+    const referenceAt = mapping.lastSyncedAt ?? mapping.matchedAt ?? mapping.updatedAt;
+
+    return {
+      dedupeKey: `stale-lifecycle:${mapping.leadId}`,
+      issueType: "STALE_LEAD",
+      severity: getStaleLeadSeverity(referenceAt, now),
+      sourceSystem: "CRM",
+      title: "Lifecycle sync is stale",
+      summary: `${mapping.lead.customerName ?? mapping.lead.externalLeadId} has not been refreshed from ServiceTitan recently.`,
+      businessId: mapping.lead.businessId ?? null,
+      locationId: mapping.locationId ?? mapping.lead.locationId ?? mapping.lead.business?.locationId ?? null,
+      leadId: mapping.leadId,
+      detailsJson: {
+        mappingId: mapping.id,
+        externalCrmLeadId: mapping.externalCrmLeadId,
+        externalJobId: mapping.externalJobId,
+        lastSyncedAt: mapping.lastSyncedAt,
+        matchedAt: mapping.matchedAt,
+        serviceCategory: mapping.lead.serviceCategory?.name ?? null
       }
     };
   });
@@ -191,27 +287,33 @@ function buildAutoresponderDetectedIssues(
   rows: Awaited<ReturnType<typeof listAutoresponderFailureCandidates>>
 ): DetectedIssue[] {
   return rows.map((attempt) => ({
-    dedupeKey: `autoresponder:${attempt.leadId}`,
+    dedupeKey: `autoresponder:${attempt.id}`,
     issueType: "AUTORESPONDER_FAILURE",
     severity: attempt.status === "FAILED" ? "HIGH" : "MEDIUM",
     sourceSystem: attempt.sourceSystem,
-    title: attempt.status === "FAILED" ? "First response did not send" : "First response is stuck",
+    title:
+      attempt.status === "FAILED"
+        ? `${humanizeLeadAutomationCadence(attempt.cadence)} did not send`
+        : `${humanizeLeadAutomationCadence(attempt.cadence)} is stuck`,
     summary:
       attempt.errorSummary ??
       (attempt.status === "FAILED"
-        ? "The autoresponder attempt failed."
-        : "The autoresponder attempt is still pending and needs review."),
+        ? `${humanizeLeadAutomationCadence(attempt.cadence)} failed.`
+        : `${humanizeLeadAutomationCadence(attempt.cadence)} is still pending and needs review.`),
     businessId: attempt.businessId ?? attempt.lead.businessId ?? null,
     locationId: attempt.locationId ?? attempt.lead.locationId ?? attempt.business?.locationId ?? null,
     leadId: attempt.leadId,
     detailsJson: {
       attemptId: attempt.id,
+      cadence: attempt.cadence,
       status: attempt.status,
       recipient: attempt.recipient,
       channel: attempt.channel,
       rule: attempt.rule?.name ?? null,
+      ruleCadence: attempt.rule?.cadence ?? null,
       template: attempt.template?.name ?? null,
       triggeredAt: attempt.triggeredAt,
+      dueAt: attempt.dueAt ?? null,
       providerStatus: attempt.providerStatus,
       providerMessageId: attempt.providerMessageId,
       errorSummary: attempt.errorSummary
@@ -289,7 +391,8 @@ export async function refreshOperatorIssues(tenantId: string) {
     mappingConflicts,
     autoresponderFailures,
     reportDeliveryFailures,
-    staleLeads
+    staleLeads,
+    staleLifecycleLeads
   ] = await Promise.all([
     listExistingOperatorIssues(tenantId),
     listLeadSyncFailureCandidates(tenantId),
@@ -298,7 +401,8 @@ export async function refreshOperatorIssues(tenantId: string) {
     listMappingConflictCandidates(tenantId),
     listAutoresponderFailureCandidates(tenantId, pendingBefore),
     listReportDeliveryFailureCandidates(tenantId),
-    listStaleLeadCandidates(tenantId, staleBefore)
+    listStaleLeadCandidates(tenantId, staleBefore),
+    listStaleLifecycleSyncCandidates(tenantId, staleBefore)
   ]);
   const candidates = [
     ...buildLeadSyncDetectedIssues(leadSyncFailures),
@@ -307,7 +411,8 @@ export async function refreshOperatorIssues(tenantId: string) {
     ...buildMappingConflictDetectedIssues(mappingConflicts),
     ...buildAutoresponderDetectedIssues(autoresponderFailures),
     ...buildReportDeliveryDetectedIssues(reportDeliveryFailures),
-    ...buildStaleLeadDetectedIssues(staleLeads, now)
+    ...buildStaleLeadDetectedIssues(staleLeads, now),
+    ...buildStaleLifecycleDetectedIssues(staleLifecycleLeads, now)
   ];
   const existingByKey = new Map(existingIssues.map((issue) => [issue.dedupeKey, issue]));
   const activeKeys = new Set<string>();
@@ -418,7 +523,8 @@ export async function getOperatorQueue(tenantId: string, rawFilters?: OperatorIs
         issueType: issue.issueType,
         leadId: issue.leadId
       }),
-      retryable: isRetryableIssueType(issue.issueType),
+      retryable: canRetryIssue(issue),
+      retryLabel: getRetryLabel(issue.issueType),
       actionable: getIssueStatusActionability(issue.status)
     }))
   };
@@ -433,7 +539,8 @@ export async function getOperatorIssueDetail(tenantId: string, issueId: string) 
     issue,
     auditTrail,
     typeLabel: operatorIssueTypeLabels[issue.issueType],
-    retryable: isRetryableIssueType(issue.issueType),
+    retryable: canRetryIssue(issue),
+    retryLabel: getRetryLabel(issue.issueType),
     remapHref: getIssueRemapHref({
       issueType: issue.issueType,
       leadId: issue.leadId
@@ -549,39 +656,223 @@ export async function addOperatorIssueNoteWorkflow(
   return getOperatorIssueById(tenantId, issue.id);
 }
 
-export async function retryOperatorIssueWorkflow(tenantId: string, actorId: string, issueId: string) {
+export async function retryOperatorIssueWorkflow(
+  tenantId: string,
+  actorId: string,
+  issueId: string,
+  options?: {
+    skipRefresh?: boolean;
+  }
+) {
   const issue = await getOperatorIssueById(tenantId, issueId);
 
-  if (issue.issueType === "REPORT_DELIVERY_FAILURE") {
-    if (!issue.reportScheduleRunId) {
-      throw new YelpValidationError("This issue is not linked to a report delivery run.");
-    }
-
-    await resendReportScheduleRunWorkflow(tenantId, actorId, issue.reportScheduleRunId);
-  } else if (issue.issueType === "AUTORESPONDER_FAILURE") {
-    if (!issue.leadId) {
-      throw new YelpValidationError("This issue is not linked to a lead.");
-    }
-
-    await retryLeadAutomationAttemptWorkflow(tenantId, actorId, issue.leadId);
-  } else {
+  if (!canRetryIssue(issue)) {
     throw new YelpValidationError("Retry is not available for this issue type.");
   }
+
+  try {
+    if (issue.issueType === "LEAD_SYNC_FAILURE") {
+      if (!issue.syncRunId) {
+        throw new YelpValidationError("This issue is not linked to a lead sync run.");
+      }
+
+      await retryLeadSyncRunWorkflow(tenantId, actorId, issue.syncRunId);
+    } else if (issue.issueType === "CRM_SYNC_FAILURE") {
+      if (!issue.syncRunId) {
+        throw new YelpValidationError("This issue is not linked to a downstream sync run.");
+      }
+
+      await retryCrmSyncRunWorkflow(tenantId, actorId, issue.syncRunId);
+    } else if (issue.issueType === "REPORT_DELIVERY_FAILURE") {
+      if (!issue.reportScheduleRunId) {
+        throw new YelpValidationError("This issue is not linked to a report delivery run.");
+      }
+
+      await resendReportScheduleRunWorkflow(tenantId, actorId, issue.reportScheduleRunId);
+    } else if (issue.issueType === "AUTORESPONDER_FAILURE") {
+      if (!issue.leadId) {
+        throw new YelpValidationError("This issue is not linked to a lead.");
+      }
+
+      const details = asRecord(issue.detailsJson);
+      const attemptId = typeof details?.attemptId === "string" ? details.attemptId : null;
+
+      await retryLeadAutomationAttemptWorkflow(tenantId, actorId, issue.leadId, attemptId);
+    } else {
+      throw new YelpValidationError("Retry is not available for this issue type.");
+    }
+
+    await recordAuditEvent({
+      tenantId,
+      actorId,
+      businessId: issue.businessId ?? undefined,
+      reportRequestId: issue.reportRequestId ?? undefined,
+      actionType: "issue.retry",
+      status: "SUCCESS",
+      correlationId: issue.id,
+      upstreamReference: issue.dedupeKey,
+      requestSummary: {
+        issueType: issue.issueType
+      }
+    });
+  } catch (error) {
+    const normalized = normalizeUnknownError(error);
+
+    await recordAuditEvent({
+      tenantId,
+      actorId,
+      businessId: issue.businessId ?? undefined,
+      reportRequestId: issue.reportRequestId ?? undefined,
+      actionType: "issue.retry",
+      status: "FAILED",
+      correlationId: issue.id,
+      upstreamReference: issue.dedupeKey,
+      requestSummary: {
+        issueType: issue.issueType
+      },
+      responseSummary: {
+        message: normalized.message,
+        code: normalized.code
+      }
+    });
+
+    throw error;
+  }
+
+  if (!options?.skipRefresh) {
+    await refreshOperatorIssues(tenantId);
+  }
+
+  return getOperatorIssueById(tenantId, issue.id);
+}
+
+type BulkOperatorIssueActionResult = {
+  issueId: string;
+  status: "SUCCEEDED" | "FAILED" | "SKIPPED";
+  message: string;
+};
+
+export async function bulkOperatorIssueActionWorkflow(
+  tenantId: string,
+  actorId: string,
+  input: unknown
+) {
+  const values = operatorIssueBulkActionSchema.parse(input);
+  const selectedIssueIds = [...new Set(values.issueIds)];
+  const issues = await listOperatorIssuesByIds(tenantId, selectedIssueIds);
+  const issueMap = new Map(issues.map((issue) => [issue.id, issue]));
+  const results: BulkOperatorIssueActionResult[] = [];
+  const requestId = randomUUID();
+
+  for (const issueId of selectedIssueIds) {
+    const issue = issueMap.get(issueId);
+
+    if (!issue) {
+      results.push({
+        issueId,
+        status: "FAILED",
+        message: "Issue not found for this tenant."
+      });
+      continue;
+    }
+
+    try {
+      if (values.action === "retry") {
+        if (!canRetryIssue(issue)) {
+          results.push({
+            issueId,
+            status: "SKIPPED",
+            message: "Retry is not available for this issue."
+          });
+          continue;
+        }
+
+        await retryOperatorIssueWorkflow(tenantId, actorId, issueId, {
+          skipRefresh: true
+        });
+      } else if (values.action === "resolve") {
+        if (!getIssueStatusActionability(issue.status)) {
+          results.push({
+            issueId,
+            status: "SKIPPED",
+            message: "Only open issues can be resolved."
+          });
+          continue;
+        }
+
+        await resolveOperatorIssueWorkflow(tenantId, actorId, issueId, values);
+      } else if (values.action === "ignore") {
+        if (!getIssueStatusActionability(issue.status)) {
+          results.push({
+            issueId,
+            status: "SKIPPED",
+            message: "Only open issues can be ignored."
+          });
+          continue;
+        }
+
+        await ignoreOperatorIssueWorkflow(tenantId, actorId, issueId, values);
+      } else {
+        await addOperatorIssueNoteWorkflow(tenantId, actorId, issueId, values);
+      }
+
+      results.push({
+        issueId,
+        status: "SUCCEEDED",
+        message:
+          values.action === "retry"
+            ? "Retry requested."
+            : values.action === "resolve"
+              ? "Issue resolved."
+              : values.action === "ignore"
+                ? "Issue ignored."
+                : "Internal note added."
+      });
+    } catch (error) {
+      const normalized = normalizeUnknownError(error);
+
+      results.push({
+        issueId,
+        status: "FAILED",
+        message: normalized.message
+      });
+    }
+  }
+
+  if (values.action === "retry") {
+    await refreshOperatorIssues(tenantId);
+  }
+
+  const succeeded = results.filter((result) => result.status === "SUCCEEDED").length;
+  const failed = results.filter((result) => result.status === "FAILED").length;
+  const skipped = results.filter((result) => result.status === "SKIPPED").length;
 
   await recordAuditEvent({
     tenantId,
     actorId,
-    businessId: issue.businessId ?? undefined,
-    reportRequestId: issue.reportRequestId ?? undefined,
-    actionType: "issue.retry",
-    status: "SUCCESS",
-    correlationId: issue.id,
-    upstreamReference: issue.dedupeKey,
+    actionType: `issue.bulk.${values.action}`,
+    status: failed > 0 ? "FAILED" : "SUCCESS",
+    correlationId: requestId,
     requestSummary: {
-      issueType: issue.issueType
+      issueIds: selectedIssueIds,
+      action: values.action,
+      ...("reason" in values ? { reason: values.reason } : {}),
+      ...("note" in values ? { note: values.note || null } : {})
+    },
+    responseSummary: {
+      succeeded,
+      failed,
+      skipped,
+      results
     }
   });
 
-  await refreshOperatorIssues(tenantId);
-  return getOperatorIssueById(tenantId, issue.id);
+  return {
+    action: values.action,
+    selected: selectedIssueIds.length,
+    succeeded,
+    failed,
+    skipped,
+    results
+  };
 }

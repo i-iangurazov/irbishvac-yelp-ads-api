@@ -1,5 +1,6 @@
 "use client";
 
+import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -12,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { leadAutomationCadenceOptions } from "@/features/autoresponder/constants";
 import {
   leadAutomationRuleFormSchema,
   type LeadAutomationRuleFormValues
@@ -53,21 +55,32 @@ function timeStringToMinute(value: string) {
 }
 
 function getTemplateChannelLabel(channel: "YELP_THREAD" | "EMAIL" | undefined) {
-  return channel === "EMAIL" ? "External email" : "Yelp thread";
+  return channel === "EMAIL" ? "Yelp masked email fallback" : "Yelp thread";
 }
 
 export function LeadAutomationRuleForm({
   initialValues,
   ruleId,
   templates,
+  businesses,
   locations,
-  serviceCategories
+  serviceCategories,
+  returnPath = "/autoresponder" as Route
 }: {
   initialValues?: Partial<LeadAutomationRuleFormValues> | null;
   ruleId?: string | null;
-  templates: Array<{ id: string; name: string; isEnabled: boolean; channel: "YELP_THREAD" | "EMAIL" }>;
+  templates: Array<{
+    id: string;
+    name: string;
+    isEnabled: boolean;
+    channel: "YELP_THREAD" | "EMAIL";
+    businessId: string | null;
+    businessName: string | null;
+  }>;
+  businesses: Array<{ id: string; name: string; yelpBusinessId: string | null }>;
   locations: Array<{ id: string; name: string }>;
   serviceCategories: Array<{ id: string; name: string }>;
+  returnPath?: Route;
 }) {
   const router = useRouter();
   const isEditing = Boolean(ruleId);
@@ -82,6 +95,8 @@ export function LeadAutomationRuleForm({
     defaultValues: {
       name: initialValues?.name ?? "",
       templateId: initialValues?.templateId ?? templates[0]?.id ?? "",
+      businessId: initialValues?.businessId ?? "",
+      cadence: initialValues?.cadence ?? "INITIAL",
       channel: initialValues?.channel ?? templates[0]?.channel ?? "YELP_THREAD",
       isEnabled: initialValues?.isEnabled ?? true,
       priority: initialValues?.priority ?? 100,
@@ -96,6 +111,24 @@ export function LeadAutomationRuleForm({
   });
   const workingDays = watch("workingDays") ?? [];
   const onlyDuringWorkingHours = watch("onlyDuringWorkingHours");
+  const selectedBusinessId = watch("businessId") || "";
+  const selectedCadence = watch("cadence");
+  const selectedTemplateId = watch("templateId");
+  const eligibleTemplates = templates.filter((template) => {
+    if (template.id === selectedTemplateId) {
+      return true;
+    }
+
+    if (!selectedBusinessId) {
+      return !template.businessId;
+    }
+
+    return !template.businessId || template.businessId === selectedBusinessId;
+  });
+  const eligibleTemplatesForCadence =
+    selectedCadence === "INITIAL"
+      ? eligibleTemplates
+      : eligibleTemplates.filter((template) => template.channel === "YELP_THREAD");
 
   const toggleWorkingDay = (day: number, checked: boolean) => {
     const next = checked
@@ -103,6 +136,50 @@ export function LeadAutomationRuleForm({
       : workingDays.filter((value) => value !== day);
 
     setValue("workingDays", next, { shouldValidate: true });
+  };
+
+  const updateBusinessScope = (value: string) => {
+    const nextBusinessId = value === "all" ? "" : value;
+    setValue("businessId", nextBusinessId, { shouldValidate: true });
+
+    const nextEligibleTemplates = templates.filter((template) => {
+      if (!nextBusinessId) {
+        return !template.businessId;
+      }
+
+      return !template.businessId || template.businessId === nextBusinessId;
+    });
+    const nextScopedTemplates =
+      selectedCadence === "INITIAL"
+        ? nextEligibleTemplates
+        : nextEligibleTemplates.filter((template) => template.channel === "YELP_THREAD");
+
+    if (!nextScopedTemplates.some((template) => template.id === watch("templateId"))) {
+      const nextTemplate = nextScopedTemplates[0] ?? null;
+      setValue("templateId", nextTemplate?.id ?? "", { shouldValidate: true });
+      setValue("channel", nextTemplate?.channel ?? "YELP_THREAD", { shouldValidate: true });
+    }
+  };
+
+  const updateCadence = (value: LeadAutomationRuleFormValues["cadence"]) => {
+    setValue("cadence", value, { shouldValidate: true });
+
+    if (value === "INITIAL") {
+      return;
+    }
+
+    const threadSafeTemplate = eligibleTemplates.find((template) => template.channel === "YELP_THREAD") ?? null;
+
+    if (
+      selectedTemplateId &&
+      templates.some((template) => template.id === selectedTemplateId && template.channel === "YELP_THREAD")
+    ) {
+      setValue("channel", "YELP_THREAD", { shouldValidate: true });
+      return;
+    }
+
+    setValue("templateId", threadSafeTemplate?.id ?? "", { shouldValidate: true });
+    setValue("channel", "YELP_THREAD", { shouldValidate: true });
   };
 
   const submit = handleSubmit(async (values) => {
@@ -116,7 +193,7 @@ export function LeadAutomationRuleForm({
       });
 
       toast.success(isEditing ? "Automation rule updated." : "Automation rule created.");
-      router.replace("/settings");
+      router.replace(returnPath);
       router.refresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to save automation rule.");
@@ -125,9 +202,9 @@ export function LeadAutomationRuleForm({
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="pb-3">
         <CardTitle>{isEditing ? "Edit rule" : "New rule"}</CardTitle>
-        <CardDescription>Rules decide whether the first response should send and which template to use. Lower priority numbers win.</CardDescription>
+        <CardDescription>Choose which template is eligible for each cadence and scope. Lower priority wins.</CardDescription>
       </CardHeader>
       <CardContent>
         <form className="space-y-4" onSubmit={submit}>
@@ -139,9 +216,29 @@ export function LeadAutomationRuleForm({
             </div>
 
             <div className="space-y-2">
+              <Label>Business scope</Label>
+              <Select value={selectedBusinessId || "all"} onValueChange={updateBusinessScope}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All businesses</SelectItem>
+                  {businesses.map((business) => (
+                    <SelectItem key={business.id} value={business.id}>
+                      {business.name}
+                      {business.yelpBusinessId ? ` • ${business.yelpBusinessId}` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)_8rem]">
+            <div className="space-y-2">
               <Label>Template</Label>
               <Select
-                defaultValue={watch("templateId")}
+                value={selectedTemplateId}
                 onValueChange={(value) => {
                   setValue("templateId", value, { shouldValidate: true });
                   const selectedTemplate = templates.find((template) => template.id === value);
@@ -155,32 +252,54 @@ export function LeadAutomationRuleForm({
                   <SelectValue placeholder="Select template" />
                 </SelectTrigger>
                 <SelectContent>
-                  {templates.map((template) => (
+                  {eligibleTemplatesForCadence.map((template) => (
                     <SelectItem key={template.id} value={template.id}>
-                      {template.name} • {getTemplateChannelLabel(template.channel)}{template.isEnabled ? "" : " (disabled)"}
+                      {template.name} • {template.businessName ?? "All businesses"} • {getTemplateChannelLabel(template.channel)}
+                      {template.isEnabled ? "" : " (disabled)"}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               {errors.templateId ? <p className="text-sm text-destructive">{errors.templateId.message}</p> : null}
               <p className="text-xs text-muted-foreground">
-                Channel follows the selected template:{" "}
-                <span className="font-medium">
-                  {getTemplateChannelLabel(templates.find((template) => template.id === watch("templateId"))?.channel)}
-                </span>
+                {(() => {
+                  const selectedTemplate = templates.find((template) => template.id === selectedTemplateId);
+                  return selectedTemplate
+                    ? `${selectedTemplate.businessName ?? "Global template"} • ${getTemplateChannelLabel(selectedTemplate.channel)}`
+                    : "Choose a template.";
+                })()}
               </p>
             </div>
-          </div>
 
-          <div className="grid gap-4 md:grid-cols-3">
+            <div className="space-y-2">
+              <Label>Cadence</Label>
+              <Select value={selectedCadence} onValueChange={(value) => updateCadence(value as LeadAutomationRuleFormValues["cadence"])}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {leadAutomationCadenceOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {selectedCadence === "INITIAL" ? "Initial response can use thread or explicit email fallback." : "Follow-ups stay in the Yelp thread."}
+              </p>
+            </div>
+
             <div className="space-y-2">
               <Label htmlFor="automation-rule-priority">Priority</Label>
               <Input id="automation-rule-priority" min={0} step={1} type="number" {...register("priority", { valueAsNumber: true })} />
             </div>
+          </div>
 
+          <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label>Location scope</Label>
-              <Select defaultValue={watch("locationId") || "all"} onValueChange={(value) => setValue("locationId", value === "all" ? "" : value)}>
+              <Select value={watch("locationId") || "all"} onValueChange={(value) => setValue("locationId", value === "all" ? "" : value)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -197,7 +316,7 @@ export function LeadAutomationRuleForm({
 
             <div className="space-y-2">
               <Label>Service scope</Label>
-              <Select defaultValue={watch("serviceCategoryId") || "all"} onValueChange={(value) => setValue("serviceCategoryId", value === "all" ? "" : value)}>
+              <Select value={watch("serviceCategoryId") || "all"} onValueChange={(value) => setValue("serviceCategoryId", value === "all" ? "" : value)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -216,7 +335,7 @@ export function LeadAutomationRuleForm({
           <div className="flex items-center justify-between rounded-xl border border-border/80 bg-muted/10 px-4 py-3">
             <div>
               <div className="text-sm font-medium">Only during working hours</div>
-              <div className="text-xs text-muted-foreground">Outside the configured window the lead records a skipped attempt instead of queuing a later send.</div>
+              <div className="text-xs text-muted-foreground">Due sends wait for the next valid window.</div>
             </div>
             <Switch checked={onlyDuringWorkingHours} onCheckedChange={(checked) => setValue("onlyDuringWorkingHours", checked, { shouldValidate: true })} />
           </div>
@@ -271,7 +390,7 @@ export function LeadAutomationRuleForm({
           <div className="flex items-center justify-between rounded-xl border border-border/80 bg-muted/10 px-4 py-3">
             <div>
               <div className="text-sm font-medium">Enabled</div>
-              <div className="text-xs text-muted-foreground">Disabled rules stay visible for audit history but will not evaluate on new leads.</div>
+              <div className="text-xs text-muted-foreground">Disabled rules remain visible in history but do not evaluate on new leads.</div>
             </div>
             <Switch checked={watch("isEnabled")} onCheckedChange={(checked) => setValue("isEnabled", checked)} />
           </div>
@@ -281,7 +400,7 @@ export function LeadAutomationRuleForm({
               {isSubmitting ? "Saving..." : isEditing ? "Save rule" : "Create rule"}
             </Button>
             {isEditing ? (
-              <Button onClick={() => router.replace("/settings")} type="button" variant="outline">
+              <Button onClick={() => router.replace(returnPath)} type="button" variant="outline">
                 Cancel
               </Button>
             ) : null}

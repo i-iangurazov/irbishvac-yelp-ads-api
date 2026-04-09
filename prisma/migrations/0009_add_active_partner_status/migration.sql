@@ -1,0 +1,1 @@
+ALTER TYPE "InternalLeadStatus" ADD VALUE IF NOT EXISTS 'ACTIVE';

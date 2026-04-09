@@ -1,19 +1,19 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { LeadAutomationRuleForm } from "@/components/forms/lead-automation-rule-form";
-import { LeadAutomationTemplateForm } from "@/components/forms/lead-automation-template-form";
-import { LeadAutoresponderSettingsForm } from "@/components/forms/lead-autoresponder-settings-form";
 import { SettingsCapabilitiesForm } from "@/components/forms/settings-capabilities-form";
 import { SettingsCredentialForm } from "@/components/forms/settings-credential-form";
 import { SettingsUserRoleForm } from "@/components/forms/settings-user-role-form";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusChip } from "@/components/shared/status-chip";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { getLeadAutomationAdminState } from "@/features/autoresponder/service";
+import { getLeadAutomationModuleState } from "@/features/autoresponder/service";
 import { getSettingsOverview } from "@/features/settings/service";
 import { requireUser } from "@/lib/auth/service";
+import { formatDateTime } from "@/lib/utils/format";
 
 function credentialDefaults(
   credential:
@@ -41,37 +41,29 @@ function credentialDefaults(
   };
 }
 
-export default async function SettingsPage({
-  searchParams
-}: {
-  searchParams: Promise<{
-    templateId?: string;
-    ruleId?: string;
-  }>;
-}) {
+function channelLabel(channel: string | null | undefined) {
+  return channel === "EMAIL" ? "Yelp masked email" : "Yelp thread";
+}
+
+export default async function SettingsPage() {
   const user = await requireUser();
 
   if (user.role.code !== "ADMIN") {
     redirect("/dashboard");
   }
 
-  const params = await searchParams;
   const [settings, automation] = await Promise.all([
     getSettingsOverview(user.tenantId),
-    getLeadAutomationAdminState(user.tenantId)
+    getLeadAutomationModuleState(user.tenantId)
   ]);
 
   const credentialMap = new Map(settings.credentials.map((credential) => [credential.kind, credential]));
-  const selectedTemplate = params.templateId
-    ? automation.templates.find((template) => template.id === params.templateId) ?? null
-    : null;
-  const selectedRule = params.ruleId ? automation.rules.find((rule) => rule.id === params.ruleId) ?? null : null;
 
   return (
     <div>
       <PageHeader
         title="Settings"
-        description="Admin controls for credentials, access gating, and tenant-level automation."
+        description="Admin controls for Yelp access, partner gating, and in-thread automation."
         actions={<Badge variant="outline">Admin only</Badge>}
       />
 
@@ -116,173 +108,56 @@ export default async function SettingsPage({
         </CardContent>
       </Card>
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-        <div className="space-y-6 scroll-mt-24" id="autoresponder">
-          <LeadAutoresponderSettingsForm
-            defaultValues={automation.settings}
-            smtpConfigured={automation.smtpConfigured}
-          />
+      <Card className="mt-6">
+        <CardHeader>
+          <CardTitle>Autoresponder module</CardTitle>
+          <CardDescription>Initial-response policy, later follow-ups, templates, AI review assist, and delivery health now live in the dedicated autoresponder workspace.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-xl border border-border/80 bg-muted/10 p-4">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Status</div>
+              <div className="mt-2 flex items-center gap-2">
+                <StatusChip status={automation.moduleSummary.isEnabled ? "ACTIVE" : "INACTIVE"} />
+                <span className="text-sm text-muted-foreground">{channelLabel(automation.moduleSummary.defaultChannel)}</span>
+              </div>
+            </div>
+            <div className="rounded-xl border border-border/80 bg-muted/10 p-4">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Live coverage</div>
+              <div className="mt-2 text-sm font-medium">
+                {automation.moduleSummary.enabledRuleCount} rules • {automation.moduleSummary.enabledTemplateCount} templates
+              </div>
+              <div className="mt-1 text-xs text-muted-foreground">{automation.operatingMode.liveTemplateMode}</div>
+            </div>
+            <div className="rounded-xl border border-border/80 bg-muted/10 p-4">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">AI draft assist</div>
+              <div className="mt-2 text-sm font-medium">
+                {automation.aiAssist.enabled ? "Enabled" : "Disabled"} • Review required
+              </div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                {automation.aiAssist.envConfigured ? automation.aiAssist.modelLabel : "OpenAI key not configured"}
+              </div>
+            </div>
+            <div className="rounded-xl border border-border/80 bg-muted/10 p-4">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Recent delivery health</div>
+              <div className="mt-2 text-sm font-medium">
+                {automation.moduleSummary.failedCount} failed • {automation.moduleSummary.openIssueCount} open issues
+              </div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                {automation.moduleSummary.lastSuccessfulAt
+                  ? `Last successful send ${formatDateTime(automation.moduleSummary.lastSuccessfulAt)}`
+                  : "No successful send recorded yet"}
+              </div>
+            </div>
+          </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Templates</CardTitle>
-              <CardDescription>Email-only first-response templates. The rendered message is stored on the lead record for operator review.</CardDescription>
-            </CardHeader>
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Rules</TableHead>
-                    <TableHead>Attempts</TableHead>
-                    <TableHead />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {automation.templates.length === 0 ? (
-                    <TableRow>
-                      <TableCell className="text-muted-foreground" colSpan={5}>
-                        No templates saved yet.
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    automation.templates.map((template) => (
-                      <TableRow key={template.id}>
-                        <TableCell>
-                          <div className="font-medium">{template.name}</div>
-                          <div className="text-xs text-muted-foreground">{template.channel}</div>
-                        </TableCell>
-                        <TableCell>
-                          <StatusChip status={template.isEnabled ? "ACTIVE" : "INACTIVE"} />
-                        </TableCell>
-                        <TableCell>{template._count.rules}</TableCell>
-                        <TableCell>{template._count.attempts}</TableCell>
-                        <TableCell className="text-right">
-                          <a className="text-sm font-medium hover:underline" href={`/settings?templateId=${template.id}`}>
-                            Edit
-                          </a>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Rules</CardTitle>
-              <CardDescription>Rules match new leads by location and service. Unmatched leads record a visible skip instead of sending a hidden fallback.</CardDescription>
-            </CardHeader>
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Rule</TableHead>
-                    <TableHead>Scope</TableHead>
-                    <TableHead>Hours</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {automation.rules.length === 0 ? (
-                    <TableRow>
-                      <TableCell className="text-muted-foreground" colSpan={5}>
-                        No rules saved yet.
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    automation.rules.map((rule) => (
-                      <TableRow key={rule.id}>
-                        <TableCell>
-                          <div className="font-medium">{rule.name}</div>
-                          <div className="text-xs text-muted-foreground">
-                            Priority {rule.priority} • {rule.template.name}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div>{rule.location?.name ?? "All locations"}</div>
-                          <div className="text-xs text-muted-foreground">{rule.serviceCategory?.name ?? "All services"}</div>
-                        </TableCell>
-                        <TableCell className="max-w-[18rem] text-xs text-muted-foreground">
-                          {rule.workingHoursLabel}
-                        </TableCell>
-                        <TableCell>
-                          <StatusChip status={rule.isEnabled ? "ACTIVE" : "INACTIVE"} />
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <a className="text-sm font-medium hover:underline" href={`/settings?ruleId=${rule.id}`}>
-                            Edit
-                          </a>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="space-y-6">
-          <LeadAutomationTemplateForm
-            initialValues={
-              selectedTemplate
-                ? {
-                    name: selectedTemplate.name,
-                    channel: selectedTemplate.channel,
-                    isEnabled: selectedTemplate.isEnabled,
-                    subjectTemplate: selectedTemplate.subjectTemplate ?? "",
-                    bodyTemplate: selectedTemplate.bodyTemplate
-                  }
-                : null
-            }
-            templateId={selectedTemplate?.id ?? null}
-          />
-
-          {automation.templates.length === 0 ? (
-            <Card>
-              <CardHeader>
-                <CardTitle>New rule</CardTitle>
-                <CardDescription>Create at least one template before adding rules.</CardDescription>
-              </CardHeader>
-            </Card>
-          ) : (
-            <LeadAutomationRuleForm
-              initialValues={
-                selectedRule
-                  ? {
-                      name: selectedRule.name,
-                      templateId: selectedRule.templateId,
-                      channel: selectedRule.channel,
-                      isEnabled: selectedRule.isEnabled,
-                      priority: selectedRule.priority,
-                      locationId: selectedRule.locationId ?? "",
-                      serviceCategoryId: selectedRule.serviceCategoryId ?? "",
-                      onlyDuringWorkingHours: selectedRule.onlyDuringWorkingHours,
-                      timezone: selectedRule.timezone ?? "",
-                      workingDays: selectedRule.workingDays,
-                      startMinute: selectedRule.startMinute ?? undefined,
-                      endMinute: selectedRule.endMinute ?? undefined
-                    }
-                  : null
-              }
-              locations={automation.options.locations}
-              ruleId={selectedRule?.id ?? null}
-              serviceCategories={automation.options.serviceCategories}
-              templates={automation.templates.map((template) => ({
-                id: template.id,
-                name: template.name,
-                isEnabled: template.isEnabled,
-                channel: template.channel
-              }))}
-            />
-          )}
-        </div>
-      </div>
+          <div className="flex justify-start">
+            <Button asChild>
+              <Link href="/autoresponder">Open autoresponder module</Link>
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card className="mt-6">
         <CardHeader>

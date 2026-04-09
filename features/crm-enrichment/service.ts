@@ -3,18 +3,27 @@ import "server-only";
 import type { CrmLeadMappingState, InternalLeadStatus, RecordSourceSystem, SyncRunStatus } from "@prisma/client";
 
 import { recordAuditEvent } from "@/features/audit/service";
+import { retryServiceTitanLifecycleSyncRunWorkflow } from "@/features/crm-connector/lifecycle-service";
 import {
   buildInternalStatusTimeline,
   buildLeadConversionMetrics,
   deriveCrmHealth,
+  getCurrentPartnerLifecycleStatus,
   getMappingReferenceLabel,
   isResolvedCrmMappingState
 } from "@/features/crm-enrichment/normalize";
-import { crmLeadMappingFormSchema, crmLeadStatusFormSchema } from "@/features/crm-enrichment/schemas";
+import {
+  crmLeadMappingFormSchema,
+  crmLeadStatusFormSchema,
+  downstreamLeadSyncRequestSchema,
+  type DownstreamLeadSyncUpdate
+} from "@/features/crm-enrichment/schemas";
 import {
   createCrmStatusEventRecord,
   createCrmSyncError,
   createCrmSyncRun,
+  getCrmSyncRunById,
+  findLeadForCrmEnrichment,
   findCrmLeadMappingByExternalLeadId,
   getLeadForCrmEnrichment,
   listLeadOutcomeRows,
@@ -24,8 +33,9 @@ import {
   upsertCrmLeadMappingRecord
 } from "@/lib/db/crm-enrichment-repository";
 import { toJsonValue } from "@/lib/db/json";
+import { getDefaultTenant } from "@/lib/db/tenant";
 import { logError, logInfo } from "@/lib/utils/logging";
-import { YelpValidationError } from "@/lib/yelp/errors";
+import { normalizeUnknownError, YelpValidationError } from "@/lib/yelp/errors";
 
 function getCurrentMapping(lead: Awaited<ReturnType<typeof getLeadForCrmEnrichment>>) {
   return lead.crmLeadMappings[0] ?? null;
@@ -71,6 +81,41 @@ function coerceMappingState(
   }
 
   return requestedState;
+}
+
+function asRecord(value: unknown) {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function getStringValue(record: Record<string, unknown> | null, key: string) {
+  const value = record?.[key];
+  return typeof value === "string" ? value : null;
+}
+
+function getBooleanValue(record: Record<string, unknown> | null, key: string) {
+  const value = record?.[key];
+  return typeof value === "boolean" ? value : null;
+}
+
+function getNumberValue(record: Record<string, unknown> | null, key: string) {
+  const value = record?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function parseCrmSyncRequest(payloadJson: unknown) {
+  const payload = asRecord(payloadJson);
+  const action = getStringValue(payload, "action");
+
+  if (!action) {
+    throw new YelpValidationError("The saved CRM sync request is missing its action type.");
+  }
+
+  return {
+    action,
+    payload
+  };
 }
 
 export function buildLeadCrmSummary(lead: {
@@ -161,7 +206,7 @@ export async function getLeadConversionSummary(tenantId: string) {
 
 export async function upsertLeadCrmMappingWorkflow(
   tenantId: string,
-  actorId: string,
+  actorId: string | null,
   leadId: string,
   input: unknown,
   options?: {
@@ -198,9 +243,13 @@ export async function upsertLeadCrmMappingWorkflow(
       action: "crm_mapping_upsert",
       state,
       sourceSystem,
+      locationId: values.locationId ?? null,
       externalCrmLeadId: values.externalCrmLeadId ?? null,
       externalOpportunityId: values.externalOpportunityId ?? null,
-      externalJobId: values.externalJobId ?? null
+      externalJobId: values.externalJobId ?? null,
+      issueSummary,
+      matchMethod: values.matchMethod ?? null,
+      confidenceScore: values.confidenceScore ?? null
     }
   });
 
@@ -351,7 +400,7 @@ export async function upsertLeadCrmMappingWorkflow(
 
 export async function appendLeadInternalStatusWorkflow(
   tenantId: string,
-  actorId: string,
+  actorId: string | null,
   leadId: string,
   input: unknown,
   options?: {
@@ -367,13 +416,13 @@ export async function appendLeadInternalStatusWorkflow(
   const sourceSystem = options?.sourceSystem ?? "INTERNAL";
 
   if (!options?.allowUnresolvedMapping && !isResolvedCrmMappingState(currentMapping?.state)) {
-    throw new YelpValidationError("Resolve the CRM mapping before recording an internal lifecycle status.");
+    throw new YelpValidationError("Resolve the CRM mapping before recording a partner lifecycle status.");
   }
 
   const occurredAt = new Date(values.occurredAt);
 
   if (Number.isNaN(occurredAt.getTime())) {
-    throw new YelpValidationError("Provide a valid timestamp for the internal status event.");
+    throw new YelpValidationError("Provide a valid timestamp for the partner lifecycle event.");
   }
 
   const syncRun = await createCrmSyncRun({
@@ -387,7 +436,11 @@ export async function appendLeadInternalStatusWorkflow(
       action: "crm_status_append",
       status: values.status,
       occurredAt: values.occurredAt,
-      sourceSystem
+      sourceSystem,
+      substatus: values.substatus ?? null,
+      note: values.note ?? null,
+      externalStatusEventId: options?.externalStatusEventId ?? null,
+      allowUnresolvedMapping: Boolean(options?.allowUnresolvedMapping)
     }
   });
 
@@ -408,9 +461,17 @@ export async function appendLeadInternalStatusWorkflow(
       }
     });
 
+    const currentStatus = getCurrentPartnerLifecycleStatus(
+      [
+        ...lead.crmStatusEvents.filter((event) => event.id !== statusEvent.id),
+        statusEvent
+      ],
+      lead.internalStatus
+    );
+
     await updateLeadCrmFields({
       leadId: lead.id,
-      internalStatus: values.status,
+      internalStatus: currentStatus,
       locationId: currentMapping?.locationId ?? lead.locationId ?? null
     });
 
@@ -428,12 +489,15 @@ export async function appendLeadInternalStatusWorkflow(
       finishedAt,
       lastSuccessfulSyncAt: finishedAt,
       statsJson: {
-        status: values.status
+        receivedStatus: values.status,
+        currentLeadStatus: currentStatus,
+        currentStatusChanged: currentStatus === values.status
       },
       responseJson: {
         leadId: lead.id,
         crmStatusEventId: statusEvent.id,
-        status: values.status
+        status: values.status,
+        currentLeadStatus: currentStatus
       },
       errorSummary: null
     });
@@ -458,7 +522,7 @@ export async function appendLeadInternalStatusWorkflow(
         internalStatus: lead.internalStatus
       }),
       after: toJsonValue({
-        internalStatus: values.status
+        internalStatus: currentStatus
       })
     });
 
@@ -467,12 +531,14 @@ export async function appendLeadInternalStatusWorkflow(
       leadId: lead.id,
       crmStatusEventId: statusEvent.id,
       status: values.status,
+      currentLeadStatus: currentStatus,
       sourceSystem
     });
 
     return {
       crmStatusEventId: statusEvent.id,
-      status: values.status
+      status: values.status,
+      currentLeadStatus: currentStatus
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to save CRM status.";
@@ -515,4 +581,205 @@ export async function appendLeadInternalStatusWorkflow(
 
     throw error;
   }
+}
+
+function inferDownstreamMappingState(
+  update: NonNullable<DownstreamLeadSyncUpdate["mapping"]>,
+  sourceSystem: RecordSourceSystem
+) {
+  if (update.state) {
+    return update.state;
+  }
+
+  const hasReference = Boolean(update.externalCrmLeadId || update.externalOpportunityId || update.externalJobId);
+
+  if (!hasReference) {
+    return "UNRESOLVED" as const;
+  }
+
+  return sourceSystem === "INTERNAL" ? "MANUAL_OVERRIDE" : "MATCHED";
+}
+
+type DownstreamSyncItemStatus = "COMPLETED" | "PARTIAL" | "FAILED";
+
+export async function syncLeadDownstreamStatusWorkflow(input: unknown) {
+  const values = downstreamLeadSyncRequestSchema.parse(input);
+  const defaultTenant = await getDefaultTenant();
+  const tenantId = values.tenantId ?? defaultTenant.id;
+  const results: Array<{
+    leadId: string | null;
+    externalLeadId: string | null;
+    status: DownstreamSyncItemStatus;
+    mapping: Awaited<ReturnType<typeof upsertLeadCrmMappingWorkflow>> | null;
+    statusEvent: Awaited<ReturnType<typeof appendLeadInternalStatusWorkflow>> | null;
+    errors: Array<{ code?: string; message: string }>;
+  }> = [];
+
+  for (const update of values.updates) {
+    try {
+      const lead = await findLeadForCrmEnrichment(tenantId, {
+        leadId: update.leadId ?? null,
+        externalLeadId: update.externalLeadId ?? null
+      });
+
+      if (!lead) {
+        throw new YelpValidationError("Lead not found for downstream sync.");
+      }
+
+      const sourceSystem = update.sourceSystem ?? "CRM";
+      const correlationId = update.correlationId ?? `crm-sync:${lead.id}:${Date.now()}`;
+      let mappingResult: Awaited<ReturnType<typeof upsertLeadCrmMappingWorkflow>> | null = null;
+      let statusResult: Awaited<ReturnType<typeof appendLeadInternalStatusWorkflow>> | null = null;
+      let status: DownstreamSyncItemStatus = "COMPLETED";
+      const errors: Array<{ code?: string; message: string }> = [];
+
+      if (update.mapping) {
+        try {
+          mappingResult = await upsertLeadCrmMappingWorkflow(
+            tenantId,
+            null,
+            lead.id,
+            {
+              ...update.mapping,
+              state: inferDownstreamMappingState(update.mapping, sourceSystem)
+            },
+            {
+              sourceSystem,
+              correlationId
+            }
+          );
+        } catch (error) {
+          const normalized = normalizeUnknownError(error);
+          status = "PARTIAL";
+          errors.push({
+            code: normalized.code,
+            message: normalized.message
+          });
+        }
+      }
+
+      if (update.statusEvent) {
+        try {
+          statusResult = await appendLeadInternalStatusWorkflow(
+            tenantId,
+            null,
+            lead.id,
+            update.statusEvent,
+            {
+              sourceSystem,
+              externalStatusEventId: update.statusEvent.externalStatusEventId ?? null,
+              correlationId,
+              allowUnresolvedMapping: true
+            }
+          );
+        } catch (error) {
+          const normalized = normalizeUnknownError(error);
+          status = mappingResult ? "PARTIAL" : "FAILED";
+          errors.push({
+            code: normalized.code,
+            message: normalized.message
+          });
+        }
+      }
+
+      results.push({
+        leadId: lead.id,
+        externalLeadId: lead.externalLeadId,
+        status,
+        mapping: mappingResult,
+        statusEvent: statusResult,
+        errors
+      });
+    } catch (error) {
+      const normalized = normalizeUnknownError(error);
+      results.push({
+        leadId: update.leadId ?? null,
+        externalLeadId: update.externalLeadId ?? null,
+        status: "FAILED" as const,
+        mapping: null,
+        statusEvent: null,
+        errors: [
+          {
+            code: normalized.code,
+            message: normalized.message
+          }
+        ]
+      });
+    }
+  }
+
+  return {
+    tenantId,
+    totalUpdates: values.updates.length,
+    completedCount: results.filter((result) => result.status === "COMPLETED").length,
+    partialCount: results.filter((result) => result.status === "PARTIAL").length,
+    failedCount: results.filter((result) => result.status === "FAILED").length,
+    results
+  };
+}
+
+export async function retryCrmSyncRunWorkflow(tenantId: string, actorId: string | null, syncRunId: string) {
+  const syncRun = await getCrmSyncRunById(tenantId, syncRunId);
+
+  if (!syncRun.leadId) {
+    throw new YelpValidationError("This downstream sync run is not linked to a Yelp lead.");
+  }
+
+  const { action, payload } = parseCrmSyncRequest(syncRun.requestJson);
+  const correlationId = `${syncRun.correlationId ?? `crm-retry:${syncRun.id}`}:retry:${Date.now()}`;
+
+  if (action === "servicetitan_lifecycle_sync") {
+    return retryServiceTitanLifecycleSyncRunWorkflow(tenantId, actorId, syncRun.id);
+  }
+
+  if (action === "crm_mapping_upsert") {
+    return upsertLeadCrmMappingWorkflow(
+      tenantId,
+      actorId,
+      syncRun.leadId,
+      {
+        state: getStringValue(payload, "state") ?? "UNRESOLVED",
+        locationId: getStringValue(payload, "locationId"),
+        externalCrmLeadId: getStringValue(payload, "externalCrmLeadId"),
+        externalOpportunityId: getStringValue(payload, "externalOpportunityId"),
+        externalJobId: getStringValue(payload, "externalJobId"),
+        issueSummary: getStringValue(payload, "issueSummary"),
+        matchMethod: getStringValue(payload, "matchMethod"),
+        confidenceScore: getNumberValue(payload, "confidenceScore")
+      },
+      {
+        sourceSystem: syncRun.sourceSystem,
+        correlationId
+      }
+    );
+  }
+
+  if (action === "crm_status_append") {
+    const status = getStringValue(payload, "status");
+    const occurredAt = getStringValue(payload, "occurredAt");
+
+    if (!status || !occurredAt) {
+      throw new YelpValidationError("The saved partner lifecycle sync request is incomplete.");
+    }
+
+    return appendLeadInternalStatusWorkflow(
+      tenantId,
+      actorId,
+      syncRun.leadId,
+      {
+        status,
+        occurredAt,
+        substatus: getStringValue(payload, "substatus"),
+        note: getStringValue(payload, "note")
+      },
+      {
+        sourceSystem: syncRun.sourceSystem,
+        externalStatusEventId: getStringValue(payload, "externalStatusEventId"),
+        correlationId,
+        allowUnresolvedMapping: getBooleanValue(payload, "allowUnresolvedMapping") ?? false
+      }
+    );
+  }
+
+  throw new YelpValidationError("Retry is not available for this downstream sync action.");
 }

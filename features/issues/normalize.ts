@@ -39,7 +39,27 @@ export function getIssueStatusActionability(status: OperatorIssueStatus) {
 }
 
 export function isRetryableIssueType(issueType: OperatorIssueType) {
-  return issueType === "AUTORESPONDER_FAILURE" || issueType === "REPORT_DELIVERY_FAILURE";
+  return (
+    issueType === "LEAD_SYNC_FAILURE" ||
+    issueType === "CRM_SYNC_FAILURE" ||
+    issueType === "AUTORESPONDER_FAILURE" ||
+    issueType === "REPORT_DELIVERY_FAILURE"
+  );
+}
+
+export function getRetryLabel(issueType: OperatorIssueType) {
+  switch (issueType) {
+    case "LEAD_SYNC_FAILURE":
+      return "Retry intake";
+    case "CRM_SYNC_FAILURE":
+      return "Retry partner sync";
+    case "AUTORESPONDER_FAILURE":
+      return "Retry autoresponder";
+    case "REPORT_DELIVERY_FAILURE":
+      return "Retry delivery";
+    default:
+      return "Retry";
+  }
 }
 
 export function getIssueRemapHref(params: { issueType: OperatorIssueType; leadId?: string | null }) {
@@ -71,7 +91,9 @@ export function buildOperatorIssueSummary(
     total: issues.length,
     open: openIssues.length,
     highSeverity: openIssues.filter((issue) => issue.severity === "HIGH" || issue.severity === "CRITICAL").length,
+    retryableOpen: openIssues.filter((issue) => isRetryableIssueType(issue.issueType)).length,
     deliveryFailures: openIssues.filter((issue) => issue.issueType === "REPORT_DELIVERY_FAILURE").length,
-    unmappedLeads: openIssues.filter((issue) => issue.issueType === "UNMAPPED_LEAD").length
+    unmappedLeads: openIssues.filter((issue) => issue.issueType === "UNMAPPED_LEAD").length,
+    staleLeads: openIssues.filter((issue) => issue.issueType === "STALE_LEAD").length
   };
 }

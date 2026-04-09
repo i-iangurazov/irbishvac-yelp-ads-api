@@ -1,5 +1,6 @@
 import type {
   ReportScheduleDeliveryStatus,
+  ReportScheduleDeliveryScope,
   ReportScheduleGenerationStatus,
   ReportScheduleRunScope
 } from "@prisma/client";
@@ -20,10 +21,14 @@ export function mapReportStatusToGenerationStatus(status: string | null | undefi
 
 export function shouldFanOutLocationDelivery(
   scope: ReportScheduleRunScope,
-  deliverPerLocation: boolean,
+  deliveryScope: ReportScheduleDeliveryScope,
   locationRowCount: number
 ) {
-  return scope === "ACCOUNT" && deliverPerLocation && locationRowCount > 0;
+  return scope === "ACCOUNT" && deliveryScope !== "ACCOUNT_ONLY" && locationRowCount > 0;
+}
+
+export function shouldSendAccountDelivery(deliveryScope: ReportScheduleDeliveryScope) {
+  return deliveryScope !== "LOCATION_ONLY";
 }
 
 export function isReadyForDelivery(

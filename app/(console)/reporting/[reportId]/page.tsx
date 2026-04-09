@@ -73,7 +73,7 @@ export default async function ReportDetailPage({
     <div>
       <PageHeader
         title={`${report.granularity} report`}
-        description="Yelp batch snapshot plus internal cohort outcomes. Freshness reflects saved payloads, not live performance."
+        description="Yelp batch snapshot for intake and on-Yelp engagement, plus separate partner lifecycle outcomes. Freshness reflects saved payloads, not live performance."
         actions={
           <Button asChild variant="outline">
             <a href={`/api/reports/${report.id}/export${currentQueryString}`}>Export CSV</a>
@@ -133,7 +133,7 @@ export default async function ReportDetailPage({
             <CardHeader>
               <CardTitle>{reportView.filters.view === "location" ? "Location breakdown" : "Service breakdown"}</CardTitle>
               <CardDescription>
-                Yelp spend comes from the saved batch. Lead and outcome metrics are internal-derived from leads created in the selected window.
+                Yelp spend comes from the saved batch. Lead counts reflect Yelp intake in the selected window; booked and downstream outcomes are partner-derived.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -153,13 +153,15 @@ export default async function ReportDetailPage({
                 values={reportView.filters}
               />
 
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-8">
                 <MetricCard title="Leads" value={breakdown.totals.totalLeads} description="Yelp leads created in the selected window." />
                 <MetricCard title="Mapped" value={breakdown.totals.mappedLeads} description="Leads with a resolved internal mapping." />
+                <MetricCard title="Active / contacted" value={`${breakdown.totals.active} / ${breakdown.totals.contacted}`} description="Partner lifecycle follow-through after intake." />
+                <MetricCard title="Booked / scheduled" value={`${breakdown.totals.booked} / ${breakdown.totals.scheduled}`} description="Partner lifecycle milestones from internal systems." />
                 <MetricCard title="In progress" value={breakdown.totals.jobInProgress} description="Current internal job-in-progress outcomes." />
-                <MetricCard title="Completed" value={breakdown.totals.completed} description="Current internal completed or closed-won outcomes." />
+                <MetricCard title="Completed / won" value={`${breakdown.totals.completed} / ${breakdown.totals.won}`} description="Completed includes closed-won outcomes when present." />
                 <MetricCard title="Yelp spend" value={formatCurrency(breakdown.totals.yelpSpendCents)} description="Only where the saved Yelp batch can be mapped safely." />
-                <MetricCard title="Close rate" value={`${breakdown.totals.closeRate}%`} description="Completed outcomes divided by total leads." />
+                <MetricCard title="CPL / win rate" value={`${breakdown.totals.costPerLeadCents !== null ? formatCurrency(breakdown.totals.costPerLeadCents) : "—"} / ${breakdown.totals.winRate}%`} description="Derived from Yelp spend plus partner lifecycle outcomes." />
               </div>
 
               <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border/80 bg-muted/15 px-4 py-3 text-xs text-muted-foreground">
@@ -182,38 +184,55 @@ export default async function ReportDetailPage({
                   <TableHeader>
                     <TableRow>
                       <TableHead>{reportView.filters.view === "location" ? "Location" : "Service"}</TableHead>
-                      <TableHead>Leads</TableHead>
-                      <TableHead>Mapped</TableHead>
-                      <TableHead>Booked</TableHead>
-                      <TableHead>Scheduled</TableHead>
-                      <TableHead>In progress</TableHead>
-                      <TableHead>Completed</TableHead>
-                      <TableHead>Close rate</TableHead>
-                      <TableHead>Yelp spend</TableHead>
-                      <TableHead>CPL</TableHead>
-                      <TableHead>CP Booked</TableHead>
-                      <TableHead>CP Completed</TableHead>
-                      <TableHead>Lead share</TableHead>
-                      <TableHead>Spend share</TableHead>
+                      <TableHead>Yelp</TableHead>
+                      <TableHead>Lead intake</TableHead>
+                      <TableHead>Partner lifecycle</TableHead>
+                      <TableHead>Conversion</TableHead>
+                      <TableHead>Cost</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {breakdown.rows.map((row) => (
                       <TableRow key={row.bucketId}>
-                        <TableCell>{row.bucketLabel}</TableCell>
-                        <TableCell>{row.totalLeads}</TableCell>
-                        <TableCell>{row.mappedLeads}</TableCell>
-                        <TableCell>{row.booked}</TableCell>
-                        <TableCell>{row.scheduled}</TableCell>
-                        <TableCell>{row.jobInProgress}</TableCell>
-                        <TableCell>{row.completed}</TableCell>
-                        <TableCell>{row.closeRate}%</TableCell>
-                        <TableCell>{formatCurrency(row.yelpSpendCents)}</TableCell>
-                        <TableCell>{row.costPerLeadCents !== null ? formatCurrency(row.costPerLeadCents) : "—"}</TableCell>
-                        <TableCell>{row.costPerBookedJobCents !== null ? formatCurrency(row.costPerBookedJobCents) : "—"}</TableCell>
-                        <TableCell>{row.costPerCompletedJobCents !== null ? formatCurrency(row.costPerCompletedJobCents) : "—"}</TableCell>
-                        <TableCell>{row.leadSharePct}%</TableCell>
-                        <TableCell>{row.spendSharePct}%</TableCell>
+                        <TableCell>
+                          <div className="font-medium">{row.bucketLabel}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {row.leadSharePct}% of leads • {row.spendSharePct}% of spend
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="font-medium">{formatCurrency(row.yelpSpendCents)}</div>
+                          <div className="text-xs text-muted-foreground">Delayed Yelp batch spend</div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="font-medium">{row.totalLeads} leads</div>
+                          <div className="text-xs text-muted-foreground">
+                            {row.mappedLeads} mapped • {row.mappingRate}% mapping rate
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="space-y-1 text-xs text-muted-foreground">
+                            <div><span className="font-medium text-foreground">{row.active}</span> active • <span className="font-medium text-foreground">{row.contacted}</span> contacted</div>
+                            <div><span className="font-medium text-foreground">{row.booked}</span> booked • <span className="font-medium text-foreground">{row.scheduled}</span> scheduled</div>
+                            <div><span className="font-medium text-foreground">{row.jobInProgress}</span> in progress • <span className="font-medium text-foreground">{row.completed}</span> completed</div>
+                            <div><span className="font-medium text-foreground">{row.won}</span> won • <span className="font-medium text-foreground">{row.lost}</span> lost</div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="space-y-1 text-xs text-muted-foreground">
+                            <div><span className="font-medium text-foreground">{row.bookedRate}%</span> booked rate</div>
+                            <div><span className="font-medium text-foreground">{row.scheduledRate}%</span> scheduled rate</div>
+                            <div><span className="font-medium text-foreground">{row.completionRate}%</span> completion rate</div>
+                            <div><span className="font-medium text-foreground">{row.winRate}%</span> win rate</div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="space-y-1 text-xs text-muted-foreground">
+                            <div><span className="font-medium text-foreground">{row.costPerLeadCents !== null ? formatCurrency(row.costPerLeadCents) : "—"}</span> CPL</div>
+                            <div><span className="font-medium text-foreground">{row.costPerBookedJobCents !== null ? formatCurrency(row.costPerBookedJobCents) : "—"}</span> cost per booked</div>
+                            <div><span className="font-medium text-foreground">{row.costPerCompletedJobCents !== null ? formatCurrency(row.costPerCompletedJobCents) : "—"}</span> cost per completed</div>
+                          </div>
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

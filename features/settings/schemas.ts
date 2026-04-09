@@ -35,5 +35,6 @@ export const credentialKindLabels: Record<CredentialKind, string> = {
   ADS_BASIC_AUTH: "Partner API Basic Auth",
   REPORTING_FUSION: "Yelp API Bearer Token",
   BUSINESS_MATCH: "Business Match API",
-  DATA_INGESTION: "Data Ingestion API"
+  DATA_INGESTION: "Data Ingestion API",
+  CRM_SERVICETITAN: "ServiceTitan Connector"
 };

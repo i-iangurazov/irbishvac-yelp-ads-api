@@ -4,9 +4,16 @@ import { buildReportDeliveryCsv, buildReportDeliveryEmail } from "@/features/rep
 import {
   isReadyForDelivery,
   mapReportStatusToGenerationStatus,
-  shouldFanOutLocationDelivery
+  shouldFanOutLocationDelivery,
+  shouldSendAccountDelivery
 } from "@/features/report-delivery/logic";
+import {
+  getReportScheduleDeliveryScopeLabel,
+  readLocationRecipientOverridesJson,
+  resolveRecipientRoute
+} from "@/features/report-delivery/routing";
 import { buildReportScheduleRunKey, getLatestScheduleWindow } from "@/features/report-delivery/schedule";
+import { reportScheduleFormSchema } from "@/features/report-delivery/schemas";
 
 describe("report delivery helpers", () => {
   it("calculates the latest completed weekly window", () => {
@@ -68,10 +75,89 @@ describe("report delivery helpers", () => {
   });
 
   it("only fans out location delivery from an account run with location rows", () => {
-    expect(shouldFanOutLocationDelivery("ACCOUNT", true, 2)).toBe(true);
-    expect(shouldFanOutLocationDelivery("ACCOUNT", false, 2)).toBe(false);
-    expect(shouldFanOutLocationDelivery("LOCATION", true, 2)).toBe(false);
-    expect(shouldFanOutLocationDelivery("ACCOUNT", true, 0)).toBe(false);
+    expect(shouldFanOutLocationDelivery("ACCOUNT", "LOCATION_ONLY", 2)).toBe(true);
+    expect(shouldFanOutLocationDelivery("ACCOUNT", "ACCOUNT_AND_LOCATION", 2)).toBe(true);
+    expect(shouldFanOutLocationDelivery("ACCOUNT", "ACCOUNT_ONLY", 2)).toBe(false);
+    expect(shouldFanOutLocationDelivery("LOCATION", "LOCATION_ONLY", 2)).toBe(false);
+    expect(shouldFanOutLocationDelivery("ACCOUNT", "LOCATION_ONLY", 0)).toBe(false);
+  });
+
+  it("treats account delivery as optional based on explicit scope", () => {
+    expect(shouldSendAccountDelivery("ACCOUNT_ONLY")).toBe(true);
+    expect(shouldSendAccountDelivery("ACCOUNT_AND_LOCATION")).toBe(true);
+    expect(shouldSendAccountDelivery("LOCATION_ONLY")).toBe(false);
+  });
+
+  it("resolves location recipient overrides with account fallback", () => {
+    const overrides = readLocationRecipientOverridesJson([
+      {
+        locationId: "loc_1",
+        recipientEmails: ["north@example.com", "ops@example.com"]
+      }
+    ]);
+
+    expect(resolveRecipientRoute({
+      defaultRecipients: ["account@example.com"],
+      locationId: "loc_1",
+      overrides
+    })).toEqual({
+      recipientEmails: ["north@example.com", "ops@example.com"],
+      routingMode: "LOCATION_OVERRIDE",
+      routingLabel: "Location recipient override"
+    });
+
+    expect(resolveRecipientRoute({
+      defaultRecipients: ["account@example.com"],
+      locationId: "loc_2",
+      overrides
+    })).toEqual({
+      recipientEmails: ["account@example.com"],
+      routingMode: "LOCATION_FALLBACK",
+      routingLabel: "Default account recipients"
+    });
+
+    expect(resolveRecipientRoute({
+      defaultRecipients: ["account@example.com"],
+      locationId: null,
+      overrides
+    })).toEqual({
+      recipientEmails: ["account@example.com"],
+      routingMode: "UNKNOWN_LOCATION_FALLBACK",
+      routingLabel: "Default account recipients (unknown location)"
+    });
+  });
+
+  it("labels delivery scope clearly for operators", () => {
+    expect(getReportScheduleDeliveryScopeLabel("ACCOUNT_ONLY")).toBe("Account rollup only");
+    expect(getReportScheduleDeliveryScopeLabel("LOCATION_ONLY")).toBe("Per location only");
+    expect(getReportScheduleDeliveryScopeLabel("ACCOUNT_AND_LOCATION")).toBe("Account and per location");
+  });
+
+  it("rejects duplicate location recipient overrides", () => {
+    const parsed = reportScheduleFormSchema.safeParse({
+      name: "Weekly client report",
+      cadence: "WEEKLY",
+      deliveryScope: "ACCOUNT_AND_LOCATION",
+      timezone: "UTC",
+      sendDayOfWeek: 1,
+      sendHour: 8,
+      sendMinute: 0,
+      deliverPerLocation: true,
+      isEnabled: true,
+      recipientEmails: "owner@example.com",
+      locationRecipientOverrides: [
+        {
+          locationId: "loc_1",
+          recipientEmails: "north@example.com"
+        },
+        {
+          locationId: "loc_1",
+          recipientEmails: "duplicate@example.com"
+        }
+      ]
+    });
+
+    expect(parsed.success).toBe(false);
   });
 
   it("treats only READY plus PENDING as deliverable", () => {
@@ -104,10 +190,19 @@ describe("report delivery helpers", () => {
         yelpSpendCents: 120000,
         totalLeads: 10,
         mappedLeads: 8,
+        active: 2,
+        contacted: 7,
         booked: 4,
         scheduled: 3,
         jobInProgress: 2,
         completed: 2,
+        won: 1,
+        lost: 1,
+        mappingRate: 80,
+        bookedRate: 40,
+        scheduledRate: 30,
+        completionRate: 20,
+        winRate: 10,
         closeRate: 20,
         costPerLeadCents: 12000,
         costPerBookedJobCents: 30000,
@@ -118,10 +213,20 @@ describe("report delivery helpers", () => {
           bucketId: "loc_1",
           bucketLabel: "North",
           totalLeads: 6,
+          mappedLeads: 5,
+          active: 1,
+          contacted: 4,
           booked: 2,
           scheduled: 2,
           jobInProgress: 1,
           completed: 1,
+          won: 1,
+          lost: 0,
+          mappingRate: 83.3,
+          bookedRate: 33.3,
+          scheduledRate: 33.3,
+          completionRate: 16.7,
+          winRate: 16.7,
           closeRate: 16.7,
           yelpSpendCents: 70000
         }
@@ -131,10 +236,20 @@ describe("report delivery helpers", () => {
           bucketId: "svc_1",
           bucketLabel: "HVAC Repair",
           totalLeads: 5,
+          mappedLeads: 4,
+          active: 1,
+          contacted: 3,
           booked: 2,
           scheduled: 1,
           jobInProgress: 1,
           completed: 1,
+          won: 1,
+          lost: 0,
+          mappingRate: 80,
+          bookedRate: 40,
+          scheduledRate: 20,
+          completionRate: 20,
+          winRate: 20,
           closeRate: 20,
           yelpSpendCents: 50000
         }
@@ -149,7 +264,13 @@ describe("report delivery helpers", () => {
     expect(rows[0]).toMatchObject({
       sourceYelp: "Yelp-native delayed batch metrics",
       sourceInternal: "Internal-derived CRM lead and outcome metrics",
-      jobInProgress: 2
+      jobInProgress: 2,
+      active: 2,
+      contacted: 7,
+      won: 1,
+      lost: 1,
+      mappingRatePct: 80,
+      derivedCostPerBookedLeadCents: 30000
     });
   });
 
@@ -162,10 +283,19 @@ describe("report delivery helpers", () => {
         yelpSpendCents: 120000,
         totalLeads: 10,
         mappedLeads: 8,
+        active: 2,
+        contacted: 7,
         booked: 4,
         scheduled: 3,
         jobInProgress: 2,
         completed: 2,
+        won: 1,
+        lost: 1,
+        mappingRate: 80,
+        bookedRate: 40,
+        scheduledRate: 30,
+        completionRate: 20,
+        winRate: 10,
         closeRate: 20,
         costPerLeadCents: 12000,
         costPerBookedJobCents: 30000,
@@ -181,6 +311,8 @@ describe("report delivery helpers", () => {
 
     expect(email.text).toContain("Yelp-native delayed batch metrics");
     expect(email.text).toContain("Internal-derived CRM lead and outcome metrics");
+    expect(email.text).toContain("Active: 2");
+    expect(email.text).toContain("Win rate: 10%");
     expect(email.text).toContain("Dashboard link");
     expect(email.html).toContain("Open in dashboard");
   });

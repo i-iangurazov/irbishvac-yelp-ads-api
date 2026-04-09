@@ -24,6 +24,8 @@ import { YelpFeaturesClient } from "@/lib/yelp/features-client";
 import { YelpReportingClient } from "@/lib/yelp/reporting-client";
 import { getCapabilityFlags, getCredentialConfig } from "@/lib/yelp/runtime";
 import { normalizeUnknownError, YelpValidationError } from "@/lib/yelp/errors";
+import { ServiceTitanClient } from "@/lib/servicetitan/client";
+import { getDefaultServiceTitanUrls } from "@/lib/servicetitan/runtime";
 
 type TestableConnectionClient = {
   testConnection: (path?: string) => Promise<unknown>;
@@ -44,6 +46,10 @@ function resolveFallbackBaseUrl(kind: CredentialKind) {
     return env.YELP_DATA_INGESTION_BASE_URL;
   }
 
+  if (kind === "CRM_SERVICETITAN") {
+    return getDefaultServiceTitanUrls("PRODUCTION").apiBaseUrl;
+  }
+
   return env.YELP_ADS_BASE_URL;
 }
 
@@ -57,6 +63,8 @@ function getCapabilityKeysForCredential(kind: CredentialKind): Array<keyof Capab
       return ["businessMatchApiEnabled", "hasPartnerSupportApi"];
     case "DATA_INGESTION":
       return ["dataIngestionApiEnabled", "hasLeadsApi"];
+    case "CRM_SERVICETITAN":
+      return ["hasCrmIntegration"];
     default:
       return [];
   }
@@ -253,6 +261,26 @@ async function getConnectionTester(tenantId: string, kind: CredentialKind): Prom
       return new YelpBusinessMatchClient(credential);
     case "DATA_INGESTION":
       return new YelpDataIngestionClient(credential);
+    case "CRM_SERVICETITAN": {
+      const metadata = (credential.metadata as Record<string, unknown> | null) ?? null;
+      const environment = metadata?.environment === "INTEGRATION" ? "INTEGRATION" : "PRODUCTION";
+      const defaults = getDefaultServiceTitanUrls(environment);
+
+      return new ServiceTitanClient({
+        label: credential.label,
+        isEnabled: credential.isEnabled,
+        environment,
+        apiBaseUrl: credential.baseUrl || defaults.apiBaseUrl,
+        authBaseUrl:
+          typeof metadata?.authBaseUrl === "string" && metadata.authBaseUrl.trim().length > 0
+            ? metadata.authBaseUrl
+            : defaults.authBaseUrl,
+        tenantId: typeof metadata?.tenantId === "string" ? metadata.tenantId : "",
+        appKey: typeof metadata?.appKey === "string" ? metadata.appKey : "",
+        clientId: credential.username ?? "",
+        clientSecret: credential.secret ?? ""
+      });
+    }
     default:
       return new YelpFeaturesClient(credential);
   }

@@ -17,9 +17,11 @@ export async function listAuditEvents(
     businessId?: string;
     programId?: string;
     actionType?: string;
+    actionTypePrefix?: string;
     status?: string;
     from?: Date;
     to?: Date;
+    take?: number;
   }
 ) {
   return prisma.auditEvent.findMany({
@@ -29,6 +31,7 @@ export async function listAuditEvents(
       ...(filters?.businessId ? { businessId: filters.businessId } : {}),
       ...(filters?.programId ? { programId: filters.programId } : {}),
       ...(filters?.actionType ? { actionType: filters.actionType } : {}),
+      ...(filters?.actionTypePrefix ? { actionType: { startsWith: filters.actionTypePrefix } } : {}),
       ...(filters?.status ? { status: filters.status as never } : {}),
       ...(filters?.from || filters?.to
         ? {
@@ -45,6 +48,7 @@ export async function listAuditEvents(
       program: true,
       reportRequest: true
     },
-    orderBy: { createdAt: "desc" }
+    orderBy: { createdAt: "desc" },
+    ...(filters?.take ? { take: filters.take } : {})
   });
 }

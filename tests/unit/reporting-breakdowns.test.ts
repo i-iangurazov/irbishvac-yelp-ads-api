@@ -62,10 +62,17 @@ describe("report breakdown aggregation", () => {
     expect(breakdown.totals).toMatchObject({
       totalLeads: 3,
       mappedLeads: 2,
+      active: 0,
+      contacted: 0,
       booked: 1,
       scheduled: 0,
       jobInProgress: 0,
       completed: 1,
+      won: 0,
+      lost: 0,
+      mappingRate: 66.7,
+      bookedRate: 33.3,
+      completionRate: 33.3,
       yelpSpendCents: 15000
     });
     expect(breakdown.rows.map((row) => row.bucketLabel)).toEqual(["North", "South", "Unknown location"]);
@@ -122,8 +129,15 @@ describe("report breakdown aggregation", () => {
     expect(breakdown.rows[0]).toMatchObject({
       totalLeads: 2,
       mappedLeads: 2,
+      active: 0,
+      contacted: 0,
       booked: 1,
       completed: 1,
+      won: 0,
+      lost: 0,
+      mappingRate: 100,
+      bookedRate: 50,
+      completionRate: 50,
       yelpSpendCents: 15000,
       closeRate: 50,
       costPerLeadCents: 7500,
@@ -219,19 +233,28 @@ describe("report breakdown aggregation", () => {
     expect(buildBreakdownCsvRows(breakdown)).toEqual([
       {
         bucket: "North",
-        totalLeads: 1,
-        mappedLeads: 1,
-        booked: 0,
-        scheduled: 0,
-        jobInProgress: 0,
-        completed: 1,
-        closeRatePct: 100,
+        yelpLeadIntakeCount: 1,
+        partnerMappedLeads: 1,
+        partnerActive: 0,
+        partnerContacted: 0,
+        partnerBooked: 0,
+        partnerScheduled: 0,
+        partnerJobInProgress: 0,
+        partnerCompleted: 1,
+        partnerWon: 0,
+        partnerLost: 0,
+        derivedMappingRatePct: 100,
+        derivedBookedRatePct: 0,
+        derivedScheduledRatePct: 0,
+        derivedCompletionRatePct: 100,
+        derivedWinRatePct: 0,
+        derivedCloseRatePct: 100,
         yelpSpendCents: 10000,
         leadSharePct: 100,
         spendSharePct: 100,
-        costPerLeadCents: 10000,
-        costPerBookedJobCents: null,
-        costPerCompletedJobCents: 10000
+        derivedCostPerLeadCents: 10000,
+        derivedCostPerBookedLeadCents: null,
+        derivedCostPerCompletedJobCents: 10000
       }
     ]);
   });

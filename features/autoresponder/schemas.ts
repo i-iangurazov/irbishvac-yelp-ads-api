@@ -1,17 +1,57 @@
 import { z } from "zod";
 
+import {
+  leadAutomationCadenceValues,
+  approvedLeadAiModelValues,
+  defaultLeadAiModel,
+  leadAutomationTemplateKinds,
+  leadAutomationScopeModeValues
+} from "@/features/autoresponder/constants";
+
 const leadAutomationChannelSchema = z.enum(["YELP_THREAD", "EMAIL"]);
+const leadAiModelSchema = z.enum(approvedLeadAiModelValues);
+const leadAutomationTemplateKindSchema = z.enum(leadAutomationTemplateKinds);
+const leadAutomationCadenceSchema = z.enum(leadAutomationCadenceValues);
+const leadAutomationScopeModeSchema = z.enum(leadAutomationScopeModeValues);
+const followUp24hDelaySchema = z.coerce.number().int().min(12).max(48);
+const followUp7dDelaySchema = z.coerce.number().int().min(5).max(10);
 
 export const leadAutoresponderSettingsSchema = z.object({
   isEnabled: z.boolean().default(false),
-  defaultChannel: leadAutomationChannelSchema.default("YELP_THREAD")
+  scopeMode: leadAutomationScopeModeSchema.default("ALL_BUSINESSES"),
+  scopedBusinessIds: z.array(z.string().min(1)).default([]),
+  defaultChannel: leadAutomationChannelSchema.default("YELP_THREAD"),
+  emailFallbackEnabled: z.boolean().default(true),
+  followUp24hEnabled: z.boolean().default(false),
+  followUp24hDelayHours: followUp24hDelaySchema.default(24),
+  followUp7dEnabled: z.boolean().default(false),
+  followUp7dDelayDays: followUp7dDelaySchema.default(7),
+  aiAssistEnabled: z.boolean().default(true),
+  aiModel: leadAiModelSchema.default(defaultLeadAiModel)
 });
 
 export type LeadAutoresponderSettingsValues = z.infer<typeof leadAutoresponderSettingsSchema>;
 
+export const leadAutoresponderBusinessOverrideSchema = z.object({
+  businessId: z.string().min(1),
+  isEnabled: z.boolean().default(true),
+  defaultChannel: leadAutomationChannelSchema.default("YELP_THREAD"),
+  emailFallbackEnabled: z.boolean().default(true),
+  followUp24hEnabled: z.boolean().default(false),
+  followUp24hDelayHours: followUp24hDelaySchema.default(24),
+  followUp7dEnabled: z.boolean().default(false),
+  followUp7dDelayDays: followUp7dDelaySchema.default(7),
+  aiAssistEnabled: z.boolean().default(true),
+  aiModel: leadAiModelSchema.default(defaultLeadAiModel)
+});
+
+export type LeadAutoresponderBusinessOverrideValues = z.infer<typeof leadAutoresponderBusinessOverrideSchema>;
+
 export const leadAutomationTemplateFormSchema = z.object({
   name: z.string().trim().min(2).max(80),
+  businessId: z.string().optional().or(z.literal("")),
   channel: leadAutomationChannelSchema.default("YELP_THREAD"),
+  templateKind: leadAutomationTemplateKindSchema.default("ACKNOWLEDGMENT"),
   isEnabled: z.boolean().default(true),
   subjectTemplate: z.string().trim().max(200).optional().or(z.literal("")),
   bodyTemplate: z.string().trim().min(10).max(5000)
@@ -25,6 +65,8 @@ export const leadAutomationRuleFormSchema = z
   .object({
     name: z.string().trim().min(2).max(80),
     templateId: z.string().min(1),
+    businessId: z.string().optional().or(z.literal("")),
+    cadence: leadAutomationCadenceSchema.default("INITIAL"),
     channel: leadAutomationChannelSchema.default("YELP_THREAD"),
     isEnabled: z.boolean().default(true),
     priority: z.coerce.number().int().min(0).max(999).default(100),

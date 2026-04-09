@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getBusinessById = vi.fn();
+const countLeadRecordsByBusiness = vi.fn();
 const countLeadRecords = vi.fn();
 const createLeadSyncError = vi.fn();
 const createLeadSyncRun = vi.fn();
@@ -13,6 +14,7 @@ const listFailedLeadWebhookEvents = vi.fn();
 const listLeadBackfillRuns = vi.fn();
 const listLeadBusinessOptions = vi.fn();
 const listLeadRecords = vi.fn();
+const listLeadWebhookSyncRunsForReconcile = vi.fn();
 const updateLeadSyncRun = vi.fn();
 const updateWebhookEventRecord = vi.fn();
 const upsertLeadEventRecords = vi.fn();
@@ -29,12 +31,18 @@ const logError = vi.fn();
 const getBusinessLeadIds = vi.fn();
 const getLead = vi.fn();
 const getLeadEvents = vi.fn();
+const listOpenOperatorIssuesForLead = vi.fn();
+const listOpenOperatorIssuesForLeadIds = vi.fn();
+const getAiReplyAssistantState = vi.fn();
+const getLeadReplyComposerState = vi.fn();
+const getLeadAutomationScopeConfig = vi.fn();
 
 vi.mock("@/lib/db/businesses-repository", () => ({
   getBusinessById
 }));
 
 vi.mock("@/lib/db/leads-repository", () => ({
+  countLeadRecordsByBusiness,
   countLeadRecords,
   createLeadSyncError,
   createLeadSyncRun,
@@ -47,6 +55,7 @@ vi.mock("@/lib/db/leads-repository", () => ({
   listLeadBackfillRuns,
   listLeadBusinessOptions,
   listLeadRecords,
+  listLeadWebhookSyncRunsForReconcile,
   updateLeadSyncRun,
   updateWebhookEventRecord,
   upsertLeadEventRecords,
@@ -63,6 +72,10 @@ vi.mock("@/features/audit/service", () => ({
 
 vi.mock("@/features/autoresponder/service", () => ({
   processLeadAutoresponderForNewLead
+}));
+
+vi.mock("@/features/autoresponder/config", () => ({
+  getLeadAutomationScopeConfig
 }));
 
 vi.mock("@/features/crm-enrichment/service", () => ({
@@ -88,10 +101,31 @@ vi.mock("@/lib/yelp/leads-client", () => ({
   }))
 }));
 
+vi.mock("@/lib/db/issues-repository", () => ({
+  listOpenOperatorIssuesForLead,
+  listOpenOperatorIssuesForLeadIds
+}));
+
+vi.mock("@/features/leads/ai-reply-service", () => ({
+  getAiReplyAssistantState
+}));
+
+vi.mock("@/features/leads/messaging-service", () => ({
+  getLeadReplyComposerState
+}));
+
 describe("getLeadsIndex", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     countLeadRecords.mockResolvedValue(146);
+    countLeadRecordsByBusiness.mockResolvedValue([
+      {
+        businessId: "business_1",
+        _count: {
+          _all: 146
+        }
+      }
+    ]);
     listLeadBusinessOptions.mockResolvedValue([
       {
         id: "business_1",
@@ -107,6 +141,55 @@ describe("getLeadsIndex", () => {
       scheduledJobs: 3,
       completedJobs: 2,
       closeRate: 10
+    });
+    listOpenOperatorIssuesForLeadIds.mockResolvedValue([]);
+    listOpenOperatorIssuesForLead.mockResolvedValue([]);
+    getAiReplyAssistantState.mockResolvedValue({
+      envConfigured: true,
+      enabled: true,
+      reviewRequired: true,
+      model: "gpt-5-nano",
+      modelLabel: "gpt-5-nano • Cheapest / test",
+      guardrails: []
+    });
+    getLeadReplyComposerState.mockResolvedValue({
+      canUseYelpThread: true,
+      canUseEmail: false,
+      canGenerateAiDrafts: true,
+      defaultChannel: "YELP_THREAD",
+      latestOutboundChannel: null,
+      maskedEmail: null,
+      canMarkAsRead: false,
+      canMarkAsReplied: true
+    });
+    getLeadAutomationScopeConfig.mockResolvedValue({
+      defaults: {
+        isEnabled: true,
+        scopeMode: "ALL_BUSINESSES",
+        scopedBusinessIds: [],
+        defaultChannel: "YELP_THREAD",
+        emailFallbackEnabled: false,
+        followUp24hEnabled: true,
+        followUp24hDelayHours: 24,
+        followUp7dEnabled: true,
+        followUp7dDelayDays: 7,
+        aiAssistEnabled: true,
+        aiModel: "gpt-5-nano"
+      },
+      override: null,
+      effectiveSettings: {
+        isEnabled: true,
+        scopeMode: "ALL_BUSINESSES",
+        scopedBusinessIds: [],
+        defaultChannel: "YELP_THREAD",
+        emailFallbackEnabled: false,
+        followUp24hEnabled: true,
+        followUp24hDelayHours: 24,
+        followUp7dEnabled: true,
+        followUp7dDelayDays: 7,
+        aiAssistEnabled: true,
+        aiModel: "gpt-5-nano"
+      }
     });
     listFailedLeadWebhookEvents.mockResolvedValue([
       { id: "webhook_1", status: "FAILED", receivedAt: new Date("2026-04-03T10:00:00.000Z"), syncRun: { errors: [] } },
@@ -195,10 +278,53 @@ describe("getLeadsIndex", () => {
     expect(result.summary.visibleRows).toBe(1);
     expect(result.summary.needsAttention).toBe(1);
     expect(result.summary.failedDeliveries).toBe(2);
+    expect(result.pagination).toMatchObject({
+      currentPage: 1,
+      pageSize: 25,
+      totalPages: 1,
+      visibleRows: 1,
+      hasPreviousPage: false,
+      hasNextPage: false,
+      pageRowStart: 1,
+      pageRowEnd: 1
+    });
     expect(result.backfill.latestRun).toMatchObject({
       returnedLeadIds: 20,
       hasMore: true,
       pageSize: 20
+    });
+    expect(result.businessSplit).toEqual([
+      expect.objectContaining({
+        id: "business_1",
+        count: 1
+      })
+    ]);
+  });
+
+  it("paginates locally stored leads with explicit page and page-size inputs", async () => {
+    const { getLeadsIndex } = await import("@/features/leads/service");
+
+    await getLeadsIndex("tenant_1", {
+      page: 2,
+      pageSize: 25
+    });
+
+    expect(countLeadRecords).toHaveBeenNthCalledWith(1, "tenant_1");
+    expect(countLeadRecords).toHaveBeenNthCalledWith(2, "tenant_1", {
+      businessId: undefined,
+      mappingState: undefined,
+      internalStatus: undefined,
+      from: undefined,
+      to: undefined
+    });
+    expect(listLeadRecords).toHaveBeenCalledWith("tenant_1", {
+      businessId: undefined,
+      mappingState: undefined,
+      internalStatus: undefined,
+      from: undefined,
+      to: undefined,
+      skip: 25,
+      take: 25
     });
   });
 });
@@ -228,5 +354,52 @@ describe("buildLeadListEntry", () => {
     expect(row.requiresAttention).toBe(true);
     expect(row.attentionReasons).toContain("Webhook processing failed");
     expect(row.attentionReasons).toContain("Needs CRM mapping");
+  });
+});
+
+describe("getLeadDetail", () => {
+  it("keeps Yelp-native, partner lifecycle, and local processing boundaries explicit", async () => {
+    buildLeadCrmSummary.mockReturnValue({
+      mapping: null,
+      mappingResolved: false,
+      currentInternalStatus: "UNMAPPED",
+      mappingIssues: [],
+      timeline: []
+    });
+    getLeadRecordById.mockResolvedValue({
+      id: "lead_1",
+      externalLeadId: "lead_ext_1",
+      externalBusinessId: "ys4FVTHxbSepIkvCLHYxCA",
+      externalConversationId: "conversation_1",
+      createdAtYelp: new Date("2026-04-01T09:00:00.000Z"),
+      latestInteractionAt: new Date("2026-04-03T09:30:00.000Z"),
+      customerName: "Jane Doe",
+      customerEmail: null,
+      businessId: "business_1",
+      locationId: null,
+      internalStatus: "UNMAPPED",
+      business: {
+        id: "business_1",
+        name: "IRBIS Air Plumbing Electrical",
+        locationId: null,
+        encryptedYelpBusinessId: "ys4FVTHxbSepIkvCLHYxCA"
+      },
+      events: [],
+      webhookEvents: [],
+      syncRuns: [],
+      crmLeadMappings: [],
+      crmStatusEvents: [],
+      automationAttempts: [],
+      conversationActions: [],
+      replyState: "UNREAD"
+    });
+
+    const { getLeadDetail } = await import("@/features/leads/service");
+    const result = await getLeadDetail("tenant_1", "lead_1");
+
+    expect(result.sourceBoundaries.yelp).toContain("Yelp");
+    expect(result.sourceBoundaries.crm).toContain("partner lifecycle statuses");
+    expect(result.sourceBoundaries.local).toContain("outside-Yelp reply markers");
+    expect(result.sourceBoundaries.automation).toContain("Autoresponder rules");
   });
 });

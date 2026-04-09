@@ -4,6 +4,7 @@ const resolveOperatorIssueWorkflow = vi.fn();
 const ignoreOperatorIssueWorkflow = vi.fn();
 const addOperatorIssueNoteWorkflow = vi.fn();
 const retryOperatorIssueWorkflow = vi.fn();
+const bulkOperatorIssueActionWorkflow = vi.fn();
 
 vi.mock("@/lib/utils/http", () => ({
   requireApiPermission: vi.fn(async () => ({ id: "user_1", tenantId: "tenant_1", role: { code: "OPERATOR" } })),
@@ -16,7 +17,8 @@ vi.mock("@/features/issues/service", () => ({
   resolveOperatorIssueWorkflow,
   ignoreOperatorIssueWorkflow,
   addOperatorIssueNoteWorkflow,
-  retryOperatorIssueWorkflow
+  retryOperatorIssueWorkflow,
+  bulkOperatorIssueActionWorkflow
 }));
 
 describe("issue action routes", () => {
@@ -130,5 +132,40 @@ describe("issue action routes", () => {
 
     expect(response.status).toBe(200);
     expect(retryOperatorIssueWorkflow).toHaveBeenCalledWith("tenant_1", "user_1", "issue_1");
+  });
+
+  it("posts bulk issue actions through the bulk workflow", async () => {
+    bulkOperatorIssueActionWorkflow.mockResolvedValueOnce({
+      action: "retry",
+      selected: 3,
+      succeeded: 2,
+      failed: 0,
+      skipped: 1,
+      results: []
+    });
+
+    const { POST } = await import("@/app/api/issues/bulk/route");
+    const response = await POST(
+      new Request("http://localhost/api/issues/bulk", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          action: "retry",
+          issueIds: ["issue_1", "issue_2", "issue_3"]
+        })
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(bulkOperatorIssueActionWorkflow).toHaveBeenCalledWith(
+      "tenant_1",
+      "user_1",
+      expect.objectContaining({
+        action: "retry",
+        issueIds: ["issue_1", "issue_2", "issue_3"]
+      })
+    );
   });
 });

@@ -203,6 +203,39 @@ describe("lead messaging service", () => {
     });
   });
 
+  it("marks a lead as replied after phone follow-up outside Yelp", async () => {
+    createLeadConversationAction.mockResolvedValue({
+      id: "action_mark_phone_1"
+    });
+    updateLeadConversationAction.mockResolvedValue({
+      id: "action_mark_phone_1",
+      status: "SENT"
+    });
+    markLeadAsReplied.mockResolvedValue({
+      correlationId: "corr_reply_phone_1",
+      data: null
+    });
+
+    const { markLeadAsRepliedWorkflow } = await import("@/features/leads/messaging-service");
+    const result = await markLeadAsRepliedWorkflow("tenant_1", "user_1", "lead_local_1", {
+      replyType: "PHONE"
+    });
+
+    expect(createLeadConversationAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: "PHONE",
+        actionType: "MARK_REPLIED"
+      })
+    );
+    expect(markLeadAsReplied).toHaveBeenCalledWith("lead_ext_1", {
+      reply_type: "PHONE"
+    });
+    expect(result).toMatchObject({
+      status: "SENT",
+      replyType: "PHONE"
+    });
+  });
+
   it("falls back to external email when Yelp-thread delivery is unavailable for automation", async () => {
     const { YelpMissingAccessError } = await import("@/lib/yelp/errors");
 

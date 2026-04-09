@@ -19,6 +19,7 @@ enum CredentialKind {
   REPORTING_FUSION
   BUSINESS_MATCH
   DATA_INGESTION
+  CRM_SERVICETITAN
 }
 
 enum ConnectionTestStatus {
@@ -120,6 +121,7 @@ enum YelpLeadReplyState {
 
 enum InternalLeadStatus {
   UNMAPPED
+  ACTIVE
   NEW
   CONTACTED
   BOOKED
@@ -170,6 +172,12 @@ enum ReportScheduleCadence {
   MONTHLY
 }
 
+enum ReportScheduleDeliveryScope {
+  ACCOUNT_ONLY
+  LOCATION_ONLY
+  ACCOUNT_AND_LOCATION
+}
+
 enum ReportScheduleRunScope {
   ACCOUNT
   LOCATION
@@ -195,6 +203,13 @@ enum ReportScheduleDeliveryStatus {
 enum LeadAutomationChannel {
   YELP_THREAD
   EMAIL
+  PHONE
+}
+
+enum LeadAutomationCadence {
+  INITIAL
+  FOLLOW_UP_24H
+  FOLLOW_UP_7D
 }
 
 enum LeadAutomationAttemptStatus {
@@ -212,6 +227,11 @@ enum LeadAutomationSkipReason {
   OUTSIDE_WORKING_HOURS
   CHANNEL_UNSUPPORTED
   DUPLICATE
+  FOLLOW_UP_DISABLED
+  CUSTOMER_REPLIED
+  HUMAN_TAKEOVER
+  LIFECYCLE_STOPPED
+  MISSING_THREAD_CONTEXT
 }
 
 enum LeadConversationActionType {
@@ -285,6 +305,7 @@ model Tenant {
   crmStatusEvents CrmStatusEvent[]
   leadAutomationTemplates LeadAutomationTemplate[]
   leadAutomationRules LeadAutomationRule[]
+  leadAutomationOverrides LeadAutomationBusinessOverride[]
   leadAutomationAttempts LeadAutomationAttempt[]
   leadConversationActions LeadConversationAction[]
   operatorIssues  OperatorIssue[]
@@ -371,6 +392,9 @@ model Business {
   auditEvents             AuditEvent[]
   reportSchedules         ReportSchedule[]
   yelpLeads               YelpLead[]
+  leadAutomationTemplates LeadAutomationTemplate[]
+  leadAutomationRules     LeadAutomationRule[]
+  leadAutomationOverrides LeadAutomationBusinessOverride[]
   leadAutomationAttempts  LeadAutomationAttempt[]
   operatorIssues          OperatorIssue[]
   yelpReportingJobs       YelpReportingJob[]
@@ -527,6 +551,7 @@ model ReportSchedule {
   businessId                String?
   name                      String
   cadence                   ReportScheduleCadence
+  deliveryScope             ReportScheduleDeliveryScope @default(ACCOUNT_ONLY)
   timezone                  String
   sendDayOfWeek             Int?
   sendDayOfMonth            Int?
@@ -534,6 +559,7 @@ model ReportSchedule {
   sendMinute                Int                @default(0)
   deliverPerLocation        Boolean            @default(false)
   recipientEmailsJson       Json               @default("[]")
+  locationRecipientOverridesJson Json          @default("[]")
   isEnabled                 Boolean            @default(true)
   lastTriggeredAt           DateTime?
   lastSuccessfulGenerationAt DateTime?
@@ -563,6 +589,7 @@ model ReportScheduleRun {
   generationStatus    ReportScheduleGenerationStatus @default(PENDING)
   deliveryStatus      ReportScheduleDeliveryStatus   @default(PENDING)
   recipientEmailsJson Json                        @default("[]")
+  recipientContextJson Json                       @default("{}")
   dashboardUrl        String?
   summaryJson         Json?
   generationStartedAt DateTime?
@@ -880,6 +907,7 @@ model CrmStatusEvent {
 model LeadAutomationTemplate {
   id              String                @id @default(cuid())
   tenantId        String
+  businessId      String?
   name            String
   channel         LeadAutomationChannel
   isEnabled       Boolean               @default(true)
@@ -890,10 +918,12 @@ model LeadAutomationTemplate {
   createdAt       DateTime              @default(now())
   updatedAt       DateTime              @updatedAt
   tenant          Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  business        Business?             @relation(fields: [businessId], references: [id], onDelete: SetNull)
   rules           LeadAutomationRule[]
   attempts        LeadAutomationAttempt[]
 
   @@index([tenantId, channel, isEnabled])
+  @@index([tenantId, businessId, channel, isEnabled])
   @@index([tenantId, name])
 }
 
@@ -901,10 +931,12 @@ model LeadAutomationRule {
   id                     String                @id @default(cuid())
   tenantId               String
   templateId             String
+  businessId             String?
   locationId             String?
   serviceCategoryId      String?
   name                   String
   channel                LeadAutomationChannel
+  cadence                LeadAutomationCadence @default(INITIAL)
   isEnabled              Boolean               @default(true)
   priority               Int                   @default(100)
   onlyDuringWorkingHours Boolean               @default(false)
@@ -918,12 +950,36 @@ model LeadAutomationRule {
   updatedAt              DateTime              @updatedAt
   tenant                 Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   template               LeadAutomationTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  business               Business?              @relation(fields: [businessId], references: [id], onDelete: SetNull)
   location               Location?             @relation(fields: [locationId], references: [id], onDelete: SetNull)
   serviceCategory        ServiceCategory?      @relation(fields: [serviceCategoryId], references: [id], onDelete: SetNull)
   attempts               LeadAutomationAttempt[]
 
-  @@index([tenantId, isEnabled, priority])
-  @@index([tenantId, locationId, serviceCategoryId])
+  @@index([tenantId, cadence, isEnabled, priority])
+  @@index([tenantId, businessId, locationId, serviceCategoryId, cadence])
+}
+
+model LeadAutomationBusinessOverride {
+  id                  String                @id @default(cuid())
+  tenantId            String
+  businessId          String
+  isEnabled           Boolean               @default(true)
+  defaultChannel      LeadAutomationChannel @default(YELP_THREAD)
+  emailFallbackEnabled Boolean              @default(true)
+  followUp24hEnabled  Boolean               @default(false)
+  followUp24hDelayHours Int                 @default(24)
+  followUp7dEnabled   Boolean               @default(false)
+  followUp7dDelayDays Int                   @default(7)
+  aiAssistEnabled     Boolean               @default(true)
+  aiModel             String                @default("gpt-5-nano")
+  metadataJson        Json?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  tenant              Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  business            Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, businessId])
+  @@index([tenantId, businessId])
 }
 
 model LeadAutomationAttempt {
@@ -936,6 +992,7 @@ model LeadAutomationAttempt {
   ruleId              String?
   templateId          String?
   channel             LeadAutomationChannel?
+  cadence             LeadAutomationCadence     @default(INITIAL)
   status              LeadAutomationAttemptStatus @default(PENDING)
   skipReason          LeadAutomationSkipReason?
   sourceSystem        RecordSourceSystem         @default(INTERNAL)
@@ -947,6 +1004,7 @@ model LeadAutomationAttempt {
   providerMetadataJson Json?
   errorSummary        String?
   triggeredAt         DateTime                   @default(now())
+  dueAt               DateTime?
   startedAt           DateTime?
   completedAt         DateTime?
   createdAt           DateTime                   @default(now())
@@ -960,7 +1018,8 @@ model LeadAutomationAttempt {
   template            LeadAutomationTemplate?     @relation(fields: [templateId], references: [id], onDelete: SetNull)
   conversationActions LeadConversationAction[]
 
-  @@unique([leadId])
+  @@unique([leadId, cadence])
+  @@index([tenantId, cadence, status, dueAt])
   @@index([tenantId, status, triggeredAt])
   @@index([tenantId, businessId, locationId, serviceCategoryId])
 }

@@ -101,7 +101,6 @@ export default async function OperatorIssueDetailPage({
                   <div className="font-medium">{issue.lead.customerName ?? issue.lead.externalLeadId}</div>
                   <div className="mt-1 text-xs text-muted-foreground">
                     Yelp lead {issue.lead.externalLeadId}
-                    {issue.lead.customerEmail ? ` • ${issue.lead.customerEmail}` : ""}
                   </div>
                   <div className="mt-3 flex gap-2">
                     <Link className="text-sm font-medium hover:underline" href={`/leads/${issue.lead.id}`}>
@@ -204,12 +203,12 @@ export default async function OperatorIssueDetailPage({
             <CardContent className="space-y-4">
               {detail.retryable && issue.status === "OPEN" ? (
                 <div className="rounded-xl border border-border/80 bg-muted/10 p-4">
-                  <div className="text-sm font-medium">Retry</div>
+                  <div className="text-sm font-medium">{detail.retryLabel}</div>
                   <div className="mt-1 text-xs text-muted-foreground">
                     Retries the underlying workflow without creating a new issue type.
                   </div>
                   <div className="mt-3">
-                    <OperatorIssueRetryButton issueId={issue.id} />
+                    <OperatorIssueRetryButton issueId={issue.id} label={detail.retryLabel} />
                   </div>
                 </div>
               ) : null}
