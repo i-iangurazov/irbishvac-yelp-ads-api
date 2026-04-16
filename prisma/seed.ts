@@ -1,8 +1,11 @@
+import { existsSync } from "node:fs";
 import { loadEnvFile } from "node:process";
 import { PrismaClient, CredentialKind, ProgramStatus, ProgramType, ReportGranularity, ReportStatus, RoleCode } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
-loadEnvFile(".env");
+if (existsSync(".env")) {
+  loadEnvFile(".env");
+}
 
 const prisma = new PrismaClient();
 
