@@ -176,13 +176,13 @@ export function LeadSyncForm({
 
   return (
     <>
-      <div className="flex flex-col gap-3 md:flex-row md:items-end">
-        <div className="min-w-[15rem] flex-1 space-y-1">
+      <div className="flex flex-col gap-3">
+        <div className="space-y-1">
           <label className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground" htmlFor="lead-sync-business">
             Yelp business
           </label>
           <select
-          className="ui-native-select"
+            className="ui-native-select w-full"
             disabled={!capabilityEnabled || businesses.length === 0 || isSubmitting || isRunActive}
             id="lead-sync-business"
             onChange={(event) => setBusinessId(event.target.value)}
@@ -196,7 +196,7 @@ export function LeadSyncForm({
             ))}
           </select>
         </div>
-        <Button disabled={syncDisabled} onClick={handleSync} type="button">
+        <Button className="w-full" disabled={syncDisabled} onClick={handleSync} type="button">
           {isSubmitting ? "Starting..." : "Run backfill"}
         </Button>
       </div>
