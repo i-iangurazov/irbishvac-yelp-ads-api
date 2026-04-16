@@ -105,49 +105,51 @@ export default async function LeadsPage({
         />
       ) : null}
 
-      <div className="mt-6 grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,20rem)]">
-        <Card className="self-start shadow-none">
-          <CardContent className="grid gap-4 p-4 sm:grid-cols-2 xl:grid-cols-4">
-            <div className="space-y-1 xl:border-r xl:border-border/70 xl:pr-4">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Synced</div>
-              <div className="text-2xl font-semibold tracking-tight">{formatLeadCount(overview.summary.totalSyncedLeads)}</div>
-              <div className="text-xs text-muted-foreground">Stored locally</div>
+      <Card className="mt-6 shadow-none">
+        <CardContent className="grid gap-4 p-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="space-y-1 xl:border-r xl:border-border/70 xl:pr-4">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Synced</div>
+            <div className="text-2xl font-semibold tracking-tight">{formatLeadCount(overview.summary.totalSyncedLeads)}</div>
+            <div className="text-xs text-muted-foreground">Stored locally</div>
+          </div>
+          <div className="space-y-1 xl:border-r xl:border-border/70 xl:px-4">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Matching</div>
+            <div className="text-2xl font-semibold tracking-tight">{formatLeadCount(overview.summary.filteredLeads)}</div>
+            <div className="text-xs text-muted-foreground">
+              {overview.summary.filteredLeads === 0
+                ? "No rows in the current slice"
+                : `${formatLeadCount(overview.pagination.visibleRows)} on this page`}
             </div>
-            <div className="space-y-1 xl:border-r xl:border-border/70 xl:px-4">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Matching</div>
-              <div className="text-2xl font-semibold tracking-tight">{formatLeadCount(overview.summary.filteredLeads)}</div>
-              <div className="text-xs text-muted-foreground">
-                {overview.summary.filteredLeads === 0
-                  ? "No rows in the current slice"
-                  : `${formatLeadCount(overview.pagination.visibleRows)} on this page`}
-              </div>
+          </div>
+          <div className="space-y-1 xl:border-r xl:border-border/70 xl:px-4">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Attention</div>
+            <div className="text-2xl font-semibold tracking-tight">{formatLeadCount(overview.summary.needsAttention)}</div>
+            <div className="text-xs text-muted-foreground">
+              {formatLeadCount(overview.summary.unresolvedLeads)} unmapped • {formatLeadCount(overview.summary.crmIssues)} lifecycle issues
             </div>
-            <div className="space-y-1 xl:border-r xl:border-border/70 xl:px-4">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Attention</div>
-              <div className="text-2xl font-semibold tracking-tight">{formatLeadCount(overview.summary.needsAttention)}</div>
-              <div className="text-xs text-muted-foreground">
-                {formatLeadCount(overview.summary.unresolvedLeads)} unmapped • {formatLeadCount(overview.summary.crmIssues)} lifecycle issues
-              </div>
+          </div>
+          <div className="space-y-1 xl:pl-4">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Current page</div>
+            <div className="text-2xl font-semibold tracking-tight">
+              {overview.pagination.currentPage} / {overview.pagination.totalPages}
             </div>
-            <div className="space-y-1 xl:pl-4">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Current page</div>
-              <div className="text-2xl font-semibold tracking-tight">
-                {overview.pagination.currentPage} / {overview.pagination.totalPages}
-              </div>
-              <div className="text-xs text-muted-foreground">{formatLeadCount(overview.pagination.pageSize)} rows per page</div>
-            </div>
-          </CardContent>
-        </Card>
+            <div className="text-xs text-muted-foreground">{formatLeadCount(overview.pagination.pageSize)} rows per page</div>
+          </div>
+        </CardContent>
+      </Card>
 
-        <Card className="border-dashed border-border/80 bg-muted/10 shadow-none">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Manual backfill</CardTitle>
-            <CardDescription>Secondary recovery tool for recent Yelp history.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3 pt-0">
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              {latestImport ? <StatusChip status={latestImport.status} /> : <Badge variant="outline">Not run</Badge>}
-              {latestImport?.hasMore ? <Badge variant="outline">300-lead window</Badge> : null}
+      <Card className="mt-4 border-dashed border-border/80 bg-muted/10 shadow-none">
+        <CardContent className="grid gap-5 p-5 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)] xl:items-end">
+          <div className="space-y-3">
+            <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <CardTitle className="text-base">Manual backfill</CardTitle>
+                <CardDescription>Secondary recovery tool for the latest 300 Yelp leads.</CardDescription>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                {latestImport ? <StatusChip status={latestImport.status} /> : <Badge variant="outline">Not run</Badge>}
+                {latestImport?.hasMore ? <Badge variant="outline">300-lead window</Badge> : null}
+              </div>
             </div>
             <div className="text-sm text-muted-foreground">{historicalImportNote}</div>
             {latestImport ? (
@@ -156,18 +158,18 @@ export default async function LeadsPage({
                 {latestImport.failedCount} failed • {formatDateTime(latestImport.startedAt)}
               </div>
             ) : null}
-            {canSyncLeads ? (
-              <LeadSyncForm
-                businesses={overview.businesses.map((business) => ({ id: business.id, name: business.name }))}
-                defaultBusinessId={overview.filters.businessId}
-                capabilityEnabled={overview.capabilityEnabled}
-              />
-            ) : (
-              <div className="text-sm text-muted-foreground">Write access is required to run a manual backfill.</div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+          {canSyncLeads ? (
+            <LeadSyncForm
+              businesses={overview.businesses.map((business) => ({ id: business.id, name: business.name }))}
+              defaultBusinessId={overview.filters.businessId}
+              capabilityEnabled={overview.capabilityEnabled}
+            />
+          ) : (
+            <div className="text-sm text-muted-foreground">Write access is required to run a manual backfill.</div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card className="mt-4 shadow-none">
         <CardHeader className="pb-3">
