@@ -1,0 +1,8 @@
+-- RenameIndex
+ALTER INDEX "LeadConversationAutomationTurn_tenantId_stopReason_createdAt_id" RENAME TO "LeadConversationAutomationTurn_tenantId_stopReason_createdA_idx";
+
+-- RenameIndex
+ALTER INDEX "OperationalMetricRollup_tenantId_metricKey_bucketStart_dimensio" RENAME TO "OperationalMetricRollup_tenantId_metricKey_bucketStart_dime_key";
+
+-- RenameIndex
+ALTER INDEX "ReportScheduleRun_tenantId_generationStatus_deliveryStatus_last" RENAME TO "ReportScheduleRun_tenantId_generationStatus_deliveryStatus__idx";
