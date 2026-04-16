@@ -42,7 +42,6 @@ export default async function DashboardPage() {
   const failedJobs = programs.flatMap((program) => program.jobs).filter((job) => job.status === "FAILED" || job.status === "PARTIAL");
   const readinessIssues = businesses.filter((business) => !business.readiness.isReadyForCpc);
   const launchReadyBusinesses = businesses.filter((business) => business.readiness.isReadyForCpc);
-  const pendingReports = reports.filter((report) => report.status === "REQUESTED" || report.status === "PROCESSING");
   const activePrograms = programs.filter((program) => ["ACTIVE", "SCHEDULED", "QUEUED", "PROCESSING"].includes(program.status));
   const enabledApis = getEnabledCapabilityLabels(settings.capabilities);
   const credentialHealth = settings.credentials.map((credential) => ({
@@ -83,7 +82,7 @@ export default async function DashboardPage() {
         <MetricCard title="Launch-ready businesses" value={launchReadyBusinesses.length} description="Saved businesses that can move directly into CPC creation." icon={<SearchCheck className="h-5 w-5 text-muted-foreground" />} />
         <MetricCard title="Unmapped leads" value={leadsOverview.summary.unresolvedLeads} description="Leads still waiting on an internal CRM link." icon={<Inbox className="h-5 w-5 text-muted-foreground" />} />
         <MetricCard title="Current programs" value={activePrograms.length} description="Programs that are active now or still waiting on Yelp job completion." icon={<Megaphone className="h-5 w-5 text-muted-foreground" />} />
-        <MetricCard title="Reports waiting on Yelp" value={pendingReports.length} description="Batch report requests that are not final yet." icon={<Clock4 className="h-5 w-5 text-muted-foreground" />} />
+        <MetricCard title="Reports waiting on Yelp" value={reports.summary.pendingCount} description="Batch report requests that are not final yet." icon={<Clock4 className="h-5 w-5 text-muted-foreground" />} />
         <MetricCard title="Attention needed" value={failedJobs.length} description="Failed or partially completed Yelp jobs that need operator review." icon={<AlertTriangle className="h-5 w-5 text-warning" />} />
       </div>
 
@@ -238,10 +237,10 @@ export default async function DashboardPage() {
           <CardDescription>Saved Yelp batches. Pending runs are delayed snapshots, not live reporting.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          {reports.length === 0 ? (
+          {reports.reports.length === 0 ? (
             <EmptyState title="No reports requested yet" description="Request a batch report when the team needs a saved Yelp snapshot." />
           ) : (
-            reports.slice(0, 5).map((report) => (
+            reports.reports.slice(0, 5).map((report) => (
               <div className="flex items-center justify-between rounded-lg border border-border p-4" key={report.id}>
                 <div>
                   <Link className="font-medium hover:underline" href={`/reporting/${report.id}`}>

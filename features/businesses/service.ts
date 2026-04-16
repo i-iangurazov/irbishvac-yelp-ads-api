@@ -39,6 +39,23 @@ type LiveProgramInventoryState = {
   >;
 };
 
+type OperationalPostureItem = {
+  id: string;
+  label: string;
+  status: string;
+  value: string;
+  detail: string;
+  href?: string;
+};
+
+type OperationalWarning = {
+  id: string;
+  status: string;
+  title: string;
+  detail: string;
+  href?: string;
+};
+
 const LIVE_PROGRAM_DISPLAY_LIMIT = 10;
 const liveProgramStatusOrder = new Map([
   ["ACTIVE", 0],
@@ -69,6 +86,220 @@ function sortProgramsByMostRecentActivity(programs: YelpUpstreamProgramDto[]) {
 
     return right.program_id.localeCompare(left.program_id);
   });
+}
+
+function countJsonArray(value: unknown) {
+  return Array.isArray(value) ? value.length : 0;
+}
+
+function summarizeReportRecipients(schedule: Awaited<ReturnType<typeof getBusinessById>>["reportSchedules"][number]) {
+  const accountRecipients = countJsonArray(schedule.recipientEmailsJson);
+  const locationOverrides = countJsonArray(schedule.locationRecipientOverridesJson);
+  const recipientLabel = accountRecipients === 1 ? "1 account recipient" : `${accountRecipients} account recipients`;
+
+  return locationOverrides > 0 ? `${recipientLabel}, ${locationOverrides} location routes` : recipientLabel;
+}
+
+function buildBusinessOperationalSummary(params: {
+  business: Awaited<ReturnType<typeof getBusinessById>>;
+  capabilities: Awaited<ReturnType<typeof getCapabilityFlags>>;
+  currentPrograms: Awaited<ReturnType<typeof getBusinessById>>["programs"];
+  readiness: ReadinessState;
+  liveProgramInventory: LiveProgramInventoryState;
+}) {
+  const { business, capabilities, currentPrograms, readiness, liveProgramInventory } = params;
+  const latestLead = business.yelpLeads[0] ?? null;
+  const override = business.leadAutomationOverrides[0] ?? null;
+  const activeReportSchedules = business.reportSchedules.filter((schedule) => schedule.isEnabled);
+  const openIssues = business.operatorIssues;
+  const activePrograms = currentPrograms.filter((program) => program.status === "ACTIVE" || program.status === "SCHEDULED");
+  const inFlightPrograms = currentPrograms.filter((program) => program.status === "QUEUED" || program.status === "PROCESSING");
+  const failedPrograms = currentPrograms.filter((program) => program.status === "FAILED" || program.status === "PARTIAL");
+  const latestSync = business.syncRuns.find((run) => run.status === "COMPLETED" || run.status === "PARTIAL" || run.status === "FAILED") ?? null;
+  const yelpProofAt = latestLead?.latestWebhookReceivedAt ?? latestLead?.lastSyncedAt ?? latestLead?.latestInteractionAt ?? null;
+  const yelpConnectionStatus =
+    !business.encryptedYelpBusinessId || !capabilities.hasLeadsApi
+      ? "FAILED"
+      : latestLead?.latestWebhookStatus === "FAILED"
+        ? "FAILED"
+        : yelpProofAt
+          ? "READY"
+          : "UNKNOWN";
+  const yelpConnectionDetail =
+    yelpConnectionStatus === "READY"
+      ? latestLead?.latestWebhookReceivedAt
+        ? "Webhook proof exists for this business."
+        : "Lead sync proof exists for this business."
+      : yelpConnectionStatus === "FAILED"
+        ? capabilities.hasLeadsApi
+          ? "Yelp lead proof is missing or failed."
+          : "Yelp Leads access is not enabled for this tenant."
+        : "Configured, but no lead traffic proof yet.";
+  const automationStatus = override ? (override.isEnabled ? "READY" : "INACTIVE") : "UNKNOWN";
+  const automationDetail = override
+    ? override.isEnabled
+      ? `${override.defaultChannel}; ${override.followUp24hEnabled || override.followUp7dEnabled ? "follow-ups enabled" : "follow-ups off"}; AI ${override.aiAssistEnabled ? "on" : "off"}.`
+      : "Business override exists and autoresponder is disabled."
+    : "No business override. Tenant fallback settings apply.";
+  const conversationStatus = override?.conversationAutomationEnabled ? override.conversationMode : "INACTIVE";
+  const programStatus =
+    failedPrograms.length > 0 ? "FAILED" : inFlightPrograms.length > 0 ? "PROCESSING" : activePrograms.length > 0 ? "ACTIVE" : "INACTIVE";
+  const connectorStatus =
+    !capabilities.hasCrmIntegration
+      ? "INACTIVE"
+      : business.location?.externalCrmLocationId
+        ? "READY"
+        : business.location
+          ? "UNMAPPED"
+          : "UNMAPPED";
+  const reportStatus = activeReportSchedules.length > 0 ? "READY" : "UNKNOWN";
+  const issueStatus = openIssues.length > 0 ? "OPEN" : "READY";
+  const reportDetail =
+    activeReportSchedules.length > 0
+      ? summarizeReportRecipients(activeReportSchedules[0])
+      : business.reportRequests.length > 0
+        ? "Manual reports exist; no recurring delivery is enabled."
+        : "No recurring report delivery configured.";
+  const items: OperationalPostureItem[] = [
+    {
+      id: "yelp",
+      label: "Yelp connection",
+      status: yelpConnectionStatus,
+      value: yelpConnectionStatus === "READY" ? "Proof found" : yelpConnectionStatus === "FAILED" ? "Needs setup" : "No traffic yet",
+      detail: yelpConnectionDetail
+    },
+    {
+      id: "automation",
+      label: "Autoresponder",
+      status: automationStatus,
+      value: override ? (override.isEnabled ? "Enabled here" : "Disabled here") : "Tenant fallback",
+      detail: automationDetail,
+      href: "/autoresponder"
+    },
+    {
+      id: "conversation",
+      label: "Conversation mode",
+      status: conversationStatus,
+      value: override?.conversationAutomationEnabled ? override.conversationMode.replaceAll("_", " ") : "Off",
+      detail: override?.conversationAutomationEnabled
+        ? `Max automation policy is controlled in the business override.`
+        : "Conversation automation is not enabled for this business.",
+      href: "/autoresponder"
+    },
+    {
+      id: "programs",
+      label: "Programs",
+      status: programStatus,
+      value: `${currentPrograms.length} current`,
+      detail:
+        currentPrograms.length > 0
+          ? `${activePrograms.length} active or scheduled, ${inFlightPrograms.length} in flight.`
+          : readiness.isReadyForCpc
+            ? "Ready for a new CPC request."
+            : readiness.missingItems[0] ?? "No current programs.",
+      href: currentPrograms[0] ? `/programs/${currentPrograms[0].id}` : `/programs/new?businessId=${business.id}`
+    },
+    {
+      id: "servicetitan",
+      label: "ServiceTitan mapping",
+      status: connectorStatus,
+      value: business.location?.name ?? "No location",
+      detail: business.location?.externalCrmLocationId
+        ? `External location ${business.location.externalCrmLocationId}.`
+        : capabilities.hasCrmIntegration
+          ? "Assign a mapped location before relying on downstream lifecycle sync."
+          : "CRM connector is not enabled.",
+      href: "/integrations"
+    },
+    {
+      id: "reports",
+      label: "Report delivery",
+      status: reportStatus,
+      value: activeReportSchedules.length > 0 ? `${activeReportSchedules.length} enabled` : "Not scheduled",
+      detail: reportDetail,
+      href: "/reporting"
+    },
+    {
+      id: "issues",
+      label: "Open issues",
+      status: issueStatus,
+      value: String(openIssues.length),
+      detail: openIssues[0]?.title ?? "No open operator issues for this business.",
+      href: "/audit"
+    }
+  ];
+  const warnings: OperationalWarning[] = [];
+
+  if (business._count.yelpLeads > 0 && !override) {
+    warnings.push({
+      id: "missing-override",
+      status: "UNKNOWN",
+      title: "Leads exist without a business override",
+      detail: "Tenant fallback settings apply. Add a business override if this business should be explicitly controlled.",
+      href: "/autoresponder"
+    });
+  }
+
+  if (override?.isEnabled && yelpConnectionStatus !== "READY") {
+    warnings.push({
+      id: "automation-without-yelp-proof",
+      status: "FAILED",
+      title: "Automation is enabled before Yelp proof is strong",
+      detail: "Confirm webhook or backfill proof before relying on automatic replies.",
+      href: "/autoresponder"
+    });
+  }
+
+  if (capabilities.hasCrmIntegration && business._count.yelpLeads > 0 && !business.location?.externalCrmLocationId) {
+    warnings.push({
+      id: "missing-servicetitan-location",
+      status: "UNMAPPED",
+      title: "ServiceTitan location mapping is incomplete",
+      detail: "Leads can arrive, but downstream lifecycle sync may not route cleanly.",
+      href: "/integrations"
+    });
+  }
+
+  if (currentPrograms.some((program) => program.status !== "DRAFT" && !program.upstreamProgramId)) {
+    warnings.push({
+      id: "program-without-upstream-id",
+      status: "UNKNOWN",
+      title: "A local program has no confirmed Yelp ID",
+      detail: "Open the program and review the latest Yelp job before treating it as settled."
+    });
+  }
+
+  if (latestSync?.status === "FAILED" || latestSync?.status === "PARTIAL") {
+    warnings.push({
+      id: "latest-sync-not-clean",
+      status: latestSync.status,
+      title: "Latest sync did not complete cleanly",
+      detail: latestSync.errorSummary ?? `${latestSync.type} ended with ${latestSync.status.toLowerCase()}.`,
+      href: "/audit"
+    });
+  }
+
+  if (openIssues.length > 0) {
+    warnings.push({
+      id: "open-issues",
+      status: "OPEN",
+      title: "Open operator issues need review",
+      detail: `${openIssues.length} issue${openIssues.length === 1 ? "" : "s"} currently linked to this business.`,
+      href: "/audit"
+    });
+  }
+
+  return {
+    items,
+    warnings,
+    counts: {
+      leads: business._count.yelpLeads,
+      programs: business._count.programs,
+      reports: business._count.reportSchedules,
+      openIssues: openIssues.length,
+      mappings: business._count.mappings
+    }
+  };
 }
 
 export function buildCpcReadiness(readinessJson: unknown, categoriesJson: unknown): ReadinessState {
@@ -125,6 +356,10 @@ export async function getBusinessesIndex(tenantId: string, search?: string) {
 export async function getBusinessDetail(tenantId: string, businessId: string) {
   const [business, deleteImpact] = await Promise.all([getBusinessById(businessId, tenantId), getBusinessDeleteImpact(businessId, tenantId)]);
   const capabilities = await getCapabilityFlags(tenantId);
+  const currentPrograms = business.programs.filter(
+    (program: (typeof business.programs)[number]) => isCurrentLocalProgramStatus(program.status)
+  );
+  const readiness = buildCpcReadiness(business.readinessJson, business.categoriesJson);
   let liveProgramInventory: LiveProgramInventoryState = {
     enabled: capabilities.adsApiEnabled,
     message: capabilities.adsApiEnabled ? null : "Not enabled by Yelp / missing credentials.",
@@ -186,12 +421,17 @@ export async function getBusinessDetail(tenantId: string, businessId: string) {
 
   return {
     ...business,
-    currentPrograms: business.programs.filter(
-      (program: (typeof business.programs)[number]) => isCurrentLocalProgramStatus(program.status)
-    ),
+    currentPrograms,
     categories: normalizeYelpCategories(business.categoriesJson),
-    readiness: buildCpcReadiness(business.readinessJson, business.categoriesJson),
+    readiness,
     liveProgramInventory,
+    operationalSummary: buildBusinessOperationalSummary({
+      business,
+      capabilities,
+      currentPrograms,
+      readiness,
+      liveProgramInventory
+    }),
     deleteImpact: {
       mappings: deleteImpact._count.mappings,
       programs: deleteImpact._count.programs,

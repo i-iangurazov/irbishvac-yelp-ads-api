@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const refreshOperatorIssues = vi.fn();
+const refreshOperatorIssuesIfStale = vi.fn();
 const recordAuditEvent = vi.fn();
 const getCredentialSet = vi.fn();
 const updateCredentialTestResult = vi.fn();
@@ -29,9 +30,11 @@ const testConnection = vi.fn();
 const listBusinessUnits = vi.fn();
 const listCategories = vi.fn();
 const ServiceTitanClient = vi.fn();
+const recordServiceTitanMetric = vi.fn();
 
 vi.mock("@/features/issues/service", () => ({
-  refreshOperatorIssues
+  refreshOperatorIssues,
+  refreshOperatorIssuesIfStale
 }));
 
 vi.mock("@/features/audit/service", () => ({
@@ -90,6 +93,10 @@ vi.mock("@/lib/servicetitan/client", () => ({
   normalizeServiceTitanError: (error: Error) => error
 }));
 
+vi.mock("@/features/operations/observability-service", () => ({
+  recordServiceTitanMetric
+}));
+
 describe("ServiceTitan connector workflows", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -117,6 +124,7 @@ describe("ServiceTitan connector workflows", () => {
     getCapabilityFlags.mockResolvedValue({
       hasCrmIntegration: true
     });
+    refreshOperatorIssuesIfStale.mockResolvedValue(undefined);
     getConnectorInventoryCounts.mockResolvedValue({
       totalBusinesses: 2,
       businessesWithLocation: 1,
@@ -334,7 +342,7 @@ describe("ServiceTitan connector workflows", () => {
     const { getServiceTitanConnectorOverview } = await import("@/features/crm-connector/service");
     const result = await getServiceTitanConnectorOverview("tenant_1");
 
-    expect(refreshOperatorIssues).toHaveBeenCalledWith("tenant_1");
+    expect(refreshOperatorIssuesIfStale).toHaveBeenCalledWith("tenant_1");
     expect(result.counts.businessesWithoutLocation).toBe(1);
     expect(result.businesses[0]).toMatchObject({
       name: "IRBIS North",

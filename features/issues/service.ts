@@ -8,7 +8,6 @@ import {
   humanizeLeadAutomationCadence
 } from "@/features/autoresponder/logic";
 import {
-  buildOperatorIssueSummary,
   getRetryLabel,
   getIssueRemapHref,
   getIssueStatusActionability,
@@ -30,7 +29,9 @@ import { resendReportScheduleRunWorkflow } from "@/features/report-delivery/serv
 import { retryLeadAutomationAttemptWorkflow } from "@/features/autoresponder/service";
 import { retryLeadSyncRunWorkflow } from "@/features/leads/service";
 import {
+  countOperatorIssues,
   createOperatorIssue,
+  getOperatorIssueSummaryCounts,
   getOperatorIssueById,
   listAutoresponderFailureCandidates,
   listCrmSyncFailureCandidates,
@@ -48,7 +49,21 @@ import {
   updateOperatorIssue
 } from "@/lib/db/issues-repository";
 import { toJsonValue } from "@/lib/db/json";
+import { getSystemSetting, upsertSystemSetting } from "@/lib/db/settings-repository";
+import { recordOperatorIssueRefreshMetrics } from "@/features/operations/observability-service";
 import { normalizeUnknownError, YelpValidationError } from "@/lib/yelp/errors";
+
+const operatorIssueRefreshSettingKey = "operatorIssueRefreshState";
+const operatorIssueRefreshIntervalMs = 2 * 60 * 1000;
+const operatorIssueRefreshLeaseMs = 60 * 1000;
+const repeatedWorkerFailureDeadLetterThreshold = 3;
+const deadLetterIssueTypes = new Set<OperatorIssueType>([
+  "LEAD_SYNC_FAILURE",
+  "CRM_SYNC_FAILURE",
+  "AUTORESPONDER_FAILURE",
+  "REPORT_DELIVERY_FAILURE"
+]);
+export const DEFAULT_OPERATOR_ISSUES_PAGE_SIZE = 50;
 
 type DetectedIssue = {
   dedupeKey: string;
@@ -117,6 +132,30 @@ function asRecord(value: unknown) {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function toDetailsRecord(value: unknown) {
+  return asRecord(value) ?? { details: value };
+}
+
+function applyDeadLetterEscalation(candidate: DetectedIssue, detectedCount: number): DetectedIssue {
+  if (!deadLetterIssueTypes.has(candidate.issueType) || detectedCount < repeatedWorkerFailureDeadLetterThreshold) {
+    return candidate;
+  }
+
+  return {
+    ...candidate,
+    severity: "CRITICAL",
+    title: candidate.title.startsWith("Repeated worker failure") ? candidate.title : `Repeated worker failure: ${candidate.title}`,
+    summary: `${candidate.summary} Detected ${detectedCount} times; treat as dead-letter until an operator retries or resolves it.`,
+    detailsJson: {
+      ...toDetailsRecord(candidate.detailsJson),
+      deadLetter: true,
+      deadLetterReason: "REPEATED_WORKER_FAILURE",
+      detectedCount,
+      threshold: repeatedWorkerFailureDeadLetterThreshold
+    }
+  };
 }
 
 function summarizeErrors(rows: Array<{ message: string; code?: string | null }>) {
@@ -416,6 +455,9 @@ export async function refreshOperatorIssues(tenantId: string) {
   ];
   const existingByKey = new Map(existingIssues.map((issue) => [issue.dedupeKey, issue]));
   const activeKeys = new Set<string>();
+  let createdCount = 0;
+  let reopenedCount = 0;
+  let autoResolvedCount = 0;
 
   for (const candidate of candidates) {
     activeKeys.add(candidate.dedupeKey);
@@ -441,26 +483,29 @@ export async function refreshOperatorIssues(tenantId: string) {
         firstDetectedAt: now,
         lastDetectedAt: now
       });
+      createdCount += 1;
       continue;
     }
 
     const reopen = existing.status === "RESOLVED";
+    const nextDetectedCount = existing.detectedCount + 1;
+    const visibleCandidate = applyDeadLetterEscalation(candidate, nextDetectedCount);
 
     await updateOperatorIssue(existing.id, {
-      businessId: candidate.businessId ?? null,
-      locationId: candidate.locationId ?? null,
-      leadId: candidate.leadId ?? null,
-      reportRequestId: candidate.reportRequestId ?? null,
-      reportScheduleRunId: candidate.reportScheduleRunId ?? null,
-      syncRunId: candidate.syncRunId ?? null,
-      issueType: candidate.issueType,
-      severity: candidate.severity,
-      sourceSystem: candidate.sourceSystem,
-      title: candidate.title,
-      summary: candidate.summary,
-      detailsJson: toJsonValue(candidate.detailsJson),
+      businessId: visibleCandidate.businessId ?? null,
+      locationId: visibleCandidate.locationId ?? null,
+      leadId: visibleCandidate.leadId ?? null,
+      reportRequestId: visibleCandidate.reportRequestId ?? null,
+      reportScheduleRunId: visibleCandidate.reportScheduleRunId ?? null,
+      syncRunId: visibleCandidate.syncRunId ?? null,
+      issueType: visibleCandidate.issueType,
+      severity: visibleCandidate.severity,
+      sourceSystem: visibleCandidate.sourceSystem,
+      title: visibleCandidate.title,
+      summary: visibleCandidate.summary,
+      detailsJson: toJsonValue(visibleCandidate.detailsJson),
       lastDetectedAt: now,
-      detectedCount: reopen ? existing.detectedCount + 1 : existing.detectedCount,
+      detectedCount: nextDetectedCount,
       ...(existing.status === "IGNORED"
         ? {
             status: "IGNORED"
@@ -475,6 +520,10 @@ export async function refreshOperatorIssues(tenantId: string) {
             ignoredById: null
           })
     });
+
+    if (reopen) {
+      reopenedCount += 1;
+    }
   }
 
   for (const existing of existingIssues) {
@@ -485,32 +534,106 @@ export async function refreshOperatorIssues(tenantId: string) {
         resolutionReason: "AUTO_CLEARED",
         resolutionNote: "Underlying condition cleared."
       });
+      autoResolvedCount += 1;
     }
+  }
+
+  const openCount =
+    existingIssues.filter((issue) => issue.status === "OPEN").length + createdCount + reopenedCount - autoResolvedCount;
+
+  await recordOperatorIssueRefreshMetrics({
+    tenantId,
+    createdCount,
+    reopenedCount,
+    autoResolvedCount,
+    openCount: Math.max(0, openCount)
+  });
+}
+
+export async function refreshOperatorIssuesIfStale(tenantId: string, force = false) {
+  const now = Date.now();
+  const current = await getSystemSetting<{
+    startedAt?: string | null;
+    completedAt?: string | null;
+  }>(tenantId, operatorIssueRefreshSettingKey);
+  const startedAt = current?.startedAt ? Date.parse(current.startedAt) : null;
+  const completedAt = current?.completedAt ? Date.parse(current.completedAt) : null;
+
+  if (!force) {
+    if (Number.isFinite(completedAt) && now - (completedAt as number) < operatorIssueRefreshIntervalMs) {
+      return;
+    }
+
+    if (Number.isFinite(startedAt) && now - (startedAt as number) < operatorIssueRefreshLeaseMs) {
+      return;
+    }
+  }
+
+  await upsertSystemSetting(tenantId, operatorIssueRefreshSettingKey, {
+    startedAt: new Date(now).toISOString(),
+    completedAt: current?.completedAt ?? null
+  });
+
+  try {
+    await refreshOperatorIssues(tenantId);
+    await upsertSystemSetting(tenantId, operatorIssueRefreshSettingKey, {
+      startedAt: null,
+      completedAt: new Date().toISOString()
+    });
+  } catch (error) {
+    await upsertSystemSetting(tenantId, operatorIssueRefreshSettingKey, {
+      startedAt: null,
+      completedAt: current?.completedAt ?? null,
+      lastErrorAt: new Date().toISOString(),
+      lastErrorMessage: normalizeUnknownError(error).message
+    });
+    throw error;
   }
 }
 
 export async function getOperatorQueue(tenantId: string, rawFilters?: OperatorIssueFiltersInput) {
-  await refreshOperatorIssues(tenantId);
+  await refreshOperatorIssuesIfStale(tenantId);
   const filters = operatorIssueFiltersSchema.parse(rawFilters ?? {});
   const olderThanDays = filters.age ? Number(filters.age) : undefined;
-  const [allIssues, filteredIssues, options] = await Promise.all([
-    listOperatorIssues(tenantId),
+  const pageSize = DEFAULT_OPERATOR_ISSUES_PAGE_SIZE;
+  const currentPage = Math.max(filters.page ?? 1, 1);
+  const filterQuery = {
+    issueType: filters.issueType || undefined,
+    businessId: filters.businessId || undefined,
+    locationId: filters.locationId || undefined,
+    severity: filters.severity || undefined,
+    status: filters.status || undefined,
+    olderThanDays
+  };
+  const [summary, filteredTotal, filteredIssues, options] = await Promise.all([
+    getOperatorIssueSummaryCounts(tenantId),
+    countOperatorIssues(tenantId, filterQuery),
     listOperatorIssues(tenantId, {
-      issueType: filters.issueType || undefined,
-      businessId: filters.businessId || undefined,
-      locationId: filters.locationId || undefined,
-      severity: filters.severity || undefined,
-      status: filters.status || undefined,
-      olderThanDays
+      ...filterQuery,
+      skip: (currentPage - 1) * pageSize,
+      take: pageSize
     }),
     listOperatorIssueFilterOptions(tenantId)
   ]);
+  const totalPages = filteredTotal === 0 ? 1 : Math.ceil(filteredTotal / pageSize);
+  const normalizedPage = Math.min(currentPage, totalPages);
+  const visibleIssues =
+    normalizedPage === currentPage
+      ? filteredIssues
+      : await listOperatorIssues(tenantId, {
+          ...filterQuery,
+          skip: (normalizedPage - 1) * pageSize,
+          take: pageSize
+        });
 
   return {
-    filters,
+    filters: {
+      ...filters,
+      page: normalizedPage
+    },
     options,
-    summary: buildOperatorIssueSummary(allIssues),
-    issues: filteredIssues.map((issue) => ({
+    summary,
+    issues: visibleIssues.map((issue) => ({
       ...issue,
       typeLabel: operatorIssueTypeLabels[issue.issueType],
       targetLabel:
@@ -526,12 +649,20 @@ export async function getOperatorQueue(tenantId: string, rawFilters?: OperatorIs
       retryable: canRetryIssue(issue),
       retryLabel: getRetryLabel(issue.issueType),
       actionable: getIssueStatusActionability(issue.status)
-    }))
+    })),
+    pagination: {
+      currentPage: normalizedPage,
+      pageSize,
+      filteredTotal,
+      totalPages,
+      hasPreviousPage: normalizedPage > 1,
+      hasNextPage: normalizedPage < totalPages
+    }
   };
 }
 
 export async function getOperatorIssueDetail(tenantId: string, issueId: string) {
-  await refreshOperatorIssues(tenantId);
+  await refreshOperatorIssuesIfStale(tenantId);
   const issue = await getOperatorIssueById(tenantId, issueId);
   const auditTrail = await listIssueAuditContext(tenantId, issue.id, 25);
 

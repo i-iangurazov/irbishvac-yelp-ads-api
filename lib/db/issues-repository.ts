@@ -7,6 +7,33 @@ import { toJsonValue } from "@/lib/db/json";
 
 const leadSyncTypes = ["YELP_LEADS_WEBHOOK", "YELP_LEADS_BACKFILL"] as const;
 
+type OperatorIssueListFilters = {
+  issueType?: string;
+  businessId?: string;
+  locationId?: string;
+  severity?: string;
+  status?: string;
+  olderThanDays?: number;
+};
+
+function buildOperatorIssueWhere(tenantId: string, filters?: OperatorIssueListFilters): Prisma.OperatorIssueWhereInput {
+  return {
+    tenantId,
+    ...(filters?.issueType ? { issueType: filters.issueType as never } : {}),
+    ...(filters?.businessId ? { businessId: filters.businessId } : {}),
+    ...(filters?.locationId ? { locationId: filters.locationId } : {}),
+    ...(filters?.severity ? { severity: filters.severity as never } : {}),
+    ...(filters?.status ? { status: filters.status as never } : {}),
+    ...(filters?.olderThanDays
+      ? {
+          firstDetectedAt: {
+            lte: new Date(Date.now() - filters.olderThanDays * 24 * 60 * 60 * 1000)
+          }
+        }
+      : {})
+  };
+}
+
 export async function listExistingOperatorIssues(tenantId: string) {
   return prisma.operatorIssue.findMany({
     where: { tenantId },
@@ -27,6 +54,17 @@ export async function createOperatorIssue(
     data: {
       ...data,
       tenantId
+    }
+  });
+}
+
+export async function getOperatorIssueByDedupeKey(tenantId: string, dedupeKey: string) {
+  return prisma.operatorIssue.findUnique({
+    where: {
+      tenantId_dedupeKey: {
+        tenantId,
+        dedupeKey
+      }
     }
   });
 }
@@ -157,31 +195,13 @@ export async function getOperatorIssueById(tenantId: string, issueId: string) {
 
 export async function listOperatorIssues(
   tenantId: string,
-  filters?: {
-    issueType?: string;
-    businessId?: string;
-    locationId?: string;
-    severity?: string;
-    status?: string;
-    olderThanDays?: number;
+  filters?: OperatorIssueListFilters & {
+    skip?: number;
+    take?: number;
   }
 ) {
   return prisma.operatorIssue.findMany({
-    where: {
-      tenantId,
-      ...(filters?.issueType ? { issueType: filters.issueType as never } : {}),
-      ...(filters?.businessId ? { businessId: filters.businessId } : {}),
-      ...(filters?.locationId ? { locationId: filters.locationId } : {}),
-      ...(filters?.severity ? { severity: filters.severity as never } : {}),
-      ...(filters?.status ? { status: filters.status as never } : {}),
-      ...(filters?.olderThanDays
-        ? {
-            firstDetectedAt: {
-              lte: new Date(Date.now() - filters.olderThanDays * 24 * 60 * 60 * 1000)
-            }
-          }
-        : {})
-    },
+    where: buildOperatorIssueWhere(tenantId, filters),
     include: {
       business: {
         select: {
@@ -225,8 +245,81 @@ export async function listOperatorIssues(
       { severity: "desc" },
       { lastDetectedAt: "desc" },
       { createdAt: "desc" }
-    ]
+    ],
+    ...(filters?.skip !== undefined ? { skip: filters.skip } : {}),
+    ...(filters?.take !== undefined ? { take: filters.take } : {})
   });
+}
+
+export async function countOperatorIssues(tenantId: string, filters?: OperatorIssueListFilters) {
+  return prisma.operatorIssue.count({
+    where: buildOperatorIssueWhere(tenantId, filters)
+  });
+}
+
+export async function getOperatorIssueSummaryCounts(tenantId: string) {
+  const [total, open, highSeverity, retryableOpen, deliveryFailures, unmappedLeads, staleLeads] = await Promise.all([
+    prisma.operatorIssue.count({
+      where: {
+        tenantId
+      }
+    }),
+    prisma.operatorIssue.count({
+      where: {
+        tenantId,
+        status: "OPEN"
+      }
+    }),
+    prisma.operatorIssue.count({
+      where: {
+        tenantId,
+        status: "OPEN",
+        severity: {
+          in: ["HIGH", "CRITICAL"]
+        }
+      }
+    }),
+    prisma.operatorIssue.count({
+      where: {
+        tenantId,
+        status: "OPEN",
+        issueType: {
+          in: ["LEAD_SYNC_FAILURE", "CRM_SYNC_FAILURE", "AUTORESPONDER_FAILURE", "REPORT_DELIVERY_FAILURE"]
+        }
+      }
+    }),
+    prisma.operatorIssue.count({
+      where: {
+        tenantId,
+        issueType: "REPORT_DELIVERY_FAILURE",
+        status: "OPEN"
+      }
+    }),
+    prisma.operatorIssue.count({
+      where: {
+        tenantId,
+        issueType: "UNMAPPED_LEAD",
+        status: "OPEN"
+      }
+    }),
+    prisma.operatorIssue.count({
+      where: {
+        tenantId,
+        issueType: "STALE_LEAD",
+        status: "OPEN"
+      }
+    })
+  ]);
+
+  return {
+    total,
+    open,
+    highSeverity,
+    retryableOpen,
+    deliveryFailures,
+    unmappedLeads,
+    staleLeads
+  };
 }
 
 export async function listOperatorIssuesByIds(tenantId: string, issueIds: string[]) {

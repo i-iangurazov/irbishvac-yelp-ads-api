@@ -14,12 +14,14 @@
     "test:e2e": "playwright test",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "load:webhooks": "node scripts/simulate-webhook-burst.mjs",
     "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:seed": "tsx prisma/seed.ts",
-    "prisma:verify:fresh": "node scripts/verify-fresh-migrations.mjs"
+    "prisma:verify:fresh": "node scripts/verify-fresh-migrations.mjs",
+    "release:verify": "pnpm prisma:generate && pnpm prisma:verify:fresh && pnpm test && pnpm typecheck && pnpm lint && pnpm build"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

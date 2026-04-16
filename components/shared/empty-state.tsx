@@ -1,7 +1,5 @@
 import type { ReactNode } from "react";
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-
 export function EmptyState({
   title,
   description,
@@ -12,12 +10,10 @@ export function EmptyState({
   action?: ReactNode;
 }) {
   return (
-    <Card className="border-dashed border-border/80 bg-muted/10 shadow-none">
-      <CardHeader className="p-4">
-        <CardTitle className="text-sm font-semibold">{title}</CardTitle>
-        <CardDescription className="max-w-lg text-sm leading-5">{description}</CardDescription>
-      </CardHeader>
-      {action ? <CardContent className="p-4 pt-0">{action}</CardContent> : null}
-    </Card>
+    <div className="rounded-2xl border border-dashed border-border/80 bg-muted/10 px-4 py-4">
+      <div className="text-sm font-semibold">{title}</div>
+      <p className="mt-1 max-w-lg text-sm leading-5 text-muted-foreground">{description}</p>
+      {action ? <div className="mt-3">{action}</div> : null}
+    </div>
   );
 }

@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { LeadAutomationChannel } from "@prisma/client";
 
 import { extractLeadReplyThreadContext, evaluateLeadReplyDraftRisk, isAiReplyAssistantConfigured } from "@/features/leads/ai-reply-service";
+import { claimProviderRequestBudget } from "@/features/operations/provider-budget-service";
 import type { LeadAutomationCandidate, LeadAutomationRuleCandidate, LeadAutomationVariableBag } from "@/features/autoresponder/logic";
 import { getServerEnv } from "@/lib/utils/env";
 import { fetchWithRetry } from "@/lib/utils/fetch";
@@ -16,7 +17,7 @@ const aiMessageSchema = z.object({
   body: z.string().trim().min(1).max(900)
 });
 
-type LeadAutomationAiRenderResult = {
+export type LeadAutomationAiRenderResult = {
   usedAi: boolean;
   subject: string;
   body: string;
@@ -172,16 +173,17 @@ async function createOpenAiLeadAutomationMessage(params: {
   return aiMessageSchema.parse(JSON.parse(outputText));
 }
 
-export async function generateLeadAutomationAiMessage(params: {
+export async function generateLeadAutomationAiMessageFromGuidance(params: {
+  tenantId: string;
   lead: LeadAutomationCandidate;
-  rule: LeadAutomationRuleCandidate;
   model: string;
   channel: LeadAutomationChannel;
   guidance: string;
   fallbackSubject: string;
   fallbackBody: string;
   variables: LeadAutomationVariableBag;
-  cadenceLabel: string;
+  contextLabel: string;
+  extraContext?: Record<string, unknown>;
 }): Promise<LeadAutomationAiRenderResult> {
   if (!isAiReplyAssistantConfigured()) {
     return {
@@ -204,6 +206,11 @@ export async function generateLeadAutomationAiMessage(params: {
   );
 
   try {
+    await claimProviderRequestBudget({
+      tenantId: params.tenantId,
+      provider: "OPENAI",
+      operation: "autoresponder.reply"
+    });
     const generated = await createOpenAiLeadAutomationMessage({
       channel: params.channel,
       model: params.model,
@@ -211,7 +218,7 @@ export async function generateLeadAutomationAiMessage(params: {
       fallbackSubject: params.fallbackSubject,
       fallbackBody: params.fallbackBody,
       context: {
-        cadence: params.cadenceLabel,
+        contextLabel: params.contextLabel,
         leadReference: params.lead.externalLeadId,
         businessName: params.lead.business?.name ?? null,
         locationName: params.lead.location?.name ?? params.lead.business?.location?.name ?? null,
@@ -219,7 +226,8 @@ export async function generateLeadAutomationAiMessage(params: {
         customerName: params.lead.customerName,
         latestThreadState: params.lead.internalStatus,
         latestThreadMessages: threadMessages,
-        variables: params.variables
+        variables: params.variables,
+        ...(params.extraContext ?? {})
       }
     });
 
@@ -261,4 +269,29 @@ export async function generateLeadAutomationAiMessage(params: {
       warningCodes: []
     };
   }
+}
+
+export async function generateLeadAutomationAiMessage(params: {
+  tenantId: string;
+  lead: LeadAutomationCandidate;
+  rule: LeadAutomationRuleCandidate;
+  model: string;
+  channel: LeadAutomationChannel;
+  guidance: string;
+  fallbackSubject: string;
+  fallbackBody: string;
+  variables: LeadAutomationVariableBag;
+  cadenceLabel: string;
+}): Promise<LeadAutomationAiRenderResult> {
+  return generateLeadAutomationAiMessageFromGuidance({
+    tenantId: params.tenantId,
+    lead: params.lead,
+    model: params.model,
+    channel: params.channel,
+    guidance: params.guidance,
+    fallbackSubject: params.fallbackSubject,
+    fallbackBody: params.fallbackBody,
+    variables: params.variables,
+    contextLabel: params.cadenceLabel
+  });
 }

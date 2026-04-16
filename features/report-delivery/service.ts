@@ -5,6 +5,8 @@ import type { ReportScheduleDeliveryScope, ReportScheduleRunScope } from "@prism
 import Papa from "papaparse";
 
 import { recordAuditEvent } from "@/features/audit/service";
+import { recordReportMetric } from "@/features/operations/observability-service";
+import { claimProviderRequestBudget } from "@/features/operations/provider-budget-service";
 import {
   buildReportDeliveryCsv,
   buildReportDeliveryEmail,
@@ -28,9 +30,15 @@ import { parseRecipientEmails, reportScheduleFormSchema } from "@/features/repor
 import { reportMetrics, reportUnknownBucketValue } from "@/features/reporting/schemas";
 import { getReportBreakdownView, getReportDetail, pollReportWorkflow, requestReportByValues } from "@/features/reporting/service";
 import { listBusinesses } from "@/lib/db/businesses-repository";
+import {
+  claimExternalSideEffect,
+  completeExternalSideEffect,
+  resetExternalSideEffectClaim
+} from "@/lib/db/external-side-effects-repository";
 import { listOpenOperatorIssuesForReportScheduleRunIds } from "@/lib/db/issues-repository";
 import { toJsonValue } from "@/lib/db/json";
 import {
+  claimPendingReportScheduleRun,
   createReportSchedule,
   findReportScheduleRunByRunKey,
   getReportScheduleById,
@@ -322,6 +330,11 @@ async function enqueueScheduleOccurrence(params: {
         requestSummary: toJsonValue({ scheduleId: schedule.id, runId: run.id }),
         responseSummary: toJsonValue({ message })
       });
+      await recordReportMetric({
+        tenantId: schedule.tenantId,
+        stage: "GENERATION",
+        status: "FAILED"
+      });
 
       return getReportScheduleRunForTenant(schedule.tenantId, run.id);
     }
@@ -356,6 +369,11 @@ async function enqueueScheduleOccurrence(params: {
         status: reportRequest.status
       })
     });
+    await recordReportMetric({
+      tenantId: schedule.tenantId,
+      stage: "GENERATION",
+      status: "SUCCEEDED"
+    });
   } catch (error) {
     const normalized = normalizeUnknownError(error);
 
@@ -382,6 +400,11 @@ async function enqueueScheduleOccurrence(params: {
       scheduleId: schedule.id,
       runId: run.id,
       message: normalized.message
+    });
+    await recordReportMetric({
+      tenantId: schedule.tenantId,
+      stage: "GENERATION",
+      status: "FAILED"
     });
   }
 
@@ -607,6 +630,42 @@ export async function resendReportScheduleRunWorkflow(tenantId: string, actorId:
     throw new YelpValidationError("This run has no routed recipients.");
   }
 
+  const idempotencyKey = actorId
+    ? `report-delivery:${run.id}:manual:${actorId}:${run.lastAttemptedAt?.getTime() ?? "first"}`
+    : `report-delivery:${run.id}:worker`;
+  const sideEffect = await claimExternalSideEffect({
+    tenantId,
+    idempotencyKey,
+    provider: "SMTP",
+    operation: "report.delivery.email",
+    reportScheduleRunId: run.id,
+    requestJson: {
+      scheduleId: run.scheduleId,
+      runId: run.id,
+      recipientCount: recipientEmails.length,
+      recipientContext
+    }
+  });
+
+  if (!sideEffect.claimed) {
+    if (sideEffect.sideEffect.status === "SUCCEEDED") {
+      return getReportScheduleRunById(run.id, tenantId);
+    }
+
+    if (sideEffect.sideEffect.status === "CLAIMED") {
+      throw new YelpValidationError("A matching report delivery is already in progress.");
+    }
+
+    await resetExternalSideEffectClaim(sideEffect.sideEffect.id, {
+      requestJson: {
+        scheduleId: run.scheduleId,
+        runId: run.id,
+        recipientCount: recipientEmails.length,
+        recipientContext
+      }
+    });
+  }
+
   const attemptStartedAt = new Date();
 
   await updateReportScheduleRun(run.id, {
@@ -618,6 +677,11 @@ export async function resendReportScheduleRunWorkflow(tenantId: string, actorId:
   });
 
   try {
+    await claimProviderRequestBudget({
+      tenantId,
+      provider: "SMTP",
+      operation: "report.delivery.email"
+    });
     const delivery = await sendScheduledReportEmail({
       to: recipientEmails,
       subject: email.subject,
@@ -639,6 +703,16 @@ export async function resendReportScheduleRunWorkflow(tenantId: string, actorId:
     });
     await updateReportSchedule(run.scheduleId, tenantId, {
       lastSuccessfulDeliveryAt: deliveredAt
+    });
+    await completeExternalSideEffect(sideEffect.sideEffect.id, {
+      status: "SUCCEEDED",
+      reportScheduleRunId: run.id,
+      providerMessageId: delivery.messageId ?? null,
+      responseJson: {
+        accepted: delivery.accepted,
+        rejected: delivery.rejected,
+        response: delivery.response
+      }
     });
     await recordAuditEvent({
       tenantId,
@@ -665,6 +739,11 @@ export async function resendReportScheduleRunWorkflow(tenantId: string, actorId:
       ,
       recipientContext
     });
+    await recordReportMetric({
+      tenantId,
+      stage: "DELIVERY",
+      status: "SUCCEEDED"
+    });
   } catch (error) {
     const normalized = normalizeUnknownError(error);
 
@@ -675,6 +754,15 @@ export async function resendReportScheduleRunWorkflow(tenantId: string, actorId:
         code: normalized.code,
         details: normalized.details ?? null
       })
+    });
+    await completeExternalSideEffect(sideEffect.sideEffect.id, {
+      status: "FAILED",
+      reportScheduleRunId: run.id,
+      errorSummary: normalized.message,
+      responseJson: {
+        code: normalized.code,
+        details: normalized.details ?? null
+      }
     });
     await recordAuditEvent({
       tenantId,
@@ -696,6 +784,11 @@ export async function resendReportScheduleRunWorkflow(tenantId: string, actorId:
       runId: run.id,
       message: normalized.message,
       recipientContext
+    });
+    await recordReportMetric({
+      tenantId,
+      stage: "DELIVERY",
+      status: "FAILED"
     });
   }
 
@@ -890,9 +983,16 @@ export async function reconcileDueReportSchedules(limit = 10) {
 export async function reconcilePendingReportScheduleRuns(limit = 20) {
   const runs = await listPendingReportScheduleRuns(limit);
   const results = [];
+  const now = new Date();
 
   for (const run of runs) {
     try {
+      const claimed = await claimPendingReportScheduleRun(run.tenantId, run.id, now);
+
+      if (!claimed) {
+        continue;
+      }
+
       if ((run.generationStatus === "REQUESTED" || run.generationStatus === "PROCESSING") && run.reportRequestId) {
         await pollReportWorkflow(run.tenantId, run.reportRequestId);
         await hydrateScheduledRun(run.id, run.tenantId);

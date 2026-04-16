@@ -3,6 +3,98 @@ export const LEAD_AUTORESPONDER_SETTING_KEY = "leadAutoresponder";
 export const leadAutomationScopeModeValues = ["ALL_BUSINESSES", "SELECTED_BUSINESSES"] as const;
 export type LeadAutomationScopeModeValue = (typeof leadAutomationScopeModeValues)[number];
 
+export const leadConversationAutomationModeValues = [
+  "REVIEW_ONLY",
+  "BOUNDED_AUTO_REPLY",
+  "HUMAN_HANDOFF"
+] as const;
+export type LeadConversationAutomationModeValue = (typeof leadConversationAutomationModeValues)[number];
+
+export const leadConversationAutomationModeOptions = [
+  {
+    value: leadConversationAutomationModeValues[0],
+    label: "Review-only",
+    description: "Generate a suggested reply, but require a person to review and send it."
+  },
+  {
+    value: leadConversationAutomationModeValues[1],
+    label: "Bounded auto-reply",
+    description: "Auto-send only for approved low-risk intents. Everything else stops or falls back."
+  },
+  {
+    value: leadConversationAutomationModeValues[2],
+    label: "Human handoff",
+    description: "Do not auto-send. Route new inbound conversation turns to a person."
+  }
+] as const;
+
+export const leadConversationIntentValues = [
+  "MISSING_DETAILS_PROVIDED",
+  "BASIC_ACKNOWLEDGMENT",
+  "SIMPLE_NEXT_STEP_CLARIFICATION",
+  "BOOKING_INTENT",
+  "QUOTE_PRICING_REQUEST",
+  "AVAILABILITY_TIMING_REQUEST",
+  "COMPLAINT_ESCALATION",
+  "UNSUPPORTED_AMBIGUOUS",
+  "HUMAN_ONLY"
+] as const;
+export type LeadConversationIntentValue = (typeof leadConversationIntentValues)[number];
+
+export const leadConversationIntentOptions = [
+  {
+    value: leadConversationIntentValues[0],
+    label: "Missing details provided",
+    description: "Customer replied with photos, address, symptoms, or other useful details."
+  },
+  {
+    value: leadConversationIntentValues[1],
+    label: "Basic acknowledgment",
+    description: "Simple thank-you or confirmation that does not need risky business claims."
+  },
+  {
+    value: leadConversationIntentValues[2],
+    label: "Simple clarification",
+    description: "Safe next-step clarification without pricing or scheduling promises."
+  },
+  {
+    value: leadConversationIntentValues[3],
+    label: "Booking intent",
+    description: "Customer wants to book or move forward, but the business should usually review."
+  },
+  {
+    value: leadConversationIntentValues[4],
+    label: "Quote or pricing",
+    description: "Price, estimate, or quote request. Keep this out of auto-send."
+  },
+  {
+    value: leadConversationIntentValues[5],
+    label: "Availability or timing",
+    description: "Arrival, scheduling window, or availability request. Keep this out of auto-send."
+  },
+  {
+    value: leadConversationIntentValues[6],
+    label: "Complaint or escalation",
+    description: "Upset or frustrated customer. Always hand this to a person."
+  },
+  {
+    value: leadConversationIntentValues[7],
+    label: "Unsupported or ambiguous",
+    description: "Low-confidence or unclear request that needs a person."
+  },
+  {
+    value: leadConversationIntentValues[8],
+    label: "Human-only",
+    description: "Policy or context requires a person."
+  }
+] as const;
+
+export const leadConversationAutoReplyIntentDefaults = [
+  "MISSING_DETAILS_PROVIDED",
+  "BASIC_ACKNOWLEDGMENT",
+  "SIMPLE_NEXT_STEP_CLARIFICATION"
+] as const satisfies ReadonlyArray<LeadConversationIntentValue>;
+
 export const leadAutomationScopeModeOptions = [
   {
     value: leadAutomationScopeModeValues[0],
@@ -75,6 +167,8 @@ export const leadAutomationCadenceOptions = [
 export const leadAutomationTemplateKinds = [
   "ACKNOWLEDGMENT",
   "REQUEST_DETAILS",
+  "RECEIVED_UPDATE",
+  "BOOKING_NEXT_STEP",
   "AFTER_HOURS",
   "CANNOT_ESTIMATE",
   "FOLLOW_UP_24H",
@@ -98,6 +192,22 @@ export const leadAutomationStarterTemplates = {
       "Automated message from {{business_name}} via Yelp - a team member may follow up with more details.\n\nHi {{customer_name}}, thanks for your Yelp message about {{service_type}}. To help us review it, please reply here with any photos, the property type, and a short description of what is happening.",
     aiPrompt:
       "Write a short Yelp thread reply that asks for missing details. Be explicit that more information is needed before giving a useful answer. Ask for photos, address, property type, and a short description, but do not overload the message."
+  },
+  RECEIVED_UPDATE: {
+    name: "Received customer update",
+    subject: "Automated message from {{business_name}} via Yelp",
+    body:
+      "Automated message from {{business_name}} via Yelp - a team member may follow up with more details.\n\nHi {{customer_name}}, thanks for the update about {{service_type}}. We received the new details in Yelp and will review the next step. If there is anything else that may help, feel free to add it here in the thread.",
+    aiPrompt:
+      "Write a short Yelp thread reply confirming that the customer's update was received. Stay concise, thank them for the added detail, avoid promises, and invite one more helpful detail only if it is clearly useful."
+  },
+  BOOKING_NEXT_STEP: {
+    name: "Booking next step",
+    subject: "Automated message from {{business_name}} via Yelp",
+    body:
+      "Automated message from {{business_name}} via Yelp - a team member may follow up with more details.\n\nHi {{customer_name}}, thanks for the update about {{service_type}}. We received your message in Yelp. Please reply here with any preferred timing or anything else that may help our team review the next step.",
+    aiPrompt:
+      "Write a short Yelp thread reply for a booking-intent message. Acknowledge that the customer wants to move forward, ask for one safe next detail such as preferred timing, and avoid promising availability or arrival windows."
   },
   AFTER_HOURS: {
     name: "After-hours acknowledgment",

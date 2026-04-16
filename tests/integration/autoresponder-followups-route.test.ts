@@ -1,6 +1,24 @@
 import { describe, expect, it, vi } from "vitest";
 
 const runLeadAutomationFollowUpWorker = vi.fn();
+const runDurableWorkerTask = vi.fn(async ({ task }: { task: () => Promise<unknown> }) => ({
+  status: "SUCCEEDED",
+  job: {
+    id: "worker_job_1",
+    jobKey: "autoresponder-followups",
+    attempts: 0,
+    maxAttempts: 3
+  },
+  result: await task(),
+  durationMs: 1
+}));
+const summarizeDurableWorkerOutcome = vi.fn((outcome: { status: string; job: { jobKey: string; attempts: number; maxAttempts: number }; durationMs: number }) => ({
+  status: outcome.status,
+  jobKey: outcome.job.jobKey,
+  attempts: outcome.job.attempts,
+  maxAttempts: outcome.job.maxAttempts,
+  durationMs: outcome.durationMs
+}));
 
 vi.mock("@/lib/utils/http", () => ({
   requireCronAuthorization: vi.fn(() => null),
@@ -11,6 +29,11 @@ vi.mock("@/lib/utils/http", () => ({
 
 vi.mock("@/features/autoresponder/service", () => ({
   runLeadAutomationFollowUpWorker
+}));
+
+vi.mock("@/features/operations/worker-job-service", () => ({
+  runDurableWorkerTask,
+  summarizeDurableWorkerOutcome
 }));
 
 describe("autoresponder follow-up worker route", () => {

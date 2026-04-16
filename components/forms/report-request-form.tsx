@@ -56,10 +56,10 @@ export function ReportRequestForm({
   });
 
   return (
-    <Card>
+    <Card className="shadow-none">
       <CardHeader>
         <CardTitle>Request report</CardTitle>
-        <CardDescription>Choose a date window, select businesses, and request a delayed Yelp batch snapshot.</CardDescription>
+        <CardDescription>Choose a window, select businesses, and request a delayed Yelp batch snapshot.</CardDescription>
       </CardHeader>
       <CardContent>
         <form className="grid gap-5 lg:grid-cols-2" onSubmit={submit}>

@@ -65,68 +65,36 @@ export default async function IntegrationsPage() {
         }
       />
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-3">
-            <CardDescription>Connector status</CardDescription>
-            <CardTitle className="text-2xl">
-              {overview.connector.health?.setupLabel ?? "Not configured"}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm text-muted-foreground">
-            <div className="flex items-center justify-between gap-4">
-              <span>Requests</span>
-              <StatusChip status={overview.connector.enabled ? "ACTIVE" : "INACTIVE"} />
+      <Card className="shadow-none">
+        <CardContent className="grid gap-4 p-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="space-y-1 xl:border-r xl:border-border/70 xl:pr-4">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Connector status</div>
+            <div className="text-2xl font-semibold tracking-tight">{overview.connector.health?.setupLabel ?? "Not configured"}</div>
+            <div className="text-xs text-muted-foreground">
+              {overview.connector.health?.detail ?? "Save ServiceTitan credentials to enable testing and reference sync."}
             </div>
-            <div>{overview.connector.health?.detail ?? "Save ServiceTitan credentials to enable connection testing and reference sync."}</div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <CardDescription>Mapping coverage</CardDescription>
-            <CardTitle className="text-2xl">{overview.counts.mappedLeads}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm text-muted-foreground">
-            <div>Mapped Yelp leads</div>
-            <div>{overview.counts.unresolvedLeadMappings} leads still need downstream mapping or review.</div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <CardDescription>Lifecycle sync</CardDescription>
-            <CardTitle className="text-2xl">{formatDateTime(overview.lifecycle.latestSuccessfulRun?.finishedAt ?? null)}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm text-muted-foreground">
-            <div>
-              {overview.lifecycle.latestSuccessfulRun
-                ? `Last lifecycle refresh ${formatDateTime(overview.lifecycle.latestSuccessfulRun.finishedAt ?? overview.lifecycle.latestSuccessfulRun.startedAt)}`
-                : "No lifecycle sync completed yet."}
+          </div>
+          <div className="space-y-1 xl:border-r xl:border-border/70 xl:px-4">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Mapping coverage</div>
+            <div className="text-2xl font-semibold tracking-tight">{overview.counts.mappedLeads}</div>
+            <div className="text-xs text-muted-foreground">{overview.counts.unresolvedLeadMappings} leads still need mapping or review</div>
+          </div>
+          <div className="space-y-1 xl:border-r xl:border-border/70 xl:px-4">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Lifecycle sync</div>
+            <div className="text-2xl font-semibold tracking-tight">{formatDateTime(overview.lifecycle.latestSuccessfulRun?.finishedAt ?? null)}</div>
+            <div className="text-xs text-muted-foreground">
+              Due now {overview.lifecycle.coverage.dueLeadCount} • Stale {overview.lifecycle.coverage.staleLeadCount}
             </div>
-            <div>
-              {overview.lifecycle.latestProblemRun
-                ? `Latest problem: ${formatDateTime(overview.lifecycle.latestProblemRun.finishedAt ?? overview.lifecycle.latestProblemRun.startedAt)}`
-                : "No lifecycle sync failures recorded."}
-            </div>
-            <div>Due now: {overview.lifecycle.coverage.dueLeadCount} mapped leads</div>
-            <div>Stale: {overview.lifecycle.coverage.staleLeadCount} mapped leads</div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <CardDescription>Open connector issues</CardDescription>
-            <CardTitle className="text-2xl">{overview.counts.openConnectorIssues}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm text-muted-foreground">
-            <div>Linked into the operator queue.</div>
-            <Link className="font-medium text-foreground hover:underline" href="/audit">
+          </div>
+          <div className="space-y-1 xl:pl-4">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Open connector issues</div>
+            <div className="text-2xl font-semibold tracking-tight">{overview.counts.openConnectorIssues}</div>
+            <Link className="text-xs font-medium text-foreground hover:underline" href="/audit">
               Open Audit queue
             </Link>
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
         <div className="space-y-6">

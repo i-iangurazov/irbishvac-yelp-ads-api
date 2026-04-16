@@ -4,6 +4,11 @@ import {
   leadAutomationCadenceValues,
   approvedLeadAiModelValues,
   defaultLeadAiModel,
+  type LeadConversationAutomationModeValue,
+  type LeadConversationIntentValue,
+  leadConversationAutomationModeValues,
+  leadConversationAutoReplyIntentDefaults,
+  leadConversationIntentValues,
   leadAutomationRenderModeValues,
   leadAutomationTemplateKinds,
   leadAutomationScopeModeValues
@@ -15,37 +20,85 @@ const leadAutomationTemplateKindSchema = z.enum(leadAutomationTemplateKinds);
 const leadAutomationRenderModeSchema = z.enum(leadAutomationRenderModeValues);
 const leadAutomationCadenceSchema = z.enum(leadAutomationCadenceValues);
 const leadAutomationScopeModeSchema = z.enum(leadAutomationScopeModeValues);
+const leadConversationAutomationModeSchema = z.enum(leadConversationAutomationModeValues);
+export const leadConversationIntentSchema = z.enum(leadConversationIntentValues);
+export const leadConversationAllowedIntentsSchema = z
+  .array(leadConversationIntentSchema)
+  .default([...leadConversationAutoReplyIntentDefaults]);
 const followUp24hDelaySchema = z.coerce.number().int().min(12).max(48);
 const followUp7dDelaySchema = z.coerce.number().int().min(5).max(10);
+const conversationMaxAutomatedTurnsSchema = z.coerce.number().int().min(1).max(5);
 
-export const leadAutoresponderSettingsSchema = z.object({
-  isEnabled: z.boolean().default(false),
-  scopeMode: leadAutomationScopeModeSchema.default("ALL_BUSINESSES"),
-  scopedBusinessIds: z.array(z.string().min(1)).default([]),
-  defaultChannel: leadAutomationChannelSchema.default("YELP_THREAD"),
-  emailFallbackEnabled: z.boolean().default(true),
-  followUp24hEnabled: z.boolean().default(false),
-  followUp24hDelayHours: followUp24hDelaySchema.default(24),
-  followUp7dEnabled: z.boolean().default(false),
-  followUp7dDelayDays: followUp7dDelaySchema.default(7),
-  aiAssistEnabled: z.boolean().default(true),
-  aiModel: leadAiModelSchema.default(defaultLeadAiModel)
-});
+type LeadConversationPolicyValues = {
+  conversationAutomationEnabled: boolean;
+  conversationGlobalPauseEnabled?: boolean;
+  conversationMode: LeadConversationAutomationModeValue;
+  conversationAllowedIntents: LeadConversationIntentValue[];
+};
+
+function validateConversationPolicy(
+  value: LeadConversationPolicyValues,
+  context: z.RefinementCtx
+) {
+  if (
+    value.conversationAutomationEnabled &&
+    !value.conversationGlobalPauseEnabled &&
+    value.conversationMode === "BOUNDED_AUTO_REPLY" &&
+    value.conversationAllowedIntents.length === 0
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["conversationAllowedIntents"],
+      message: "Choose at least one low-risk intent for bounded auto-reply."
+    });
+  }
+}
+
+export const leadAutoresponderSettingsSchema = z
+  .object({
+    isEnabled: z.boolean().default(false),
+    scopeMode: leadAutomationScopeModeSchema.default("ALL_BUSINESSES"),
+    scopedBusinessIds: z.array(z.string().min(1)).default([]),
+    defaultChannel: leadAutomationChannelSchema.default("YELP_THREAD"),
+    emailFallbackEnabled: z.boolean().default(true),
+    followUp24hEnabled: z.boolean().default(false),
+    followUp24hDelayHours: followUp24hDelaySchema.default(24),
+    followUp7dEnabled: z.boolean().default(false),
+    followUp7dDelayDays: followUp7dDelaySchema.default(7),
+    aiAssistEnabled: z.boolean().default(true),
+    aiModel: leadAiModelSchema.default(defaultLeadAiModel),
+    conversationAutomationEnabled: z.boolean().default(false),
+    conversationGlobalPauseEnabled: z.boolean().default(false),
+    conversationMode: leadConversationAutomationModeSchema.default("REVIEW_ONLY"),
+    conversationAllowedIntents: leadConversationAllowedIntentsSchema,
+    conversationMaxAutomatedTurns: conversationMaxAutomatedTurnsSchema.default(2),
+    conversationReviewFallbackEnabled: z.boolean().default(true),
+    conversationEscalateToIssueQueue: z.boolean().default(true)
+  })
+  .superRefine(validateConversationPolicy);
 
 export type LeadAutoresponderSettingsValues = z.infer<typeof leadAutoresponderSettingsSchema>;
 
-export const leadAutoresponderBusinessOverrideSchema = z.object({
-  businessId: z.string().min(1),
-  isEnabled: z.boolean().default(true),
-  defaultChannel: leadAutomationChannelSchema.default("YELP_THREAD"),
-  emailFallbackEnabled: z.boolean().default(true),
-  followUp24hEnabled: z.boolean().default(false),
-  followUp24hDelayHours: followUp24hDelaySchema.default(24),
-  followUp7dEnabled: z.boolean().default(false),
-  followUp7dDelayDays: followUp7dDelaySchema.default(7),
-  aiAssistEnabled: z.boolean().default(true),
-  aiModel: leadAiModelSchema.default(defaultLeadAiModel)
-});
+export const leadAutoresponderBusinessOverrideSchema = z
+  .object({
+    businessId: z.string().min(1),
+    isEnabled: z.boolean().default(true),
+    defaultChannel: leadAutomationChannelSchema.default("YELP_THREAD"),
+    emailFallbackEnabled: z.boolean().default(true),
+    followUp24hEnabled: z.boolean().default(false),
+    followUp24hDelayHours: followUp24hDelaySchema.default(24),
+    followUp7dEnabled: z.boolean().default(false),
+    followUp7dDelayDays: followUp7dDelaySchema.default(7),
+    aiAssistEnabled: z.boolean().default(true),
+    aiModel: leadAiModelSchema.default(defaultLeadAiModel),
+    conversationAutomationEnabled: z.boolean().default(false),
+    conversationMode: leadConversationAutomationModeSchema.default("REVIEW_ONLY"),
+    conversationAllowedIntents: leadConversationAllowedIntentsSchema,
+    conversationMaxAutomatedTurns: conversationMaxAutomatedTurnsSchema.default(2),
+    conversationReviewFallbackEnabled: z.boolean().default(true),
+    conversationEscalateToIssueQueue: z.boolean().default(true)
+  })
+  .superRefine(validateConversationPolicy);
 
 export type LeadAutoresponderBusinessOverrideValues = z.infer<typeof leadAutoresponderBusinessOverrideSchema>;
 

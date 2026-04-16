@@ -6,6 +6,7 @@ import { getProgramsIndex } from "@/features/ads-programs/service";
 import { getBusinessesIndex } from "@/features/businesses/service";
 import {
   countSyncErrors,
+  getWebhookReconcileDrilldown,
   getLatestSuccessfulSyncRun,
   getOperationsCounts,
   listRecentLocations,
@@ -13,6 +14,7 @@ import {
   listRecentSyncRuns,
   listRecentWebhookEvents
 } from "@/lib/db/operations-repository";
+import { getWorkerJobOverview } from "@/lib/db/worker-jobs-repository";
 import { listCredentialSets } from "@/lib/db/credentials-repository";
 import { getReportingIndex } from "@/features/reporting/service";
 import { getCredentialHealthViewModel } from "@/features/settings/view-models";
@@ -180,4 +182,12 @@ export async function getAuditSyncOverview(tenantId: string) {
   return {
     recentSyncRuns: await listRecentSyncRuns(tenantId, 10)
   };
+}
+
+export async function getAuditWebhookOverview(tenantId: string) {
+  return getWebhookReconcileDrilldown(tenantId);
+}
+
+export async function getAuditWorkerJobOverview(tenantId: string) {
+  return getWorkerJobOverview(tenantId);
 }

@@ -20,6 +20,7 @@ const getServiceTitanCredentialConfig = vi.fn();
 const getLeadById = vi.fn();
 const getJobById = vi.fn();
 const listAppointmentsForJob = vi.fn();
+const recordServiceTitanMetric = vi.fn();
 
 vi.mock("@/features/audit/service", () => ({
   recordAuditEvent
@@ -62,6 +63,10 @@ vi.mock("@/lib/servicetitan/client", () => ({
     getJobById,
     listAppointmentsForJob
   }))
+}));
+
+vi.mock("@/features/operations/observability-service", () => ({
+  recordServiceTitanMetric
 }));
 
 describe("ServiceTitan lifecycle sync", () => {

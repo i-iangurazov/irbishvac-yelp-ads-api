@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 
 const variantMap: Record<string, Parameters<typeof Badge>[0]["variant"]> = {
   QUEUED: "secondary",
+  CLAIMED: "warning",
   PROCESSING: "warning",
   SENDING: "warning",
   COMPLETED: "success",
@@ -17,6 +18,7 @@ const variantMap: Record<string, Parameters<typeof Badge>[0]["variant"]> = {
   JOB_IN_PROGRESS: "warning",
   PARTIAL: "warning",
   FAILED: "destructive",
+  DEAD_LETTERED: "destructive",
   CURRENT: "success",
   STALE: "warning",
   UNMAPPED: "outline",
@@ -41,6 +43,9 @@ const variantMap: Record<string, Parameters<typeof Badge>[0]["variant"]> = {
   DRAFT: "outline",
   INACTIVE: "outline",
   SKIPPED: "outline",
+  AUTO_REPLY: "success",
+  REVIEW_ONLY: "secondary",
+  HUMAN_HANDOFF: "warning",
   NOT_RECEIVED: "outline",
   NOT_TRIGGERED: "outline",
   UNKNOWN: "outline",
@@ -51,6 +56,7 @@ const variantMap: Record<string, Parameters<typeof Badge>[0]["variant"]> = {
 
 const labelMap: Record<string, string> = {
   QUEUED: "Queued",
+  CLAIMED: "Claimed",
   PROCESSING: "In progress",
   SENDING: "Sending",
   COMPLETED: "Completed",
@@ -64,6 +70,7 @@ const labelMap: Record<string, string> = {
   JOB_IN_PROGRESS: "Job in progress",
   PARTIAL: "Partial",
   FAILED: "Failed",
+  DEAD_LETTERED: "Dead-lettered",
   CURRENT: "Current",
   STALE: "Stale",
   UNMAPPED: "Unmapped",
@@ -88,6 +95,9 @@ const labelMap: Record<string, string> = {
   DRAFT: "Draft",
   INACTIVE: "Inactive",
   SKIPPED: "Skipped",
+  AUTO_REPLY: "Auto replied",
+  REVIEW_ONLY: "Review only",
+  HUMAN_HANDOFF: "Human handoff",
   NOT_RECEIVED: "No delivery",
   NOT_TRIGGERED: "Not triggered",
   UNKNOWN: "Unknown",

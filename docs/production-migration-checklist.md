@@ -10,10 +10,12 @@ What is true today:
 - local Postgres connectivity works
 - a fresh verification database can be created
 - `pnpm prisma:verify:fresh` now exists
+- GitHub Actions now runs disposable Postgres migration verification through `.github/workflows/production-readiness.yml`
 
 What is still unproven here:
 
 - a fully successful fresh-db `prisma migrate deploy` run through Prisma CLI
+- the new CI workflow result until it has completed on GitHub for the exact commit being deployed
 
 See [migration-verification-notes.md](/Users/ilias_iangurazov/Commercial/irbishvac-yelp-ads-api/docs/migration-verification-notes.md).
 
@@ -54,6 +56,14 @@ pnpm prisma:generate
 
 ```bash
 VERIFY_POSTGRES_URL=postgresql://postgres:postgres@localhost:5432/postgres?sslmode=disable pnpm prisma:verify:fresh
+```
+
+Or run the full local release gate:
+
+```bash
+VERIFY_POSTGRES_URL=postgresql://postgres:postgres@localhost:5432/postgres?sslmode=disable \
+VERIFY_RUN_SEED=1 \
+pnpm release:verify
 ```
 
 Recommended optional variants:
@@ -105,6 +115,7 @@ Before deployment:
 - confirm no manual schema drift exists outside Prisma migrations
 - confirm the exact migration chain in `prisma/migrations/`
 - confirm `pnpm prisma:verify:fresh` has been run successfully in a production-like environment
+- confirm the `Production Readiness` GitHub Actions workflow passed for the exact commit
 
 During deployment:
 
@@ -132,3 +143,18 @@ So the production migration bar is:
 - then treat migration confidence as materially improved
 
 Until that happens, migration readiness stays yellow.
+
+## CI gate
+
+The production readiness workflow verifies:
+
+- Postgres 16 disposable database
+- `pnpm install --frozen-lockfile`
+- `pnpm prisma:generate`
+- `pnpm prisma:verify:fresh` with `VERIFY_RUN_SEED=1`
+- `pnpm test`
+- `pnpm typecheck`
+- `pnpm lint`
+- `pnpm build`
+
+Treat this workflow as required for production schema changes.

@@ -7,11 +7,16 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import {
+  leadConversationAutomationModeOptions,
+  leadConversationIntentOptions
+} from "@/features/autoresponder/constants";
 import {
   leadAutoresponderBusinessOverrideSchema,
   type LeadAutoresponderBusinessOverrideValues
@@ -54,13 +59,41 @@ export function LeadAutoresponderBusinessOverrideForm({
       aiModel:
         initialValues?.aiModel ??
         (availableModels[0]?.value as LeadAutoresponderBusinessOverrideValues["aiModel"] | undefined) ??
-        "gpt-5-nano"
+        "gpt-5-nano",
+      conversationAutomationEnabled: initialValues?.conversationAutomationEnabled ?? false,
+      conversationMode: initialValues?.conversationMode ?? "REVIEW_ONLY",
+      conversationAllowedIntents:
+        initialValues?.conversationAllowedIntents ?? [
+          "MISSING_DETAILS_PROVIDED",
+          "BASIC_ACKNOWLEDGMENT",
+          "SIMPLE_NEXT_STEP_CLARIFICATION"
+        ],
+      conversationMaxAutomatedTurns: initialValues?.conversationMaxAutomatedTurns ?? 2,
+      conversationReviewFallbackEnabled: initialValues?.conversationReviewFallbackEnabled ?? true,
+      conversationEscalateToIssueQueue: initialValues?.conversationEscalateToIssueQueue ?? true
     }
   });
   const isEnabled = watch("isEnabled");
   const followUp24hEnabled = watch("followUp24hEnabled");
   const followUp7dEnabled = watch("followUp7dEnabled");
   const aiAssistEnabled = watch("aiAssistEnabled");
+  const conversationAutomationEnabled = watch("conversationAutomationEnabled");
+  const conversationMode = watch("conversationMode");
+  const conversationAllowedIntents = watch("conversationAllowedIntents");
+
+  const toggleConversationIntent = (
+    intent: LeadAutoresponderBusinessOverrideValues["conversationAllowedIntents"][number],
+    checked: boolean
+  ) => {
+    const next = checked
+      ? Array.from(new Set([...(conversationAllowedIntents ?? []), intent]))
+      : (conversationAllowedIntents ?? []).filter(
+          (candidate: LeadAutoresponderBusinessOverrideValues["conversationAllowedIntents"][number]) =>
+            candidate !== intent
+        );
+
+    setValue("conversationAllowedIntents", next, { shouldValidate: true });
+  };
 
   const submit = handleSubmit(async (values) => {
     try {
@@ -96,13 +129,13 @@ export function LeadAutoresponderBusinessOverrideForm({
   };
 
   return (
-    <Card>
+    <Card className="shadow-none">
       <CardHeader className="pb-3">
         <CardTitle>{canDelete ? "Edit override" : "New override"}</CardTitle>
         <CardDescription>Use an override only when one Yelp business needs a different live mode than the tenant default.</CardDescription>
       </CardHeader>
       <CardContent>
-        <form className="space-y-8" onSubmit={submit}>
+        <form className="space-y-6" onSubmit={submit}>
           <section className="space-y-4">
             <div>
               <div className="text-sm font-semibold">Scope</div>
@@ -211,6 +244,128 @@ export function LeadAutoresponderBusinessOverrideForm({
               ) : (
                 <div className="rounded-xl border border-dashed border-border/80 px-4 py-3 text-sm text-muted-foreground">
                   {aiAssistConfigured ? "AI assist is off for this override." : "Add `OPENAI_API_KEY` to enable AI assist."}
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section className="space-y-4 border-t border-border/70 pt-6">
+            <div>
+              <div className="text-sm font-semibold">Conversation automation</div>
+              <div className="mt-1 text-xs text-muted-foreground">Handle new inbound Yelp thread turns after the first response, without turning the thread into an open-ended bot.</div>
+            </div>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between rounded-xl border border-border/80 bg-muted/10 px-4 py-3">
+                <div>
+                  <div className="text-sm font-medium">Enabled</div>
+                  <div className="text-xs text-muted-foreground">Apply conversation handling for this Yelp business override.</div>
+                </div>
+                <Switch
+                  checked={conversationAutomationEnabled}
+                  onCheckedChange={(checked) => setValue("conversationAutomationEnabled", checked)}
+                />
+              </div>
+
+              {conversationAutomationEnabled ? (
+                <>
+                  <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_10rem]">
+                    <div className="space-y-2">
+                      <Label>Conversation mode</Label>
+                      <Select
+                        value={conversationMode}
+                        onValueChange={(value) =>
+                          setValue("conversationMode", value as LeadAutoresponderBusinessOverrideValues["conversationMode"], {
+                            shouldValidate: true
+                          })
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {leadConversationAutomationModeOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <div className="text-xs text-muted-foreground">
+                        {leadConversationAutomationModeOptions.find((option) => option.value === conversationMode)?.description}
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Max auto turns</Label>
+                      <Input
+                        min={1}
+                        max={5}
+                        type="number"
+                        value={watch("conversationMaxAutomatedTurns")}
+                        onChange={(event) =>
+                          setValue("conversationMaxAutomatedTurns", Number(event.target.value), {
+                            shouldValidate: true
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  {conversationMode === "BOUNDED_AUTO_REPLY" ? (
+                    <div className="space-y-3">
+                      <div>
+                        <div className="text-sm font-medium">Approved low-risk auto-reply intents</div>
+                        <div className="text-xs text-muted-foreground">Only these intent types may auto-send. Risky categories still stop and hand off.</div>
+                      </div>
+                      <div className="grid gap-3 lg:grid-cols-2">
+                        {leadConversationIntentOptions.slice(0, 3).map((intent) => {
+                          const checked = conversationAllowedIntents.includes(intent.value);
+
+                          return (
+                            <label
+                              key={intent.value}
+                              className="flex items-start gap-3 rounded-xl border border-border/70 bg-background px-3 py-3"
+                            >
+                              <Checkbox
+                                checked={checked}
+                                onCheckedChange={(value) => toggleConversationIntent(intent.value, value === true)}
+                              />
+                              <div className="min-w-0">
+                                <div className="text-sm font-medium">{intent.label}</div>
+                                <div className="text-xs text-muted-foreground">{intent.description}</div>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    <div className="flex items-center justify-between rounded-xl border border-border/80 bg-muted/10 px-4 py-3">
+                      <div>
+                        <div className="text-sm font-medium">Review fallback</div>
+                        <div className="text-xs text-muted-foreground">Use a suggested draft when bounded auto-reply stops short of sending.</div>
+                      </div>
+                      <Switch
+                        checked={watch("conversationReviewFallbackEnabled")}
+                        onCheckedChange={(checked) => setValue("conversationReviewFallbackEnabled", checked)}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between rounded-xl border border-border/80 bg-muted/10 px-4 py-3">
+                      <div>
+                        <div className="text-sm font-medium">Issue queue escalation</div>
+                        <div className="text-xs text-muted-foreground">Create operator issues for blocked or risky conversation turns.</div>
+                      </div>
+                      <Switch
+                        checked={watch("conversationEscalateToIssueQueue")}
+                        onCheckedChange={(checked) => setValue("conversationEscalateToIssueQueue", checked)}
+                      />
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="rounded-xl border border-dashed border-border/80 px-4 py-3 text-sm text-muted-foreground">
+                  New inbound customer thread messages stay human-only for this business.
                 </div>
               )}
             </div>

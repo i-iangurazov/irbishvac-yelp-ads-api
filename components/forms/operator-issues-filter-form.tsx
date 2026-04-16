@@ -21,7 +21,7 @@ export function OperatorIssuesFilterForm({
   return (
     <form
       action="/audit"
-      className="grid gap-4 rounded-[1.6rem] border border-border/80 bg-muted/10 p-5 md:grid-cols-2 2xl:grid-cols-[1fr_1fr_1fr_0.8fr_0.8fr_0.8fr_auto_auto]"
+      className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_0.85fr_0.85fr_0.85fr_auto_auto]"
     >
       <div className="space-y-1">
         <label className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground" htmlFor="issueType">
@@ -136,7 +136,7 @@ export function OperatorIssuesFilterForm({
       </div>
 
       <div className="flex items-end">
-        <Button className="w-full" type="submit" variant="outline">
+        <Button className="w-full" type="submit">
           Apply
         </Button>
       </div>

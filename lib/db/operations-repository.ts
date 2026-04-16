@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { SyncRunType } from "@prisma/client";
+import type { Prisma, SyncRunType } from "@prisma/client";
 
 import { prisma } from "@/lib/db/prisma";
 
@@ -71,6 +71,149 @@ export async function listRecentWebhookEvents(tenantId: string, take = 8) {
     orderBy: { receivedAt: "desc" },
     take
   });
+}
+
+function buildWebhookAttentionWhere(tenantId: string, staleBefore: Date): Prisma.YelpWebhookEventWhereInput {
+  return {
+    tenantId,
+    OR: [
+      { status: { in: ["PARTIAL", "FAILED"] } },
+      {
+        status: {
+          in: ["QUEUED", "PROCESSING"]
+        },
+        receivedAt: {
+          lte: staleBefore
+        }
+      }
+    ]
+  };
+}
+
+export async function getWebhookReconcileDrilldown(tenantId: string, now = new Date()) {
+  const staleBefore = new Date(now.getTime() - 10 * 60 * 1000);
+  const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const [statusCounts, oldestPending, attentionEvents, recentEvents] = await Promise.all([
+    prisma.yelpWebhookEvent.groupBy({
+      by: ["status"],
+      where: { tenantId },
+      _count: { _all: true }
+    }),
+    prisma.yelpWebhookEvent.findFirst({
+      where: {
+        tenantId,
+        status: {
+          in: ["QUEUED", "PROCESSING"]
+        }
+      },
+      orderBy: { receivedAt: "asc" },
+      select: {
+        id: true,
+        receivedAt: true,
+        status: true
+      }
+    }),
+    prisma.yelpWebhookEvent.findMany({
+      where: buildWebhookAttentionWhere(tenantId, staleBefore),
+      include: {
+        lead: {
+          select: {
+            id: true,
+            externalLeadId: true,
+            externalBusinessId: true,
+            customerName: true,
+            business: {
+              select: {
+                id: true,
+                name: true,
+                encryptedYelpBusinessId: true
+              }
+            }
+          }
+        },
+        syncRun: {
+          select: {
+            id: true,
+            type: true,
+            status: true,
+            startedAt: true,
+            finishedAt: true,
+            errorSummary: true,
+            _count: {
+              select: {
+                errors: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: [{ status: "desc" }, { receivedAt: "asc" }],
+      take: 12
+    }),
+    prisma.yelpWebhookEvent.findMany({
+      where: { tenantId },
+      include: {
+        lead: {
+          select: {
+            id: true,
+            externalLeadId: true,
+            externalBusinessId: true,
+            customerName: true,
+            business: {
+              select: {
+                id: true,
+                name: true,
+                encryptedYelpBusinessId: true
+              }
+            }
+          }
+        },
+        syncRun: {
+          select: {
+            id: true,
+            type: true,
+            status: true,
+            errorSummary: true,
+            _count: {
+              select: {
+                errors: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: { receivedAt: "desc" },
+      take: 8
+    })
+  ]);
+  const statusCountMap = new Map(statusCounts.map((entry) => [entry.status, entry._count._all]));
+  const failedLast24h = await prisma.yelpWebhookEvent.count({
+    where: {
+      tenantId,
+      status: {
+        in: ["PARTIAL", "FAILED"]
+      },
+      receivedAt: {
+        gte: last24h
+      }
+    }
+  });
+
+  return {
+    counts: {
+      queued: statusCountMap.get("QUEUED") ?? 0,
+      processing: statusCountMap.get("PROCESSING") ?? 0,
+      completed: statusCountMap.get("COMPLETED") ?? 0,
+      partial: statusCountMap.get("PARTIAL") ?? 0,
+      failed: statusCountMap.get("FAILED") ?? 0,
+      skipped: statusCountMap.get("SKIPPED") ?? 0,
+      failedLast24h
+    },
+    oldestPending,
+    attentionEvents,
+    recentEvents,
+    staleThresholdMs: 10 * 60 * 1000
+  };
 }
 
 export async function listRecentLocations(tenantId: string, take = 8) {

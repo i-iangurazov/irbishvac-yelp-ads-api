@@ -3,11 +3,24 @@ import "server-only";
 import type { SyncRunStatus } from "@prisma/client";
 
 import { getLeadAutomationScopeConfig } from "@/features/autoresponder/config";
+import {
+  formatConversationIntentLabels,
+  getConversationRecommendedNextAction
+} from "@/features/autoresponder/conversation-service";
+import {
+  getLeadConversationRolloutState,
+  humanizeLeadConversationDecision,
+  humanizeLeadConversationIntent,
+  humanizeLeadConversationMode,
+  humanizeLeadConversationStopReason
+} from "@/features/autoresponder/conversation";
 import { buildLeadAutomationHistory, buildLeadAutomationSummary } from "@/features/autoresponder/normalize";
+import { processLeadConversationAutomationForInboundMessage } from "@/features/autoresponder/conversation-service";
 import { processLeadAutoresponderForNewLead } from "@/features/autoresponder/service";
 import { recordAuditEvent } from "@/features/audit/service";
 import { buildLeadCrmSummary, getLeadConversionSummary } from "@/features/crm-enrichment/service";
 import { getAiReplyAssistantState } from "@/features/leads/ai-reply-service";
+import { recordWebhookIntakeMetric, recordWebhookReconcileMetric } from "@/features/operations/observability-service";
 import {
   buildLeadConversationActionTimeline,
   buildLeadListEntry,
@@ -26,6 +39,7 @@ import {
   createLeadSyncError,
   createLeadSyncRun,
   createWebhookEventRecord,
+  claimLeadWebhookSyncRunForProcessing,
   findLeadRecordByExternalLeadId,
   findBusinessesByExternalYelpBusinessId,
   findWebhookEventByKey,
@@ -37,6 +51,7 @@ import {
   listLeadWebhookSyncRunsForReconcile,
   listLeadRecords,
   updateLeadSyncRun,
+  updateLeadWebhookSnapshot,
   updateWebhookEventRecord,
   upsertLeadEventRecords,
   upsertLeadRecord
@@ -121,6 +136,174 @@ function getRetryCount(statsJson: unknown) {
 function getProcessingStats(statsJson: unknown) {
   const record = asRecord(statsJson);
   return record ?? {};
+}
+
+function getYelpConnectionSummary(params: {
+  hasYelpBusinessId: boolean;
+  latestWebhookStatus: SyncRunStatus | "NOT_RECEIVED";
+  latestWebhookReceivedAt: Date | null;
+  latestWebhookErrorSummary?: string | null;
+  latestIntakeStatus?: SyncRunStatus | null;
+  latestIntakeErrorSummary?: string | null;
+}) {
+  if (!params.hasYelpBusinessId) {
+    return {
+      status: "UNRESOLVED",
+      label: "Missing Yelp business",
+      detail: "This lead is not mapped to a configured Yelp business."
+    };
+  }
+
+  if (params.latestWebhookStatus === "FAILED") {
+    return {
+      status: "FAILED",
+      label: "Webhook failed",
+      detail: params.latestWebhookErrorSummary ?? "The latest Yelp webhook delivery failed during processing."
+    };
+  }
+
+  if (params.latestIntakeStatus === "FAILED") {
+    return {
+      status: "FAILED",
+      label: "Intake failed",
+      detail: params.latestIntakeErrorSummary ?? "The latest Yelp intake run failed."
+    };
+  }
+
+  if (params.latestWebhookStatus === "PARTIAL" || params.latestIntakeStatus === "PARTIAL") {
+    return {
+      status: "PARTIAL",
+      label: "Needs review",
+      detail:
+        params.latestWebhookErrorSummary ??
+        params.latestIntakeErrorSummary ??
+        "Yelp intake partially completed and should be reviewed."
+    };
+  }
+
+  if (params.latestWebhookReceivedAt) {
+    return {
+      status: "ACTIVE",
+      label: "Webhook received",
+      detail: "This lead has live Yelp webhook proof."
+    };
+  }
+
+  if (params.latestIntakeStatus === "COMPLETED" || params.latestIntakeStatus === "SKIPPED") {
+    return {
+      status: "READY",
+      label: "Intake recorded",
+      detail: "This lead has a completed Yelp intake or backfill run."
+    };
+  }
+
+  if (params.latestIntakeStatus === "QUEUED" || params.latestIntakeStatus === "PROCESSING") {
+    return {
+      status: "PROCESSING",
+      label: "Intake running",
+      detail: "Yelp intake is queued or processing for this lead."
+    };
+  }
+
+  return {
+    status: "UNKNOWN",
+    label: "No delivery proof",
+    detail: "No webhook or completed backfill proof is recorded for this lead yet."
+  };
+}
+
+function getRecordValue(value: unknown, key: string) {
+  const record = asRecord(value);
+  return record?.[key];
+}
+
+function getNestedRecord(value: unknown, key: string) {
+  return asRecord(getRecordValue(value, key));
+}
+
+function getStringMetadata(value: unknown, key: string) {
+  const candidate = getRecordValue(value, key);
+  return typeof candidate === "string" && candidate.trim().length > 0 ? candidate.trim() : null;
+}
+
+function getBooleanMetadata(value: unknown, key: string) {
+  const candidate = getRecordValue(value, key);
+  return typeof candidate === "boolean" ? candidate : null;
+}
+
+function getStringArrayMetadata(value: unknown, key: string) {
+  const candidate = getRecordValue(value, key);
+  return Array.isArray(candidate)
+    ? candidate.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+    : [];
+}
+
+function humanizeConversationContentSource(value: string | null) {
+  switch (value) {
+    case "AI":
+      return "AI generated";
+    case "TEMPLATE":
+      return "Static template";
+    case "TEMPLATE_FALLBACK":
+      return "Template fallback";
+    default:
+      return "Not recorded";
+  }
+}
+
+function humanizeConversationPromptSource(value: string | null, promptConfigured: boolean | null) {
+  if (value === "TEMPLATE_AI_PROMPT" || promptConfigured) {
+    return "Template AI prompt";
+  }
+
+  if (value === "STATIC_TEMPLATE") {
+    return "Static template";
+  }
+
+  return "Not recorded";
+}
+
+function buildConversationDecisionTrace(metadataJson: unknown, fallbackTemplateName: string | null) {
+  const classification = getNestedRecord(metadataJson, "classification");
+  const sourceContext = getNestedRecord(metadataJson, "sourceContext");
+  const decisionSummary = getNestedRecord(metadataJson, "decisionSummary");
+  const reviewState = getNestedRecord(metadataJson, "reviewState");
+  const template = getNestedRecord(metadataJson, "template");
+  const routing = getNestedRecord(metadataJson, "routing");
+  const rendering = getNestedRecord(metadataJson, "rendering");
+  const flatContentSource = getStringMetadata(metadataJson, "contentSource");
+  const flatAiModel = getStringMetadata(metadataJson, "aiModel");
+  const flatFallbackReason = getStringMetadata(metadataJson, "fallbackReason");
+  const flatWarningCodes = getStringArrayMetadata(metadataJson, "warningCodes");
+  const promptConfigured = getBooleanMetadata(template, "aiPromptConfigured");
+  const contentSource = getStringMetadata(rendering, "contentSource") ?? flatContentSource;
+  const warningCodes = getStringArrayMetadata(rendering, "warningCodes");
+
+  return {
+    inboundMessageExcerpt:
+      getStringMetadata(metadataJson, "inboundMessageExcerpt") ??
+      getStringMetadata(sourceContext, "customerMessageExcerpt") ??
+      getStringMetadata(metadataJson, "inboundMessage"),
+    classificationIntent: getStringMetadata(classification, "intent"),
+    classificationConfidence: getStringMetadata(classification, "confidence"),
+    templateName: getStringMetadata(template, "name") ?? fallbackTemplateName,
+    templateKind: getStringMetadata(template, "kind") ?? getStringMetadata(classification, "templateKind"),
+    templateRenderMode:
+      getStringMetadata(template, "renderMode") ??
+      getStringMetadata(rendering, "templateRenderMode") ??
+      getStringMetadata(metadataJson, "templateRenderMode"),
+    promptSourceLabel: humanizeConversationPromptSource(getStringMetadata(template, "promptSource"), promptConfigured),
+    aiPromptPreview: getStringMetadata(template, "aiPromptPreview"),
+    routingLabel: getStringMetadata(routing, "ruleSource"),
+    contentSource,
+    contentSourceLabel: humanizeConversationContentSource(contentSource),
+    aiModel: getStringMetadata(rendering, "aiModel") ?? flatAiModel,
+    fallbackReason: getStringMetadata(rendering, "fallbackReason") ?? flatFallbackReason,
+    warningCodes: warningCodes.length > 0 ? warningCodes : flatWarningCodes,
+    operatorReviewRequired: getBooleanMetadata(reviewState, "operatorReviewRequired"),
+    operatorEditStatus: getStringMetadata(reviewState, "operatorEditStatus"),
+    decisionErrorSummary: getStringMetadata(decisionSummary, "errorSummary")
+  };
 }
 
 function parseQueuedWebhookPayload(payloadJson: unknown) {
@@ -321,9 +504,7 @@ async function processQueuedYelpLeadWebhookSyncRun(tenantId: string, syncRunId: 
   const retryCount = getRetryCount(syncRun.statsJson);
 
   await updateLeadSyncRun(syncRun.id, {
-    status: "PROCESSING",
     businessId: tenantContext.business?.id ?? syncRun.businessId ?? null,
-    errorSummary: null,
     statsJson: {
       ...existingStats,
       retryCount
@@ -334,6 +515,16 @@ async function processQueuedYelpLeadWebhookSyncRun(tenantId: string, syncRunId: 
     processedAt: null,
     errorJson: null
   });
+
+  const knownLeadId = syncRun.leadId ?? webhookEvent.leadId ?? null;
+
+  if (knownLeadId) {
+    await updateLeadWebhookSnapshot(tenantContext.tenantId, knownLeadId, {
+      latestWebhookStatus: "PROCESSING",
+      latestWebhookReceivedAt: receivedAt,
+      latestWebhookErrorSummary: null
+    });
+  }
 
   logInfo("leads.webhook.processing_started", {
     tenantId: tenantContext.tenantId,
@@ -392,11 +583,44 @@ async function processQueuedYelpLeadWebhookSyncRun(tenantId: string, syncRunId: 
       });
     }
 
+    try {
+      await processLeadConversationAutomationForInboundMessage({
+        tenantId: tenantContext.tenantId,
+        leadId: lead.id,
+        sourceEventId: update.eventId ?? null
+      });
+    } catch (conversationError) {
+      const normalizedConversationError = normalizeUnknownError(conversationError);
+
+      await recordAuditEvent({
+        tenantId: tenantContext.tenantId,
+        businessId: lead.businessId ?? tenantContext.business?.id ?? undefined,
+        actionType: "lead.conversation-automation.process",
+        status: "FAILED",
+        correlationId: `lead-conversation-automation:${lead.id}:${update.eventId ?? "latest"}`,
+        upstreamReference: lead.externalLeadId,
+        responseSummary: {
+          message: normalizedConversationError.message
+        }
+      });
+
+      logError("lead.conversation_automation.trigger_failed", {
+        tenantId: tenantContext.tenantId,
+        leadId: lead.id,
+        message: normalizedConversationError.message
+      });
+    }
+
     await updateWebhookEventRecord(webhookEvent.id, {
       leadId: lead.id,
       status: "COMPLETED",
       processedAt: finishedAt,
       errorJson: null
+    });
+    await updateLeadWebhookSnapshot(tenantContext.tenantId, lead.id, {
+      latestWebhookStatus: "COMPLETED",
+      latestWebhookReceivedAt: receivedAt,
+      latestWebhookErrorSummary: null
     });
     await updateLeadSyncRun(syncRun.id, {
       status: "COMPLETED",
@@ -444,6 +668,13 @@ async function processQueuedYelpLeadWebhookSyncRun(tenantId: string, syncRunId: 
       normalizedEventCount,
       processingMs: Date.now() - processingStartedAt
     });
+    await recordWebhookReconcileMetric({
+      tenantId: tenantContext.tenantId,
+      status: "SUCCEEDED",
+      processingMs: Date.now() - processingStartedAt,
+      receivedAt,
+      completedAt: finishedAt
+    });
 
     return {
       syncRunId: syncRun.id,
@@ -465,6 +696,15 @@ async function processQueuedYelpLeadWebhookSyncRun(tenantId: string, syncRunId: 
         details: normalizedError.details ?? null
       }
     });
+    const failedLeadId = syncRun.leadId ?? webhookEvent.leadId ?? null;
+
+    if (failedLeadId) {
+      await updateLeadWebhookSnapshot(tenantContext.tenantId, failedLeadId, {
+        latestWebhookStatus: "FAILED",
+        latestWebhookReceivedAt: receivedAt,
+        latestWebhookErrorSummary: normalizedError.message
+      });
+    }
     await updateLeadSyncRun(syncRun.id, {
       status: "FAILED",
       finishedAt,
@@ -514,6 +754,13 @@ async function processQueuedYelpLeadWebhookSyncRun(tenantId: string, syncRunId: 
       message: normalizedError.message,
       processingMs: Date.now() - processingStartedAt
     });
+    await recordWebhookReconcileMetric({
+      tenantId: tenantContext.tenantId,
+      status: "FAILED",
+      processingMs: Date.now() - processingStartedAt,
+      receivedAt,
+      completedAt: finishedAt
+    });
 
     throw normalizedError;
   }
@@ -539,6 +786,12 @@ export async function retryLeadSyncRunWorkflow(tenantId: string, actorId: string
       processedAt: null,
       errorJson: null
     });
+
+    const claimed = await claimLeadWebhookSyncRunForProcessing(tenantId, syncRun.id, new Date());
+
+    if (!claimed) {
+      throw new YelpValidationError("This lead intake issue is already being retried by another worker.");
+    }
 
     const result = await processQueuedYelpLeadWebhookSyncRun(tenantId, syncRun.id);
 
@@ -597,6 +850,12 @@ export async function ingestYelpLeadWebhook(payload: unknown, headers: Headers |
     const existingWebhook = await findWebhookEventByKey(tenantContext.tenantId, eventKey);
 
     if (existingWebhook && !["FAILED", "PARTIAL", "SKIPPED"].includes(existingWebhook.status)) {
+      await recordWebhookIntakeMetric({
+        tenantId: tenantContext.tenantId,
+        deliveryStatus: "DUPLICATE",
+        occurredAt: update.interactionTime,
+        receivedAt: existingWebhook.receivedAt
+      });
       results.push({
         eventKey,
         deliveryStatus: "DUPLICATE",
@@ -659,6 +918,19 @@ export async function ingestYelpLeadWebhook(payload: unknown, headers: Headers |
       leadId: update.leadId,
       eventType: update.eventType
     });
+    if (existingWebhook?.leadId) {
+      await updateLeadWebhookSnapshot(tenantContext.tenantId, existingWebhook.leadId, {
+        latestWebhookStatus: "QUEUED",
+        latestWebhookReceivedAt: webhookEvent.receivedAt ?? new Date(),
+        latestWebhookErrorSummary: null
+      });
+    }
+    await recordWebhookIntakeMetric({
+      tenantId: tenantContext.tenantId,
+      deliveryStatus: webhookEvent.status,
+      occurredAt: update.interactionTime,
+      receivedAt: webhookEvent.receivedAt ?? new Date()
+    });
     results.push({
       eventKey,
       deliveryStatus: webhookEvent.status,
@@ -678,6 +950,7 @@ export async function ingestYelpLeadWebhook(payload: unknown, headers: Headers |
 export async function reconcilePendingLeadWebhooks(limit = 20) {
   const candidates = await listLeadWebhookSyncRunsForReconcile(limit * 2);
   const results = [];
+  const now = new Date();
 
   for (const syncRun of candidates) {
     const retryCount = getRetryCount(syncRun.statsJson);
@@ -698,6 +971,12 @@ export async function reconcilePendingLeadWebhooks(limit = 20) {
             retryCount: retryCount + 1
           }
         });
+      }
+
+      const claimed = await claimLeadWebhookSyncRunForProcessing(syncRun.tenantId, syncRun.id, now);
+
+      if (!claimed) {
+        continue;
       }
 
       const processed = await processQueuedYelpLeadWebhookSyncRun(syncRun.tenantId, syncRun.id);
@@ -1046,6 +1325,8 @@ export async function getLeadsIndex(tenantId: string, rawFilters?: LeadFiltersIn
   const filters = leadFiltersSchema.parse(rawFilters ?? {});
   const paginationFilters = {
     businessId: filters.businessId,
+    status: filters.status,
+    attention: filters.attention,
     mappingState: filters.mappingState,
     internalStatus: filters.internalStatus,
     from: filters.from ? new Date(`${filters.from}T00:00:00.000Z`) : undefined,
@@ -1062,6 +1343,8 @@ export async function getLeadsIndex(tenantId: string, rawFilters?: LeadFiltersIn
     countLeadRecords(tenantId)
   ]);
   const businessSplitCounts = await countLeadRecordsByBusiness(tenantId, {
+    status: filters.status,
+    attention: filters.attention,
     mappingState: filters.mappingState,
     internalStatus: filters.internalStatus,
     from: paginationFilters.from,
@@ -1075,142 +1358,15 @@ export async function getLeadsIndex(tenantId: string, rawFilters?: LeadFiltersIn
   let filteredLeads = 0;
   let rows: LeadListEntry[] = [];
 
-  if (filters.status) {
-    const allLeads = await listLeadRecords(tenantId, paginationFilters);
-    const matchingRows = allLeads
-      .map((lead) => buildLeadListEntry(lead))
-      .filter((lead) => lead.processingStatus === filters.status);
-    businessSplitMap = new Map<string, number>();
-
-    for (const row of matchingRows) {
-      const businessId = row.mappedBusinessId;
-
-      if (!businessId) {
-        continue;
-      }
-
-      businessSplitMap.set(businessId, (businessSplitMap.get(businessId) ?? 0) + 1);
-    }
-    filteredLeads = matchingRows.length;
-
-    const totalPages = filteredLeads === 0 ? 1 : Math.ceil(filteredLeads / requestedPageSize);
-    const currentPage = Math.min(Math.max(requestedPage, 1), totalPages);
-    const pagedRows = matchingRows.slice(
-      (currentPage - 1) * requestedPageSize,
-      (currentPage - 1) * requestedPageSize + requestedPageSize
-    );
-    const visibleLeadIds = pagedRows.map((row) => row.id);
-    const leadIssues = await listOpenOperatorIssuesForLeadIds(tenantId, visibleLeadIds);
-    const issuesByLeadId = new Map<string, typeof leadIssues>();
-
-    for (const issue of leadIssues) {
-      const key = issue.leadId;
-
-      if (!key) {
-        continue;
-      }
-
-      const current = issuesByLeadId.get(key) ?? [];
-      current.push(issue);
-      issuesByLeadId.set(key, current);
-    }
-
-    rows = pagedRows.map((row) => {
-      const openIssues = issuesByLeadId.get(row.id) ?? [];
-      const primaryIssue = openIssues[0] ?? null;
-      const combinedReasons = [...new Set([...(primaryIssue ? [primaryIssue.summary] : []), ...row.attentionReasons])];
-
-      return {
-        ...row,
-        openIssueCount: openIssues.length,
-        primaryIssue: primaryIssue
-          ? {
-              id: primaryIssue.id,
-              issueType: primaryIssue.issueType,
-              severity: primaryIssue.severity,
-              summary: primaryIssue.summary
-            }
-          : null,
-        requiresAttention: row.requiresAttention || openIssues.length > 0,
-        attentionReasons: combinedReasons
-      };
-    });
-
-    const latestBackfill = backfillRuns[0] ?? null;
-    const latestBackfillStats =
-      typeof latestBackfill?.statsJson === "object" && latestBackfill?.statsJson !== null
-        ? (latestBackfill.statsJson as {
-            importedCount?: number;
-            updatedCount?: number;
-            failedCount?: number;
-            returnedLeadIds?: number;
-            hasMore?: boolean;
-            pagesFetched?: number;
-            pageSize?: number;
-            pageLimit?: number;
-          })
-        : null;
-
-    return {
-      capabilityEnabled: capabilities.hasLeadsApi,
-      filters,
-      businesses,
-      businessSplit: businesses.map((business) => ({
-        id: business.id,
-        name: business.name,
-        count: businessSplitMap.get(business.id) ?? 0,
-        isSelected: business.id === filters.businessId
-      })),
-      summary: {
-        totalSyncedLeads,
-        filteredLeads,
-        visibleRows: rows.length,
-        mappedLeads: rows.filter((lead) => lead.mappingState === "MATCHED" || lead.mappingState === "MANUAL_OVERRIDE").length,
-        unresolvedLeads: rows.filter((lead) => lead.mappingState === "UNRESOLVED").length,
-        needsAttention: rows.filter((lead) => lead.requiresAttention).length,
-        crmIssues: rows.filter((lead) => ["FAILED", "CONFLICT", "ERROR", "STALE"].includes(lead.crmHealthStatus)).length,
-        failedDeliveries: failedDeliveries.length
-      },
-      conversionMetrics,
-      leads: rows,
-      failedDeliveries,
-      backfill: {
-        latestRun:
-          latestBackfill
-            ? {
-                id: latestBackfill.id,
-                status: latestBackfill.status,
-                businessId: latestBackfill.businessId,
-                businessName: latestBackfill.business?.name ?? "Unknown business",
-                startedAt: latestBackfill.startedAt,
-                finishedAt: latestBackfill.finishedAt,
-                importedCount: latestBackfillStats?.importedCount ?? 0,
-                updatedCount: latestBackfillStats?.updatedCount ?? 0,
-                failedCount: latestBackfillStats?.failedCount ?? latestBackfill.errors.length,
-                returnedLeadIds: latestBackfillStats?.returnedLeadIds ?? 0,
-                hasMore: latestBackfillStats?.hasMore ?? false,
-                pagesFetched: latestBackfillStats?.pagesFetched ?? 1,
-                pageSize: latestBackfillStats?.pageSize ?? YELP_LEAD_IMPORT_PAGE_SIZE,
-                pageLimit: latestBackfillStats?.pageLimit ?? YELP_LEAD_IMPORT_MAX_PAGES_PER_RUN,
-                errorSummary: latestBackfill.errorSummary
-              }
-            : null
-      },
-      pagination: {
-        currentPage,
-        pageSize: requestedPageSize,
-        totalPages,
-        visibleRows: rows.length,
-        hasPreviousPage: currentPage > 1,
-        hasNextPage: currentPage < totalPages,
-        pageSizeOptions: [...LEADS_PAGE_SIZE_OPTIONS],
-        pageRowStart: filteredLeads === 0 ? 0 : (currentPage - 1) * requestedPageSize + 1,
-        pageRowEnd: filteredLeads === 0 ? 0 : (currentPage - 1) * requestedPageSize + rows.length
-      }
-    };
-  }
-
-  filteredLeads = await countLeadRecords(tenantId, paginationFilters);
+  const attentionCountFilters = {
+    ...paginationFilters,
+    attention: "NEEDS_ATTENTION" as const
+  };
+  const [attentionLeadCount, filteredLeadCount] = await Promise.all([
+    countLeadRecords(tenantId, attentionCountFilters),
+    countLeadRecords(tenantId, paginationFilters)
+  ]);
+  filteredLeads = filteredLeadCount;
   const totalPages = filteredLeads === 0 ? 1 : Math.ceil(filteredLeads / requestedPageSize);
   const currentPage = Math.min(Math.max(requestedPage, 1), totalPages);
   const leads = await listLeadRecords(tenantId, {
@@ -1289,7 +1445,7 @@ export async function getLeadsIndex(tenantId: string, rawFilters?: LeadFiltersIn
       visibleRows: rows.length,
       mappedLeads: rows.filter((lead) => lead.mappingState === "MATCHED" || lead.mappingState === "MANUAL_OVERRIDE").length,
       unresolvedLeads: rows.filter((lead) => lead.mappingState === "UNRESOLVED").length,
-      needsAttention: rows.filter((lead) => lead.requiresAttention).length,
+      needsAttention: attentionLeadCount,
       crmIssues: rows.filter((lead) => ["FAILED", "CONFLICT", "ERROR", "STALE"].includes(lead.crmHealthStatus)).length,
       failedDeliveries: failedDeliveries.length
     },
@@ -1339,6 +1495,18 @@ export async function getLeadDetail(tenantId: string, leadId: string) {
   const latestWebhook = lead.webhookEvents[0] ?? null;
   const latestIntakeSync =
     lead.syncRuns.find((run) => run.type === "YELP_LEADS_WEBHOOK" || run.type === "YELP_LEADS_BACKFILL") ?? null;
+  const yelpConnection = getYelpConnectionSummary({
+    hasYelpBusinessId: Boolean(lead.business?.encryptedYelpBusinessId ?? lead.externalBusinessId),
+    latestWebhookStatus: latestWebhook?.status ?? "NOT_RECEIVED",
+    latestWebhookReceivedAt: latestWebhook?.receivedAt ?? lead.latestWebhookReceivedAt ?? null,
+    latestWebhookErrorSummary:
+      latestWebhook?.syncRun?.errors[0]?.message ??
+      lead.latestWebhookErrorSummary ??
+      latestWebhook?.syncRun?.errorSummary ??
+      null,
+    latestIntakeStatus: latestIntakeSync?.status ?? null,
+    latestIntakeErrorSummary: latestIntakeSync?.errors[0]?.message ?? latestIntakeSync?.errorSummary ?? null
+  });
   const crm = buildLeadCrmSummary(lead);
   const automationHistory = buildLeadAutomationHistory(lead.automationAttempts);
   const initialAutomationAttempt =
@@ -1364,6 +1532,96 @@ export async function getLeadDetail(tenantId: string, leadId: string) {
     getLeadAutomationScopeConfig(tenantId, lead.businessId ?? lead.business?.id ?? null)
   ]);
   const linkedIssues = await listOpenOperatorIssuesForLead(tenantId, leadId, 8);
+  const conversationTurns = lead.conversationAutomationTurns ?? [];
+  const latestConversationTurn = conversationTurns[0] ?? null;
+  const latestOperatorConversationActionAt =
+    lead.conversationActions
+      .filter(
+        (action) =>
+          action.initiator === "OPERATOR" &&
+          action.status === "SENT" &&
+          (action.actionType === "SEND_MESSAGE" || action.actionType === "MARK_REPLIED")
+      )
+      .map((action) => action.completedAt ?? action.createdAt)
+      .sort((left, right) => right.getTime() - left.getTime())[0] ?? null;
+  const conversationRollout = getLeadConversationRolloutState({
+    enabled: automationScope.effectiveSettings.conversationAutomationEnabled,
+    paused: automationScope.effectiveSettings.conversationGlobalPauseEnabled,
+    mode: automationScope.effectiveSettings.conversationMode
+  });
+  const conversationPolicy = {
+    enabled: automationScope.effectiveSettings.conversationAutomationEnabled,
+    paused: automationScope.effectiveSettings.conversationGlobalPauseEnabled,
+    mode: automationScope.effectiveSettings.conversationMode,
+    modeLabel: humanizeLeadConversationMode(automationScope.effectiveSettings.conversationMode),
+    rolloutLabel: conversationRollout.label,
+    rolloutDescription: conversationRollout.description,
+    pilotLabel: conversationRollout.pilotLabel,
+    allowedIntentLabels: formatConversationIntentLabels(automationScope.effectiveSettings.conversationAllowedIntents),
+    maxAutomatedTurns: automationScope.effectiveSettings.conversationMaxAutomatedTurns,
+    reviewFallbackEnabled: automationScope.effectiveSettings.conversationReviewFallbackEnabled,
+    escalateToIssueQueue: automationScope.effectiveSettings.conversationEscalateToIssueQueue
+  };
+  const conversationState = lead.conversationAutomationState
+    ? {
+        enabled: lead.conversationAutomationState.isEnabled,
+        mode: lead.conversationAutomationState.mode,
+        modeLabel: humanizeLeadConversationMode(lead.conversationAutomationState.mode),
+        automatedTurnCount: lead.conversationAutomationState.automatedTurnCount,
+        lastAutomatedReplyAt: lead.conversationAutomationState.lastAutomatedReplyAt,
+        lastInboundAt: lead.conversationAutomationState.lastInboundAt,
+        lastIntent: lead.conversationAutomationState.lastIntent,
+        lastIntentLabel: lead.conversationAutomationState.lastIntent
+          ? humanizeLeadConversationIntent(lead.conversationAutomationState.lastIntent)
+          : null,
+        lastDecision: lead.conversationAutomationState.lastDecision,
+        lastDecisionLabel: lead.conversationAutomationState.lastDecision
+          ? humanizeLeadConversationDecision(lead.conversationAutomationState.lastDecision)
+          : null,
+        lastStopReason: lead.conversationAutomationState.lastStopReason,
+        lastStopReasonLabel: lead.conversationAutomationState.lastStopReason
+          ? humanizeLeadConversationStopReason(lead.conversationAutomationState.lastStopReason)
+          : null,
+        humanTakeoverAt: lead.conversationAutomationState.humanTakeoverAt,
+        escalatedAt: lead.conversationAutomationState.escalatedAt,
+        blockedAt: lead.conversationAutomationState.blockedAt
+      }
+    : null;
+  const conversationNeedsReview = Boolean(
+    latestConversationTurn &&
+      latestConversationTurn.decision !== "AUTO_REPLY" &&
+      (!latestOperatorConversationActionAt ||
+        latestOperatorConversationActionAt.getTime() <= latestConversationTurn.createdAt.getTime())
+  );
+  const latestConversationIssue = linkedIssues.find((issue) => issue.issueType === "AUTORESPONDER_FAILURE") ?? null;
+  const conversationHistory = conversationTurns.map((turn) => {
+    const decisionTrace = buildConversationDecisionTrace(turn.metadataJson, turn.template?.name ?? null);
+
+    return {
+      id: turn.id,
+      createdAt: turn.createdAt,
+      completedAt: turn.completedAt,
+      mode: turn.mode,
+      modeLabel: humanizeLeadConversationMode(turn.mode),
+      intent: turn.intent,
+      intentLabel: humanizeLeadConversationIntent(turn.intent),
+      decision: turn.decision,
+      decisionLabel: humanizeLeadConversationDecision(turn.decision),
+      confidence: turn.confidence,
+      stopReason: turn.stopReason,
+      stopReasonLabel: turn.stopReason ? humanizeLeadConversationStopReason(turn.stopReason) : null,
+      renderedSubject: turn.renderedSubject,
+      renderedBody: turn.renderedBody,
+      errorSummary: turn.errorSummary,
+      templateName: turn.template?.name ?? null,
+      decisionTrace,
+      metadataJson: turn.metadataJson
+    };
+  });
+  const conversationSuggestionTurn =
+    conversationNeedsReview && latestConversationTurn?.decision === "REVIEW_ONLY" && latestConversationTurn.renderedBody
+      ? conversationHistory.find((turn) => turn.id === latestConversationTurn.id) ?? null
+      : null;
 
   return {
     lead,
@@ -1377,7 +1635,8 @@ export async function getLeadDetail(tenantId: string, leadId: string) {
       followUp24hEnabled: automationScope.effectiveSettings.followUp24hEnabled,
       followUp24hDelayHours: automationScope.effectiveSettings.followUp24hDelayHours,
       followUp7dEnabled: automationScope.effectiveSettings.followUp7dEnabled,
-      followUp7dDelayDays: automationScope.effectiveSettings.followUp7dDelayDays
+      followUp7dDelayDays: automationScope.effectiveSettings.followUp7dDelayDays,
+      conversationPolicy
     },
     nextFollowUp:
       nextFollowUpAttempt
@@ -1388,6 +1647,39 @@ export async function getLeadDetail(tenantId: string, leadId: string) {
           }
         : null,
     messageHistory,
+    conversationState,
+    conversationReview: {
+      needsReview: conversationNeedsReview,
+      latestOperatorActionAt: latestOperatorConversationActionAt,
+      latestIssue: latestConversationIssue
+        ? {
+            id: latestConversationIssue.id,
+            summary: latestConversationIssue.summary,
+            severity: latestConversationIssue.severity,
+            lastDetectedAt: latestConversationIssue.lastDetectedAt
+          }
+        : null
+    },
+    conversationHistory,
+    conversationSuggestion: conversationSuggestionTurn
+      ? {
+          turnId: conversationSuggestionTurn.id,
+          title: conversationSuggestionTurn.decisionTrace.templateName
+            ? `Suggested reply from ${conversationSuggestionTurn.decisionTrace.templateName}`
+            : "Suggested conversation reply",
+          subject: conversationSuggestionTurn.renderedSubject,
+          body: conversationSuggestionTurn.renderedBody ?? "",
+          warningCodes: conversationSuggestionTurn.decisionTrace.warningCodes,
+          contentSourceLabel: conversationSuggestionTurn.decisionTrace.contentSourceLabel,
+          promptSourceLabel: conversationSuggestionTurn.decisionTrace.promptSourceLabel,
+          stopReasonLabel: conversationSuggestionTurn.stopReasonLabel
+        }
+      : null,
+    conversationRecommendedNextAction: latestConversationTurn
+      ? getConversationRecommendedNextAction(latestConversationTurn.decision, latestConversationTurn.stopReason)
+      : conversationPolicy.enabled
+        ? "No inbound conversation turn has been processed yet."
+        : "Conversation automation is off for this lead scope.",
     replyComposer,
     aiAssist,
     linkedIssues: linkedIssues.map((issue) => ({
@@ -1397,6 +1689,18 @@ export async function getLeadDetail(tenantId: string, leadId: string) {
       summary: issue.summary,
       lastDetectedAt: issue.lastDetectedAt
     })),
+    yelpConnection: {
+      ...yelpConnection,
+      yelpBusinessId: lead.business?.encryptedYelpBusinessId ?? lead.externalBusinessId ?? null,
+      latestWebhookReceivedAt: latestWebhook?.receivedAt ?? lead.latestWebhookReceivedAt ?? null,
+      latestWebhookStatus: latestWebhook?.status ?? "NOT_RECEIVED",
+      latestIntakeAt:
+        latestIntakeSync?.lastSuccessfulSyncAt ??
+        latestIntakeSync?.finishedAt ??
+        latestIntakeSync?.startedAt ??
+        null,
+      latestIntakeStatus: latestIntakeSync?.status ?? null
+    },
     latestWebhookStatus: latestWebhook?.status ?? "NOT_RECEIVED",
     latestIntakeSync: latestIntakeSync
       ? {

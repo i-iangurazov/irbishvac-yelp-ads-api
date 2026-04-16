@@ -203,11 +203,13 @@ export async function listPendingReportScheduleRuns(limit = 20) {
         {
           generationStatus: {
             in: ["REQUESTED", "PROCESSING"]
-          }
+          },
+          OR: [{ lastAttemptedAt: null }, { lastAttemptedAt: { lte: new Date(Date.now() - 15 * 60 * 1000) } }]
         },
         {
           generationStatus: "READY",
-          deliveryStatus: "PENDING"
+          deliveryStatus: "PENDING",
+          OR: [{ lastAttemptedAt: null }, { lastAttemptedAt: { lte: new Date(Date.now() - 15 * 60 * 1000) } }]
         }
       ]
     },
@@ -231,6 +233,38 @@ export async function listPendingReportScheduleRuns(limit = 20) {
     orderBy: [{ createdAt: "asc" }],
     take: limit
   });
+}
+
+export async function claimPendingReportScheduleRun(
+  tenantId: string,
+  runId: string,
+  now: Date,
+  staleBefore = new Date(now.getTime() - 15 * 60 * 1000)
+) {
+  const result = await prisma.reportScheduleRun.updateMany({
+    where: {
+      id: runId,
+      tenantId,
+      OR: [
+        {
+          generationStatus: {
+            in: ["REQUESTED", "PROCESSING"]
+          },
+          OR: [{ lastAttemptedAt: null }, { lastAttemptedAt: { lte: staleBefore } }]
+        },
+        {
+          generationStatus: "READY",
+          deliveryStatus: "PENDING",
+          OR: [{ lastAttemptedAt: null }, { lastAttemptedAt: { lte: staleBefore } }]
+        }
+      ]
+    },
+    data: {
+      lastAttemptedAt: now
+    }
+  });
+
+  return result.count > 0;
 }
 
 export async function upsertReportScheduleRunByRunKey(

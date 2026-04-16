@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildBreakdownCsvRows, buildReportBreakdown } from "@/features/reporting/breakdowns";
+import { buildBreakdownCsvRows, buildReportBreakdown, buildReportBreakdownFromAggregates } from "@/features/reporting/breakdowns";
 
 const options = {
   locations: [
@@ -149,6 +149,66 @@ describe("report breakdown aggregation", () => {
       scheduled: 1,
       jobInProgress: 0,
       yelpSpendCents: 5000
+    });
+  });
+
+  it("builds the same row shape from DB-level lead aggregates without materializing every lead", () => {
+    const breakdown = buildReportBreakdownFromAggregates({
+      view: "location",
+      filters: {
+        from: "2026-04-01",
+        to: "2026-04-07",
+        locationId: undefined,
+        serviceCategoryId: undefined
+      },
+      leadAggregates: [
+        {
+          locationId: "loc_1",
+          serviceCategoryId: "svc_1",
+          internalStatus: "BOOKED",
+          totalLeads: 12,
+          mappedLeads: 10
+        },
+        {
+          locationId: "loc_1",
+          serviceCategoryId: "svc_2",
+          internalStatus: "COMPLETED",
+          totalLeads: 3,
+          mappedLeads: 3
+        },
+        {
+          locationId: null,
+          serviceCategoryId: null,
+          internalStatus: "UNMAPPED",
+          totalLeads: 2,
+          mappedLeads: 0
+        }
+      ],
+      results: [
+        {
+          business: { locationId: "loc_1" },
+          payloadJson: {
+            rows: [{ date: "2026-04-02", adSpendCents: 15000 }]
+          }
+        }
+      ],
+      options
+    });
+
+    expect(breakdown.rows.map((row) => row.bucketLabel)).toEqual(["North", "Unknown location"]);
+    expect(breakdown.rows[0]).toMatchObject({
+      totalLeads: 15,
+      mappedLeads: 13,
+      booked: 12,
+      completed: 3,
+      yelpSpendCents: 15000,
+      costPerLeadCents: 1000
+    });
+    expect(breakdown.totals).toMatchObject({
+      totalLeads: 17,
+      mappedLeads: 13,
+      booked: 12,
+      completed: 3
     });
   });
 

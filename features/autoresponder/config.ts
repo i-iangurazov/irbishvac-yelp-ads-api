@@ -7,6 +7,7 @@ import {
   defaultLeadAiModel
 } from "@/features/autoresponder/constants";
 import {
+  leadConversationAllowedIntentsSchema,
   leadAutoresponderSettingsSchema,
   type LeadAutoresponderSettingsValues
 } from "@/features/autoresponder/schemas";
@@ -62,11 +63,20 @@ export async function getLeadAutomationScopeConfig(tenantId: string, businessId?
         followUp7dEnabled: override.followUp7dEnabled,
         followUp7dDelayDays: override.followUp7dDelayDays,
         aiAssistEnabled: override.aiAssistEnabled,
-        aiModel: resolveLeadAiModel(override.aiModel)
+        aiModel: resolveLeadAiModel(override.aiModel),
+        conversationAutomationEnabled: override.isEnabled && override.conversationAutomationEnabled,
+        conversationGlobalPauseEnabled: defaults.conversationGlobalPauseEnabled,
+        conversationMode: override.conversationMode,
+        conversationAllowedIntents: leadConversationAllowedIntentsSchema.parse(override.conversationAllowedIntentsJson),
+        conversationMaxAutomatedTurns: override.conversationMaxAutomatedTurns,
+        conversationReviewFallbackEnabled: override.conversationReviewFallbackEnabled,
+        conversationEscalateToIssueQueue: override.conversationEscalateToIssueQueue
       }
     : {
         ...defaults,
-        isEnabled: defaults.isEnabled && defaultsApplyToBusiness
+        isEnabled: defaults.isEnabled && defaultsApplyToBusiness,
+        conversationAutomationEnabled:
+          defaults.conversationAutomationEnabled && defaults.isEnabled && defaultsApplyToBusiness
       };
 
   return {

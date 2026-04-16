@@ -8,6 +8,10 @@ const writeLeadEvent = vi.fn();
 const markLeadEventAsRead = vi.fn();
 const markLeadAsReplied = vi.fn();
 const sendLeadAutomationEmail = vi.fn();
+const claimExternalSideEffect = vi.fn();
+const completeExternalSideEffect = vi.fn();
+const resetExternalSideEffectClaim = vi.fn();
+const claimProviderRequestBudget = vi.fn();
 const recordAuditEvent = vi.fn();
 const syncLeadSnapshotFromYelp = vi.fn();
 const logInfo = vi.fn();
@@ -21,6 +25,16 @@ vi.mock("@/lib/db/leads-repository", () => ({
 vi.mock("@/lib/db/lead-messaging-repository", () => ({
   createLeadConversationAction,
   updateLeadConversationAction
+}));
+
+vi.mock("@/lib/db/external-side-effects-repository", () => ({
+  claimExternalSideEffect,
+  completeExternalSideEffect,
+  resetExternalSideEffectClaim
+}));
+
+vi.mock("@/features/operations/provider-budget-service", () => ({
+  claimProviderRequestBudget
 }));
 
 vi.mock("@/lib/yelp/runtime", () => ({
@@ -106,6 +120,20 @@ describe("lead messaging service", () => {
     });
     syncLeadSnapshotFromYelp.mockResolvedValue({});
     isSmtpConfigured.mockReturnValue(true);
+    claimProviderRequestBudget.mockResolvedValue({
+      used: 1,
+      limit: 600
+    });
+    claimExternalSideEffect.mockImplementation(async (params) => ({
+      claimed: true,
+      sideEffect: {
+        id: `side_effect_${params.idempotencyKey}`,
+        status: "CLAIMED",
+        idempotencyKey: params.idempotencyKey
+      }
+    }));
+    completeExternalSideEffect.mockResolvedValue({});
+    resetExternalSideEffectClaim.mockResolvedValue({});
   });
 
   it("posts an operator reply into the Yelp thread", async () => {
@@ -122,10 +150,18 @@ describe("lead messaging service", () => {
     });
 
     const { sendLeadReplyWorkflow } = await import("@/features/leads/messaging-service");
-    const result = await sendLeadReplyWorkflow("tenant_1", "user_1", "lead_local_1", {
-      channel: "YELP_THREAD",
-      body: "Hi, thanks for contacting us."
-    });
+    const result = await sendLeadReplyWorkflow(
+      "tenant_1",
+      "user_1",
+      "lead_local_1",
+      {
+        channel: "YELP_THREAD",
+        body: "Hi, thanks for contacting us."
+      },
+      {
+        idempotencyKey: "reply_001"
+      }
+    );
 
     expect(writeLeadEvent).toHaveBeenCalledWith("lead_ext_1", {
       request_content: "Hi, thanks for contacting us.",
@@ -134,6 +170,45 @@ describe("lead messaging service", () => {
     expect(result).toMatchObject({
       status: "SENT",
       channel: "YELP_THREAD"
+    });
+    expect(completeExternalSideEffect).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        status: "SUCCEEDED",
+        conversationActionId: "action_1"
+      })
+    );
+  });
+
+  it("suppresses duplicate operator replies when an idempotency key already succeeded", async () => {
+    claimExternalSideEffect.mockResolvedValueOnce({
+      claimed: false,
+      sideEffect: {
+        id: "side_effect_1",
+        status: "SUCCEEDED",
+        conversationActionId: "action_existing"
+      }
+    });
+
+    const { sendLeadReplyWorkflow } = await import("@/features/leads/messaging-service");
+    const result = await sendLeadReplyWorkflow(
+      "tenant_1",
+      "user_1",
+      "lead_local_1",
+      {
+        channel: "YELP_THREAD",
+        body: "Hi, thanks for contacting us."
+      },
+      {
+        idempotencyKey: "reply_001"
+      }
+    );
+
+    expect(writeLeadEvent).not.toHaveBeenCalled();
+    expect(createLeadConversationAction).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      status: "SENT",
+      warning: "Duplicate send suppressed by idempotency record."
     });
   });
 

@@ -13,9 +13,10 @@ import {
   serviceTitanConnectorFormSchema,
   serviceTitanReferenceSyncSchema
 } from "@/features/crm-connector/schemas";
-import { refreshOperatorIssues } from "@/features/issues/service";
+import { refreshOperatorIssues, refreshOperatorIssuesIfStale } from "@/features/issues/service";
 import { operatorIssueTypeLabels } from "@/features/issues/normalize";
 import { recordAuditEvent } from "@/features/audit/service";
+import { recordServiceTitanMetric } from "@/features/operations/observability-service";
 import { getCredentialSet, updateCredentialTestResult, upsertCredentialSet } from "@/lib/db/credentials-repository";
 import {
   createConnectorSyncError,
@@ -181,7 +182,7 @@ async function saveConnectorCatalog(tenantId: string, catalog: ServiceTitanCatal
 }
 
 export async function getServiceTitanConnectorOverview(tenantId: string) {
-  await refreshOperatorIssues(tenantId);
+  await refreshOperatorIssuesIfStale(tenantId);
 
   const connectorConfig = await getServiceTitanCredentialConfig(tenantId);
   const [credential, capabilities, counts, businesses, locations, serviceCategories, recentSyncRuns, openIssues] =
@@ -486,6 +487,11 @@ async function runLocationReferenceSync(tenantId: string, actorId: string, clien
         hasMore: result.hasMore
       }
     });
+    await recordServiceTitanMetric({
+      tenantId,
+      scope: "REFERENCE",
+      status: "SUCCEEDED"
+    });
 
     return {
       type: "LOCATION_MAPPING" as const,
@@ -519,6 +525,11 @@ async function runLocationReferenceSync(tenantId: string, actorId: string, clien
       tenantId,
       syncRunId: syncRun.id,
       message: normalized.message
+    });
+    await recordServiceTitanMetric({
+      tenantId,
+      scope: "REFERENCE",
+      status: "FAILED"
     });
 
     return {
@@ -585,6 +596,11 @@ async function runServiceReferenceSync(tenantId: string, actorId: string, client
         hasMore: result.hasMore
       }
     });
+    await recordServiceTitanMetric({
+      tenantId,
+      scope: "REFERENCE",
+      status: "SUCCEEDED"
+    });
 
     return {
       type: "SERVICE_MAPPING" as const,
@@ -618,6 +634,11 @@ async function runServiceReferenceSync(tenantId: string, actorId: string, client
       tenantId,
       syncRunId: syncRun.id,
       message: normalized.message
+    });
+    await recordServiceTitanMetric({
+      tenantId,
+      scope: "REFERENCE",
+      status: "FAILED"
     });
 
     return {

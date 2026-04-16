@@ -31,7 +31,9 @@ const serverEnvSchema = z.object({
   SMTP_USER: z.string().optional(),
   SMTP_PASSWORD: z.string().optional(),
   SMTP_FROM: z.string().email().optional(),
-  SMTP_REPLY_TO: z.string().email().optional()
+  SMTP_REPLY_TO: z.string().email().optional(),
+  OPERATIONS_ALERT_WEBHOOK_URL: z.string().url().optional(),
+  OPERATIONS_ALERT_WEBHOOK_SECRET: z.string().optional()
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;

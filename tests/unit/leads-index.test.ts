@@ -16,6 +16,7 @@ const listLeadBusinessOptions = vi.fn();
 const listLeadRecords = vi.fn();
 const listLeadWebhookSyncRunsForReconcile = vi.fn();
 const updateLeadSyncRun = vi.fn();
+const updateLeadWebhookSnapshot = vi.fn();
 const updateWebhookEventRecord = vi.fn();
 const upsertLeadEventRecords = vi.fn();
 const upsertLeadRecord = vi.fn();
@@ -36,6 +37,8 @@ const listOpenOperatorIssuesForLeadIds = vi.fn();
 const getAiReplyAssistantState = vi.fn();
 const getLeadReplyComposerState = vi.fn();
 const getLeadAutomationScopeConfig = vi.fn();
+const recordWebhookIntakeMetric = vi.fn();
+const recordWebhookReconcileMetric = vi.fn();
 
 vi.mock("@/lib/db/businesses-repository", () => ({
   getBusinessById
@@ -57,6 +60,7 @@ vi.mock("@/lib/db/leads-repository", () => ({
   listLeadRecords,
   listLeadWebhookSyncRunsForReconcile,
   updateLeadSyncRun,
+  updateLeadWebhookSnapshot,
   updateWebhookEventRecord,
   upsertLeadEventRecords,
   upsertLeadRecord
@@ -76,6 +80,11 @@ vi.mock("@/features/autoresponder/service", () => ({
 
 vi.mock("@/features/autoresponder/config", () => ({
   getLeadAutomationScopeConfig
+}));
+
+vi.mock("@/features/operations/observability-service", () => ({
+  recordWebhookIntakeMetric,
+  recordWebhookReconcileMetric
 }));
 
 vi.mock("@/features/crm-enrichment/service", () => ({
@@ -267,6 +276,37 @@ describe("getLeadsIndex", () => {
   });
 
   it("separates total synced leads from filtered leads and latest Yelp import page stats", async () => {
+    countLeadRecords.mockReset();
+    countLeadRecords.mockResolvedValueOnce(146).mockResolvedValueOnce(1).mockResolvedValueOnce(1);
+    countLeadRecordsByBusiness.mockResolvedValueOnce([
+      {
+        businessId: "business_1",
+        _count: {
+          _all: 1
+        }
+      }
+    ]);
+    listLeadRecords.mockResolvedValueOnce([
+      {
+        id: "lead_1",
+        externalLeadId: "lead_ext_1",
+        externalBusinessId: "ys4FVTHxbSepIkvCLHYxCA",
+        customerName: "Jane Doe",
+        createdAtYelp: new Date("2026-04-01T09:00:00.000Z"),
+        latestInteractionAt: new Date("2026-04-03T09:30:00.000Z"),
+        lastSyncedAt: new Date("2026-04-03T09:31:00.000Z"),
+        replyState: "UNREAD",
+        business: { id: "business_1", name: "IRBIS Air Plumbing Electrical" },
+        latestWebhookStatus: "COMPLETED",
+        crmLeadMappings: [],
+        crmStatusEvents: [],
+        automationAttempts: [],
+        syncRuns: [],
+        internalStatus: "UNMAPPED",
+        _count: { events: 1, webhookEvents: 1, crmStatusEvents: 0, automationAttempts: 0 }
+      }
+    ]);
+
     const { getLeadsIndex } = await import("@/features/leads/service");
 
     const result = await getLeadsIndex("tenant_1", {
@@ -312,6 +352,17 @@ describe("getLeadsIndex", () => {
     expect(countLeadRecords).toHaveBeenNthCalledWith(1, "tenant_1");
     expect(countLeadRecords).toHaveBeenNthCalledWith(2, "tenant_1", {
       businessId: undefined,
+      status: undefined,
+      attention: "NEEDS_ATTENTION",
+      mappingState: undefined,
+      internalStatus: undefined,
+      from: undefined,
+      to: undefined
+    });
+    expect(countLeadRecords).toHaveBeenNthCalledWith(3, "tenant_1", {
+      businessId: undefined,
+      status: undefined,
+      attention: undefined,
       mappingState: undefined,
       internalStatus: undefined,
       from: undefined,
@@ -319,6 +370,8 @@ describe("getLeadsIndex", () => {
     });
     expect(listLeadRecords).toHaveBeenCalledWith("tenant_1", {
       businessId: undefined,
+      status: undefined,
+      attention: undefined,
       mappingState: undefined,
       internalStatus: undefined,
       from: undefined,
@@ -326,6 +379,36 @@ describe("getLeadsIndex", () => {
       skip: 25,
       take: 25
     });
+  });
+
+  it("passes the needs-attention filter into DB-backed count, split, and list queries", async () => {
+    const { getLeadsIndex } = await import("@/features/leads/service");
+
+    await getLeadsIndex("tenant_1", {
+      attention: "NEEDS_ATTENTION",
+      businessId: "business_1"
+    });
+
+    expect(countLeadRecordsByBusiness).toHaveBeenCalledWith(
+      "tenant_1",
+      expect.objectContaining({
+        attention: "NEEDS_ATTENTION"
+      })
+    );
+    expect(countLeadRecords).toHaveBeenCalledWith(
+      "tenant_1",
+      expect.objectContaining({
+        businessId: "business_1",
+        attention: "NEEDS_ATTENTION"
+      })
+    );
+    expect(listLeadRecords).toHaveBeenCalledWith(
+      "tenant_1",
+      expect.objectContaining({
+        businessId: "business_1",
+        attention: "NEEDS_ATTENTION"
+      })
+    );
   });
 });
 

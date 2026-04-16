@@ -103,11 +103,11 @@ export function ServiceTitanConnectorForm({
   };
 
   return (
-    <Card>
+    <Card className="shadow-none">
       <CardHeader>
         <CardTitle>ServiceTitan connector</CardTitle>
         <CardDescription>
-          Save connector credentials, tenant configuration, and environment in one place. Secrets are encrypted and never shown after save.
+          Save connector credentials, tenant configuration, and environment in one place.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -181,4 +181,3 @@ export function ServiceTitanConnectorForm({
     </Card>
   );
 }
-

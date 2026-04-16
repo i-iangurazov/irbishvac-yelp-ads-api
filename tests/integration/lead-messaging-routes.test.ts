@@ -62,7 +62,8 @@ describe("lead messaging routes", () => {
           edited: true,
           warningCodes: ["INSUFFICIENT_CONTEXT"]
         }
-      })
+      }),
+      { idempotencyKey: null }
     );
   });
 

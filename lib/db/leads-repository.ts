@@ -7,35 +7,133 @@ import { toJsonValue } from "@/lib/db/json";
 
 type LeadRecordFilters = {
   businessId?: string;
+  status?: SyncRunStatus | "NOT_RECEIVED";
+  attention?: "NEEDS_ATTENTION";
   mappingState?: string;
   internalStatus?: string;
   from?: Date;
   to?: Date;
 };
 
-function buildLeadRecordWhere(tenantId: string, filters?: LeadRecordFilters): Prisma.YelpLeadWhereInput {
+function buildLeadAttentionWhere(): Prisma.YelpLeadWhereInput {
   return {
-    tenantId,
-    ...(filters?.businessId ? { businessId: filters.businessId } : {}),
-    ...(filters?.mappingState
-      ? {
-          crmLeadMappings: {
-            some: {
-              state: filters.mappingState as never
+    OR: [
+      {
+        latestWebhookStatus: {
+          in: ["FAILED", "PARTIAL"]
+        }
+      },
+      {
+        webhookEvents: {
+          some: {
+            status: {
+              in: ["FAILED", "PARTIAL"]
             }
           }
         }
-      : {}),
-    ...(filters?.internalStatus ? { internalStatus: filters.internalStatus as never } : {}),
-    ...(filters?.from || filters?.to
-      ? {
-          createdAtYelp: {
-            ...(filters.from ? { gte: filters.from } : {}),
-            ...(filters.to ? { lte: filters.to } : {})
+      },
+      {
+        crmLeadMappings: {
+          none: {}
+        }
+      },
+      {
+        crmLeadMappings: {
+          some: {
+            state: {
+              in: ["UNRESOLVED", "CONFLICT", "ERROR"]
+            }
           }
         }
-      : {})
+      },
+      {
+        syncRuns: {
+          some: {
+            type: "CRM_LEAD_ENRICHMENT",
+            status: {
+              in: ["FAILED", "PARTIAL"]
+            }
+          }
+        }
+      },
+      {
+        automationAttempts: {
+          some: {
+            status: "FAILED"
+          }
+        }
+      },
+      {
+        operatorIssues: {
+          some: {
+            status: "OPEN"
+          }
+        }
+      }
+    ]
   };
+}
+
+function buildLeadRecordWhere(tenantId: string, filters?: LeadRecordFilters): Prisma.YelpLeadWhereInput {
+  const and: Prisma.YelpLeadWhereInput[] = [{ tenantId }];
+
+  if (filters?.businessId) {
+    and.push({ businessId: filters.businessId });
+  }
+
+  if (filters?.status) {
+    if (filters.status === "NOT_RECEIVED") {
+      and.push({
+        latestWebhookStatus: null,
+        lastSyncedAt: null
+      });
+    } else if (filters.status === "COMPLETED") {
+      and.push({
+        OR: [
+          { latestWebhookStatus: "COMPLETED" },
+          {
+            latestWebhookStatus: null,
+            lastSyncedAt: {
+              not: null
+            }
+          }
+        ]
+      });
+    } else {
+      and.push({
+        latestWebhookStatus: filters.status
+      });
+    }
+  }
+
+  if (filters?.attention) {
+    and.push(buildLeadAttentionWhere());
+  }
+
+  if (filters?.mappingState) {
+    and.push({
+      crmLeadMappings: {
+        some: {
+          state: filters.mappingState as never
+        }
+      }
+    });
+  }
+
+  if (filters?.internalStatus) {
+    and.push({ internalStatus: filters.internalStatus as never });
+  }
+
+  if (filters?.from || filters?.to) {
+    and.push({
+      createdAtYelp: {
+        ...(filters.from ? { gte: filters.from } : {}),
+        ...(filters.to ? { lte: filters.to } : {})
+      }
+    });
+  }
+
+  return and.length === 1 ? and[0] : { AND: and };
 }
 
 export async function findBusinessesByExternalYelpBusinessId(externalBusinessId: string) {
@@ -227,33 +325,72 @@ export async function updateWebhookEventRecord(
 }
 
 export async function listLeadWebhookSyncRunsForReconcile(limit = 20) {
+  const staleBefore = new Date(Date.now() - 15 * 60 * 1000);
+
   return prisma.syncRun.findMany({
     where: {
       type: "YELP_LEADS_WEBHOOK",
-      status: {
-        in: ["QUEUED", "FAILED"]
-      }
-    },
-    include: {
-      business: {
-        select: {
-          id: true,
-          name: true,
-          encryptedYelpBusinessId: true,
-          locationId: true
+      OR: [
+        {
+          status: {
+            in: ["QUEUED", "FAILED"]
+          }
+        },
+        {
+          status: "PROCESSING",
+          updatedAt: {
+            lte: staleBefore
+          }
         }
-      },
-      webhookEvents: {
-        orderBy: [{ receivedAt: "desc" }, { createdAt: "desc" }],
-        take: 1
-      },
+      ]
+    },
+    select: {
+      id: true,
+      tenantId: true,
+      status: true,
+      statsJson: true,
+      updatedAt: true,
       errors: {
-        orderBy: [{ occurredAt: "desc" }]
+        orderBy: [{ occurredAt: "desc" }],
+        take: 1
       }
     },
     orderBy: [{ createdAt: "desc" }, { startedAt: "desc" }],
     take: limit
   });
+}
+
+export async function claimLeadWebhookSyncRunForProcessing(
+  tenantId: string,
+  syncRunId: string,
+  now: Date,
+  staleBefore = new Date(now.getTime() - 15 * 60 * 1000)
+) {
+  const result = await prisma.syncRun.updateMany({
+    where: {
+      id: syncRunId,
+      tenantId,
+      type: "YELP_LEADS_WEBHOOK",
+      OR: [
+        {
+          status: "QUEUED"
+        },
+        {
+          status: "PROCESSING",
+          updatedAt: {
+            lte: staleBefore
+          }
+        }
+      ]
+    },
+    data: {
+      status: "PROCESSING",
+      finishedAt: null,
+      errorSummary: null
+    }
+  });
+
+  return result.count > 0;
 }
 
 export async function getLeadSyncRunById(tenantId: string, syncRunId: string) {
@@ -311,6 +448,28 @@ export async function upsertLeadRecord(
       tenantId,
       externalLeadId,
       ...data
+    }
+  });
+}
+
+export async function updateLeadWebhookSnapshot(
+  tenantId: string,
+  leadId: string,
+  data: {
+    latestWebhookStatus?: SyncRunStatus | null;
+    latestWebhookReceivedAt?: Date | null;
+    latestWebhookErrorSummary?: string | null;
+  }
+) {
+  return prisma.yelpLead.updateMany({
+    where: {
+      tenantId,
+      id: leadId
+    },
+    data: {
+      ...(data.latestWebhookStatus !== undefined ? { latestWebhookStatus: data.latestWebhookStatus } : {}),
+      ...(data.latestWebhookReceivedAt !== undefined ? { latestWebhookReceivedAt: data.latestWebhookReceivedAt } : {}),
+      ...(data.latestWebhookErrorSummary !== undefined ? { latestWebhookErrorSummary: data.latestWebhookErrorSummary } : {})
     }
   });
 }
@@ -402,10 +561,6 @@ export async function listLeadRecords(
           id: true,
           name: true
         }
-      },
-      webhookEvents: {
-        orderBy: [{ receivedAt: "desc" }, { createdAt: "desc" }],
-        take: 1
       },
       crmLeadMappings: {
         include: {
@@ -632,6 +787,19 @@ export async function getLeadRecordById(tenantId: string, leadId: string) {
           }
         },
         orderBy: [{ createdAt: "desc" }, { completedAt: "desc" }]
+      },
+      conversationAutomationState: true,
+      conversationAutomationTurns: {
+        include: {
+          template: {
+            select: {
+              id: true,
+              name: true
+            }
+          }
+        },
+        orderBy: [{ createdAt: "desc" }],
+        take: 10
       },
       webhookEvents: {
         include: {

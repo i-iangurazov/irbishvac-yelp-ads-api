@@ -33,6 +33,12 @@ Escalation guidance:
 - Yellow: operator reviews `/audit` same day
 - Red: technical owner investigates immediately; consider narrowing rollout or using manual recovery until fixed
 
+Current in-app support:
+
+- `/audit` shows stale, failed, and partial webhook events in Webhook and reconcile drilldown.
+- `/api/internal/operations/alerts` evaluates webhook backlog and failure thresholds.
+- `/api/internal/operations/alerts?dispatch=1` sends a digest to `OPERATIONS_ALERT_WEBHOOK_URL` when configured.
+
 ## 2. Follow-up execution lag thresholds
 
 Definition:
@@ -78,6 +84,11 @@ Escalation guidance:
 - Yellow: review config, thread eligibility, and queue issues same day
 - Red: disable autoresponder for the affected business until root cause is understood
 
+Current in-app support:
+
+- alert evaluation warns on any failed autoresponder sends in 24 hours
+- alert evaluation marks 3+ failed autoresponder sends in 24 hours as critical
+
 ## 4. Unmapped lead thresholds
 
 Definition:
@@ -121,6 +132,10 @@ Escalation guidance:
 
 - Yellow: review recipient routing and SMTP same day
 - Red: disable affected schedule until corrected
+
+Current in-app support:
+
+- alert evaluation warns on any report delivery failures in the last 7 days
 
 ## 6. Escalation matrix
 

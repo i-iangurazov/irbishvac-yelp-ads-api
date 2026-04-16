@@ -6,6 +6,7 @@ const emptyToUndefined = <TSchema extends z.ZodTypeAny>(schema: TSchema) =>
 export const leadFiltersSchema = z.object({
   businessId: emptyToUndefined(z.string().min(1)),
   status: emptyToUndefined(z.enum(["QUEUED", "PROCESSING", "COMPLETED", "PARTIAL", "FAILED", "SKIPPED", "NOT_RECEIVED"])),
+  attention: emptyToUndefined(z.enum(["NEEDS_ATTENTION"])),
   mappingState: emptyToUndefined(z.enum(["UNRESOLVED", "MATCHED", "MANUAL_OVERRIDE", "CONFLICT", "ERROR"])),
   internalStatus: emptyToUndefined(
     z.enum(["UNMAPPED", "ACTIVE", "NEW", "CONTACTED", "BOOKED", "SCHEDULED", "JOB_IN_PROGRESS", "COMPLETED", "CANCELED", "CLOSED_WON", "CLOSED_LOST", "LOST"])

@@ -19,6 +19,14 @@ export type ReportBreakdownLead = {
   }> | null;
 };
 
+export type ReportBreakdownAggregateRow = {
+  locationId?: string | null;
+  serviceCategoryId?: string | null;
+  internalStatus: InternalLeadStatus;
+  totalLeads: number;
+  mappedLeads: number;
+};
+
 export type ReportBreakdownResult = {
   business?: {
     locationId?: string | null;
@@ -248,136 +256,89 @@ function matchesBucketFilter(bucketId: string, selected?: string) {
   return bucketId === selected;
 }
 
-export function buildReportBreakdown(params: {
+function createReportBreakdownRow(params: {
+  bucketId: string;
   view: ReportingDimension;
-  filters: Pick<ReportBreakdownFiltersInput, "from" | "to" | "locationId" | "serviceCategoryId"> & {
-    from: string;
-    to: string;
-  };
-  leads: ReportBreakdownLead[];
-  results: ReportBreakdownResult[];
   options: ReportBreakdownOptions;
-}) {
-  const from = new Date(`${params.filters.from}T00:00:00.000Z`);
-  const to = new Date(`${params.filters.to}T23:59:59.999Z`);
-  const rows = new Map<string, ReportBreakdownRow>();
-
-  const ensureRow = (bucketId: string) => {
-    const existing = rows.get(bucketId);
-
-    if (existing) {
-      return existing;
-    }
-
-    const row: ReportBreakdownRow = {
-      bucketId,
-      bucketLabel:
-        params.view === "location" ? resolveLocationLabel(bucketId, params.options) : resolveServiceLabel(bucketId, params.options),
-      totalLeads: 0,
-      mappedLeads: 0,
-      active: 0,
-      contacted: 0,
-      booked: 0,
-      scheduled: 0,
-      jobInProgress: 0,
-      completed: 0,
-      won: 0,
-      lost: 0,
-      mappingRate: 0,
-      bookedRate: 0,
-      scheduledRate: 0,
-      completionRate: 0,
-      winRate: 0,
-      closeRate: 0,
-      yelpSpendCents: 0,
-      costPerLeadCents: null,
-      costPerBookedJobCents: null,
-      costPerCompletedJobCents: null,
-      leadSharePct: 0,
-      spendSharePct: 0
-    };
-
-    rows.set(bucketId, row);
-    return row;
+}): ReportBreakdownRow {
+  return {
+    bucketId: params.bucketId,
+    bucketLabel:
+      params.view === "location" ? resolveLocationLabel(params.bucketId, params.options) : resolveServiceLabel(params.bucketId, params.options),
+    totalLeads: 0,
+    mappedLeads: 0,
+    active: 0,
+    contacted: 0,
+    booked: 0,
+    scheduled: 0,
+    jobInProgress: 0,
+    completed: 0,
+    won: 0,
+    lost: 0,
+    mappingRate: 0,
+    bookedRate: 0,
+    scheduledRate: 0,
+    completionRate: 0,
+    winRate: 0,
+    closeRate: 0,
+    yelpSpendCents: 0,
+    costPerLeadCents: null,
+    costPerBookedJobCents: null,
+    costPerCompletedJobCents: null,
+    leadSharePct: 0,
+    spendSharePct: 0
   };
+}
 
-  for (const lead of params.leads) {
-    if (!inRange(lead.createdAtYelp, from, to)) {
-      continue;
-    }
+function applyLeadCountsToRow(
+  row: ReportBreakdownRow,
+  params: {
+    internalStatus: InternalLeadStatus;
+    totalLeads: number;
+    mappedLeads: number;
+  }
+) {
+  row.totalLeads += params.totalLeads;
+  row.mappedLeads += params.mappedLeads;
 
-    const leadLocationBucketId = resolveLeadLocationBucketId(lead);
-    const leadServiceBucketId = resolveLeadServiceBucketId(lead);
-
-    if (!matchesBucketFilter(leadLocationBucketId, params.filters.locationId)) {
-      continue;
-    }
-
-    if (!matchesBucketFilter(leadServiceBucketId, params.filters.serviceCategoryId)) {
-      continue;
-    }
-
-    const row = ensureRow(params.view === "location" ? leadLocationBucketId : leadServiceBucketId);
-
-    row.totalLeads += 1;
-
-    if (isResolvedMappingState(lead.crmLeadMappings?.[0]?.state)) {
-      row.mappedLeads += 1;
-    }
-
-    if (lead.internalStatus === "ACTIVE") {
-      row.active += 1;
-    }
-
-    if (lead.internalStatus === "CONTACTED") {
-      row.contacted += 1;
-    }
-
-    if (lead.internalStatus === "BOOKED") {
-      row.booked += 1;
-    }
-
-    if (lead.internalStatus === "SCHEDULED") {
-      row.scheduled += 1;
-    }
-
-    if (lead.internalStatus === "JOB_IN_PROGRESS") {
-      row.jobInProgress += 1;
-    }
-
-    if (lead.internalStatus === "COMPLETED" || lead.internalStatus === "CLOSED_WON") {
-      row.completed += 1;
-    }
-
-    if (lead.internalStatus === "CLOSED_WON") {
-      row.won += 1;
-    }
-
-    if (lead.internalStatus === "CLOSED_LOST" || lead.internalStatus === "LOST") {
-      row.lost += 1;
-    }
+  if (params.internalStatus === "ACTIVE") {
+    row.active += params.totalLeads;
   }
 
-  const spendEntries = buildSpendEntries(params.results, params.options);
-
-  for (const entry of spendEntries) {
-    if (!inRange(entry.date, from, to)) {
-      continue;
-    }
-
-    if (!matchesBucketFilter(entry.locationBucketId, params.filters.locationId)) {
-      continue;
-    }
-
-    if (!matchesBucketFilter(entry.serviceBucketId, params.filters.serviceCategoryId)) {
-      continue;
-    }
-
-    const row = ensureRow(params.view === "location" ? entry.locationBucketId : entry.serviceBucketId);
-    row.yelpSpendCents += entry.yelpSpendCents;
+  if (params.internalStatus === "CONTACTED") {
+    row.contacted += params.totalLeads;
   }
 
-  const outputRows = [...rows.values()].sort((left, right) => {
+  if (params.internalStatus === "BOOKED") {
+    row.booked += params.totalLeads;
+  }
+
+  if (params.internalStatus === "SCHEDULED") {
+    row.scheduled += params.totalLeads;
+  }
+
+  if (params.internalStatus === "JOB_IN_PROGRESS") {
+    row.jobInProgress += params.totalLeads;
+  }
+
+  if (params.internalStatus === "COMPLETED" || params.internalStatus === "CLOSED_WON") {
+    row.completed += params.totalLeads;
+  }
+
+  if (params.internalStatus === "CLOSED_WON") {
+    row.won += params.totalLeads;
+  }
+
+  if (params.internalStatus === "CLOSED_LOST" || params.internalStatus === "LOST") {
+    row.lost += params.totalLeads;
+  }
+}
+
+function finalizeReportBreakdownRows(params: {
+  view: ReportingDimension;
+  rows: Map<string, ReportBreakdownRow>;
+}) {
+  const outputRows = [...params.rows.values()].sort((left, right) => {
     if (left.bucketId === reportUnknownBucketValue && right.bucketId !== reportUnknownBucketValue) {
       return 1;
     }
@@ -456,6 +417,151 @@ export function buildReportBreakdown(params: {
       costPerCompletedJobCents: totals.completed > 0 ? Math.round(totals.yelpSpendCents / totals.completed) : null
     }
   };
+}
+
+function applySpendEntriesToRows(params: {
+  view: ReportingDimension;
+  filters: Pick<ReportBreakdownFiltersInput, "from" | "to" | "locationId" | "serviceCategoryId"> & {
+    from: string;
+    to: string;
+  };
+  results: ReportBreakdownResult[];
+  options: ReportBreakdownOptions;
+  ensureRow: (bucketId: string) => ReportBreakdownRow;
+}) {
+  const from = new Date(`${params.filters.from}T00:00:00.000Z`);
+  const to = new Date(`${params.filters.to}T23:59:59.999Z`);
+  const spendEntries = buildSpendEntries(params.results, params.options);
+
+  for (const entry of spendEntries) {
+    if (!inRange(entry.date, from, to)) {
+      continue;
+    }
+
+    if (!matchesBucketFilter(entry.locationBucketId, params.filters.locationId)) {
+      continue;
+    }
+
+    if (!matchesBucketFilter(entry.serviceBucketId, params.filters.serviceCategoryId)) {
+      continue;
+    }
+
+    const row = params.ensureRow(params.view === "location" ? entry.locationBucketId : entry.serviceBucketId);
+    row.yelpSpendCents += entry.yelpSpendCents;
+  }
+}
+
+export function buildReportBreakdown(params: {
+  view: ReportingDimension;
+  filters: Pick<ReportBreakdownFiltersInput, "from" | "to" | "locationId" | "serviceCategoryId"> & {
+    from: string;
+    to: string;
+  };
+  leads: ReportBreakdownLead[];
+  results: ReportBreakdownResult[];
+  options: ReportBreakdownOptions;
+}) {
+  const from = new Date(`${params.filters.from}T00:00:00.000Z`);
+  const to = new Date(`${params.filters.to}T23:59:59.999Z`);
+  const rows = new Map<string, ReportBreakdownRow>();
+
+  const ensureRow = (bucketId: string) => {
+    const existing = rows.get(bucketId);
+
+    if (existing) {
+      return existing;
+    }
+
+    const row = createReportBreakdownRow({ bucketId, view: params.view, options: params.options });
+
+    rows.set(bucketId, row);
+    return row;
+  };
+
+  for (const lead of params.leads) {
+    if (!inRange(lead.createdAtYelp, from, to)) {
+      continue;
+    }
+
+    const leadLocationBucketId = resolveLeadLocationBucketId(lead);
+    const leadServiceBucketId = resolveLeadServiceBucketId(lead);
+
+    if (!matchesBucketFilter(leadLocationBucketId, params.filters.locationId)) {
+      continue;
+    }
+
+    if (!matchesBucketFilter(leadServiceBucketId, params.filters.serviceCategoryId)) {
+      continue;
+    }
+
+    const row = ensureRow(params.view === "location" ? leadLocationBucketId : leadServiceBucketId);
+
+    applyLeadCountsToRow(row, {
+      internalStatus: lead.internalStatus,
+      totalLeads: 1,
+      mappedLeads: isResolvedMappingState(lead.crmLeadMappings?.[0]?.state) ? 1 : 0
+    });
+  }
+
+  applySpendEntriesToRows({
+    view: params.view,
+    filters: params.filters,
+    results: params.results,
+    options: params.options,
+    ensureRow
+  });
+
+  return finalizeReportBreakdownRows({ view: params.view, rows });
+}
+
+export function buildReportBreakdownFromAggregates(params: {
+  view: ReportingDimension;
+  filters: Pick<ReportBreakdownFiltersInput, "from" | "to" | "locationId" | "serviceCategoryId"> & {
+    from: string;
+    to: string;
+  };
+  leadAggregates: ReportBreakdownAggregateRow[];
+  results: ReportBreakdownResult[];
+  options: ReportBreakdownOptions;
+}) {
+  const rows = new Map<string, ReportBreakdownRow>();
+  const ensureRow = (bucketId: string) => {
+    const existing = rows.get(bucketId);
+
+    if (existing) {
+      return existing;
+    }
+
+    const row = createReportBreakdownRow({ bucketId, view: params.view, options: params.options });
+    rows.set(bucketId, row);
+    return row;
+  };
+
+  for (const aggregate of params.leadAggregates) {
+    const leadLocationBucketId = aggregate.locationId ?? reportUnknownBucketValue;
+    const leadServiceBucketId = aggregate.serviceCategoryId ?? reportUnknownBucketValue;
+
+    if (!matchesBucketFilter(leadLocationBucketId, params.filters.locationId)) {
+      continue;
+    }
+
+    if (!matchesBucketFilter(leadServiceBucketId, params.filters.serviceCategoryId)) {
+      continue;
+    }
+
+    const row = ensureRow(params.view === "location" ? leadLocationBucketId : leadServiceBucketId);
+    applyLeadCountsToRow(row, aggregate);
+  }
+
+  applySpendEntriesToRows({
+    view: params.view,
+    filters: params.filters,
+    results: params.results,
+    options: params.options,
+    ensureRow
+  });
+
+  return finalizeReportBreakdownRows({ view: params.view, rows });
 }
 
 export function buildBreakdownCsvRows(breakdown: { rows: ReportBreakdownRow[] }) {

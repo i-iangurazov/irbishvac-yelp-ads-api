@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const countOperatorIssues = vi.fn();
 const createOperatorIssue = vi.fn();
+const getOperatorIssueSummaryCounts = vi.fn();
 const getOperatorIssueById = vi.fn();
+const getSystemSetting = vi.fn();
 const listAutoresponderFailureCandidates = vi.fn();
 const listCrmSyncFailureCandidates = vi.fn();
 const listExistingOperatorIssues = vi.fn();
@@ -16,14 +19,18 @@ const listStaleLifecycleSyncCandidates = vi.fn();
 const listStaleLeadCandidates = vi.fn();
 const listUnmappedLeadCandidates = vi.fn();
 const updateOperatorIssue = vi.fn();
+const upsertSystemSetting = vi.fn();
 const recordAuditEvent = vi.fn();
 const resendReportScheduleRunWorkflow = vi.fn();
 const retryLeadAutomationAttemptWorkflow = vi.fn();
 const retryLeadSyncRunWorkflow = vi.fn();
 const retryCrmSyncRunWorkflow = vi.fn();
+const recordOperatorIssueRefreshMetrics = vi.fn();
 
 vi.mock("@/lib/db/issues-repository", () => ({
+  countOperatorIssues,
   createOperatorIssue,
+  getOperatorIssueSummaryCounts,
   getOperatorIssueById,
   listAutoresponderFailureCandidates,
   listCrmSyncFailureCandidates,
@@ -39,6 +46,11 @@ vi.mock("@/lib/db/issues-repository", () => ({
   listStaleLeadCandidates,
   listUnmappedLeadCandidates,
   updateOperatorIssue
+}));
+
+vi.mock("@/lib/db/settings-repository", () => ({
+  getSystemSetting,
+  upsertSystemSetting
 }));
 
 vi.mock("@/features/audit/service", () => ({
@@ -61,6 +73,10 @@ vi.mock("@/features/crm-enrichment/service", () => ({
   retryCrmSyncRunWorkflow
 }));
 
+vi.mock("@/features/operations/observability-service", () => ({
+  recordOperatorIssueRefreshMetrics
+}));
+
 describe("operator issue service", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -75,6 +91,18 @@ describe("operator issue service", () => {
     listStaleLeadCandidates.mockResolvedValue([]);
     listExistingOperatorIssues.mockResolvedValue([]);
     listIssueAuditContext.mockResolvedValue([]);
+    countOperatorIssues.mockResolvedValue(0);
+    getOperatorIssueSummaryCounts.mockResolvedValue({
+      total: 0,
+      open: 0,
+      highSeverity: 0,
+      retryableOpen: 0,
+      deliveryFailures: 0,
+      unmappedLeads: 0,
+      staleLeads: 0
+    });
+    getSystemSetting.mockResolvedValue(null);
+    upsertSystemSetting.mockResolvedValue(null);
     listOperatorIssueFilterOptions.mockResolvedValue({
       businesses: [],
       locations: []
@@ -129,24 +157,66 @@ describe("operator issue service", () => {
         resolutionReason: "AUTO_CLEARED"
       })
     );
+    expect(recordOperatorIssueRefreshMetrics).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: "tenant_1",
+        reopenedCount: 1,
+        autoResolvedCount: 1
+      })
+    );
+  });
+
+  it("escalates repeatedly detected worker failures as dead-letter issues", async () => {
+    listExistingOperatorIssues.mockResolvedValueOnce([
+      {
+        id: "issue_sync",
+        dedupeKey: "lead-sync:sync_run_1",
+        status: "OPEN",
+        detectedCount: 2
+      }
+    ]);
+    listLeadSyncFailureCandidates.mockResolvedValueOnce([
+      {
+        id: "sync_run_1",
+        type: "YELP_LEADS_WEBHOOK",
+        status: "FAILED",
+        sourceSystem: "YELP",
+        businessId: "business_1",
+        locationId: "location_1",
+        leadId: "lead_1",
+        startedAt: new Date("2026-04-02T09:00:00.000Z"),
+        finishedAt: new Date("2026-04-02T09:01:00.000Z"),
+        errorSummary: "Yelp lead fetch failed.",
+        business: { id: "business_1", name: "Northwind", locationId: "location_1" },
+        location: { id: "location_1", name: "Downtown" },
+        lead: { id: "lead_1", businessId: "business_1", locationId: "location_1" },
+        errors: [{ message: "Yelp returned 500", code: "YELP_500" }]
+      }
+    ]);
+
+    const { refreshOperatorIssues } = await import("@/features/issues/service");
+    await refreshOperatorIssues("tenant_1");
+
+    expect(updateOperatorIssue).toHaveBeenCalledWith(
+      "issue_sync",
+      expect.objectContaining({
+        status: "OPEN",
+        severity: "CRITICAL",
+        detectedCount: 3,
+        title: "Repeated worker failure: Lead intake sync failed",
+        summary: expect.stringContaining("Detected 3 times"),
+        detailsJson: expect.objectContaining({
+          deadLetter: true,
+          deadLetterReason: "REPEATED_WORKER_FAILURE",
+          detectedCount: 3,
+          threshold: 3
+        })
+      })
+    );
   });
 
   it("builds queue summary and row hints from filtered issues", async () => {
     listOperatorIssues
-      .mockResolvedValueOnce([
-        {
-          id: "issue_1",
-          status: "OPEN",
-          severity: "HIGH",
-          issueType: "UNMAPPED_LEAD"
-        },
-        {
-          id: "issue_2",
-          status: "OPEN",
-          severity: "MEDIUM",
-          issueType: "REPORT_DELIVERY_FAILURE"
-        }
-      ])
       .mockResolvedValueOnce([
         {
           id: "issue_1",
@@ -164,6 +234,16 @@ describe("operator issue service", () => {
           leadId: "lead_1"
         }
       ]);
+    countOperatorIssues.mockResolvedValueOnce(1);
+    getOperatorIssueSummaryCounts.mockResolvedValueOnce({
+      total: 2,
+      open: 2,
+      highSeverity: 1,
+      retryableOpen: 1,
+      deliveryFailures: 1,
+      unmappedLeads: 1,
+      staleLeads: 0
+    });
 
     const { getOperatorQueue } = await import("@/features/issues/service");
     const queue = await getOperatorQueue("tenant_1", { issueType: "UNMAPPED_LEAD", status: "OPEN", age: "" });
@@ -182,6 +262,35 @@ describe("operator issue service", () => {
       targetLabel: "Jane Doe",
       remapHref: "/leads/lead_1"
     });
+    expect(queue.pagination).toMatchObject({
+      currentPage: 1,
+      filteredTotal: 1,
+      totalPages: 1
+    });
+  });
+
+  it("skips a full refresh when the operator issue cache is still fresh", async () => {
+    getSystemSetting.mockResolvedValueOnce({
+      startedAt: null,
+      completedAt: new Date().toISOString()
+    });
+    getOperatorIssueSummaryCounts.mockResolvedValueOnce({
+      total: 0,
+      open: 0,
+      highSeverity: 0,
+      retryableOpen: 0,
+      deliveryFailures: 0,
+      unmappedLeads: 0,
+      staleLeads: 0
+    });
+    countOperatorIssues.mockResolvedValueOnce(0);
+    listOperatorIssues.mockResolvedValueOnce([]);
+
+    const { getOperatorQueue } = await import("@/features/issues/service");
+    await getOperatorQueue("tenant_1", { status: "OPEN", age: "" });
+
+    expect(listLeadSyncFailureCandidates).not.toHaveBeenCalled();
+    expect(listUnmappedLeadCandidates).not.toHaveBeenCalled();
   });
 
   it("marks issues resolved and records an audit event", async () => {

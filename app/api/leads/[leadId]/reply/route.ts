@@ -13,7 +13,9 @@ export async function POST(request: Request, context: { params: Promise<{ leadId
 
     const body = await request.json();
     const { leadId } = await context.params;
-    const result = await sendLeadReplyWorkflow(user.tenantId, user.id, leadId, body);
+    const result = await sendLeadReplyWorkflow(user.tenantId, user.id, leadId, body, {
+      idempotencyKey: request.headers.get("idempotency-key")
+    });
 
     return NextResponse.json(result);
   } catch (error) {

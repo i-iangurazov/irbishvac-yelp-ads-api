@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Route } from "next";
 
 import { BusinessDeleteForm } from "@/components/forms/business-delete-form";
 import { YelpSyncButton } from "@/components/forms/yelp-sync-button";
@@ -44,7 +45,7 @@ export default async function BusinessDetailPage({ params }: { params: Promise<{
     <div>
       <PageHeader
         title={business.name}
-        description="Confirm the saved Yelp business, clear readiness blockers, and launch from here."
+        description="One place to check Yelp connection, automation, programs, mappings, reports, and issues for this business."
         actions={
           <div className="flex flex-wrap items-start gap-3">
             <Button asChild>
@@ -63,6 +64,60 @@ export default async function BusinessDetailPage({ params }: { params: Promise<{
           </div>
         }
       />
+
+      <Card className="mb-6 border-border/80 bg-muted/10 shadow-none">
+        <CardHeader className="pb-3">
+          <CardTitle>Operational posture</CardTitle>
+          <CardDescription>Use this before enabling automation, changing programs, or trusting downstream reporting.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {business.operationalSummary.items.map((item) => (
+              <div className="rounded-xl border border-border/70 bg-background/80 p-4" key={item.id}>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">{item.label}</div>
+                    <div className="mt-2 text-lg font-semibold tracking-tight">{item.value}</div>
+                  </div>
+                  <StatusChip status={item.status} />
+                </div>
+                <div className="mt-2 text-sm leading-5 text-muted-foreground">{item.detail}</div>
+                {item.href ? (
+                  <Link className="mt-3 inline-flex text-sm font-medium hover:underline" href={item.href as Route}>
+                    Open
+                  </Link>
+                ) : null}
+              </div>
+            ))}
+          </div>
+
+          {business.operationalSummary.warnings.length > 0 ? (
+            <div className="rounded-xl border border-warning/35 bg-warning/10 p-4">
+              <div className="text-sm font-semibold">Needs operator review</div>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                {business.operationalSummary.warnings.map((warning) => (
+                  <div className="flex items-start gap-3" key={warning.id}>
+                    <StatusChip status={warning.status} />
+                    <div>
+                      <div className="text-sm font-medium">{warning.title}</div>
+                      <div className="text-sm text-muted-foreground">{warning.detail}</div>
+                      {warning.href ? (
+                        <Link className="mt-1 inline-flex text-sm font-medium hover:underline" href={warning.href as Route}>
+                          Review
+                        </Link>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-border/70 bg-background/70 px-4 py-3 text-sm text-muted-foreground">
+              No posture warnings for this business.
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
         <div className="space-y-6">
@@ -103,6 +158,20 @@ export default async function BusinessDetailPage({ params }: { params: Promise<{
               <div>
                 <div className="text-muted-foreground">Location</div>
                 <div>{[business.city, business.state, business.country].filter(Boolean).join(", ") || "Not set"}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">ServiceTitan location</div>
+                <div>{business.location?.name ?? "Not assigned"}</div>
+                {business.location?.externalCrmLocationId ? (
+                  <div className="mt-1 text-xs text-muted-foreground">{business.location.externalCrmLocationId}</div>
+                ) : null}
+              </div>
+              <div>
+                <div className="text-muted-foreground">Working set</div>
+                <div>
+                  {business.operationalSummary.counts.leads} leads · {business.operationalSummary.counts.programs} programs ·{" "}
+                  {business.operationalSummary.counts.reports} schedules
+                </div>
               </div>
               <div>
                 <div className="text-muted-foreground">Categories</div>
@@ -223,7 +292,7 @@ export default async function BusinessDetailPage({ params }: { params: Promise<{
           <Card>
             <CardHeader>
               <CardTitle>Local console records</CardTitle>
-              <CardDescription>What the console is actively tracking for this business.</CardDescription>
+              <CardDescription>Programs the console is actively tracking for this business.</CardDescription>
             </CardHeader>
             <CardContent className="p-0">
               {business.currentPrograms.length > 0 ? (
@@ -241,9 +310,14 @@ export default async function BusinessDetailPage({ params }: { params: Promise<{
                         <TableCell>{program.type}</TableCell>
                         <TableCell><StatusChip status={program.status} /></TableCell>
                         <TableCell>
-                          <Link className="font-medium hover:underline" href={`/programs/${program.id}`}>
-                            Open program
-                          </Link>
+                          <div className="space-y-1">
+                            <Link className="font-medium hover:underline" href={`/programs/${program.id}`}>
+                              Open program
+                            </Link>
+                            <div className="text-xs text-muted-foreground">
+                              {program.upstreamProgramId ? `Yelp ID ${program.upstreamProgramId}` : "No confirmed Yelp ID"}
+                            </div>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}

@@ -127,13 +127,13 @@ export function LeadAutomationTemplateForm({
   };
 
   return (
-    <Card>
+    <Card className="shadow-none">
       <CardHeader className="pb-3">
         <CardTitle>{isEditing ? "Edit template" : "New template"}</CardTitle>
         <CardDescription>Rules choose the template. The template can stay static or guide a guarded AI reply with fallback.</CardDescription>
       </CardHeader>
       <CardContent>
-        <form className="space-y-4" onSubmit={submit}>
+        <form className="space-y-5" onSubmit={submit}>
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="automation-template-name">Template name</Label>

@@ -16,7 +16,11 @@ if (!process.env.DATABASE_URL) {
 export const prisma =
   global.__prisma ??
   new PrismaClient({
-    log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"]
+    log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["warn", "error"],
+    transactionOptions: {
+      maxWait: 5_000,
+      timeout: 10_000
+    }
   });
 
 if (process.env.NODE_ENV !== "production") {

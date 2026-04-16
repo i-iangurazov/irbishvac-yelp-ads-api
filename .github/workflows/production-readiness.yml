@@ -1,0 +1,91 @@
+name: Production Readiness
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: production-readiness-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify build, tests, and fresh migrations
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      APP_URL: http://localhost:3000
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres?schema=public
+      VERIFY_POSTGRES_URL: postgresql://postgres:postgres@localhost:5432/postgres?sslmode=disable
+      VERIFY_RUN_SEED: "1"
+      VERIFY_PSQL_BIN: psql
+      SESSION_SECRET: ci-session-secret-change-me
+      APP_ENCRYPTION_KEY: ci-app-encryption-key-change-me
+      CRON_SECRET: ci-cron-secret-change-me
+      DEFAULT_TENANT_SLUG: default
+      DEMO_MODE: "false"
+      SEED_ADMIN_EMAIL: admin@example.com
+      SEED_ADMIN_NAME: Admin User
+      SEED_ADMIN_PASSWORD: ChangeMe123!
+      MAIN_PLATFORM_WEBHOOK_SHARED_SECRET: ci-forward-secret
+      OPENAI_REPLY_MODEL: gpt-5-nano
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.25.0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm prisma:generate
+
+      - name: Verify fresh migrations on disposable Postgres
+        run: pnpm prisma:verify:fresh
+
+      - name: Run tests
+        run: pnpm test
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Build
+        run: pnpm build

@@ -240,6 +240,89 @@ enum LeadConversationActionType {
   MARK_REPLIED
 }
 
+enum LeadConversationAutomationMode {
+  REVIEW_ONLY
+  BOUNDED_AUTO_REPLY
+  HUMAN_HANDOFF
+}
+
+enum LeadConversationIntent {
+  MISSING_DETAILS_PROVIDED
+  BASIC_ACKNOWLEDGMENT
+  SIMPLE_NEXT_STEP_CLARIFICATION
+  BOOKING_INTENT
+  QUOTE_PRICING_REQUEST
+  AVAILABILITY_TIMING_REQUEST
+  COMPLAINT_ESCALATION
+  UNSUPPORTED_AMBIGUOUS
+  HUMAN_ONLY
+}
+
+enum LeadConversationDecision {
+  AUTO_REPLY
+  REVIEW_ONLY
+  HUMAN_HANDOFF
+}
+
+enum LeadConversationConfidence {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum OperationalMetricKind {
+  COUNTER
+  DISTRIBUTION
+  GAUGE
+}
+
+enum ExternalSideEffectStatus {
+  CLAIMED
+  SUCCEEDED
+  FAILED
+}
+
+enum WorkerJobKind {
+  INTERNAL_RECONCILE_PROGRAM_JOBS
+  INTERNAL_RECONCILE_LEAD_WEBHOOKS
+  INTERNAL_RECONCILE_SCHEDULED_REPORTS
+  INTERNAL_RECONCILE_REPORTS
+  INTERNAL_RECONCILE_REPORT_DELIVERIES
+  INTERNAL_RECONCILE_AUTORESPONDER_FOLLOWUPS
+  INTERNAL_RECONCILE_SERVICETITAN_LIFECYCLE
+  AUTORESPONDER_FOLLOWUPS
+  OPERATIONS_RETENTION
+  OPERATIONS_ALERTS
+}
+
+enum WorkerJobStatus {
+  QUEUED
+  CLAIMED
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  DEAD_LETTERED
+  SKIPPED
+}
+
+enum LeadConversationStopReason {
+  CONVERSATION_DISABLED
+  ROLLOUT_PAUSED
+  LIFECYCLE_STOPPED
+  MODE_REVIEW_ONLY
+  MODE_HUMAN_HANDOFF
+  INTENT_NOT_ALLOWED
+  LOW_CONFIDENCE
+  MAX_AUTOMATED_TURNS_REACHED
+  HUMAN_TAKEOVER
+  CUSTOMER_ESCALATION
+  PRICING_RISK
+  AVAILABILITY_RISK
+  UNCLEAR_SERVICE
+  MISSING_THREAD_CONTEXT
+  SEND_FAILED
+}
+
 enum LeadConversationActionStatus {
   PENDING
   SENT
@@ -308,9 +391,14 @@ model Tenant {
   leadAutomationOverrides LeadAutomationBusinessOverride[]
   leadAutomationAttempts LeadAutomationAttempt[]
   leadConversationActions LeadConversationAction[]
+  leadConversationAutomationStates LeadConversationAutomationState[]
+  leadConversationAutomationTurns LeadConversationAutomationTurn[]
   operatorIssues  OperatorIssue[]
   syncRuns       SyncRun[]
   syncErrors     SyncError[]
+  operationalMetricRollups OperationalMetricRollup[]
+  externalSideEffects ExternalSideEffect[]
+  workerJobs WorkerJob[]
 }
 
 model Role {
@@ -608,6 +696,7 @@ model ReportScheduleRun {
   operatorIssues      OperatorIssue[]
 
   @@index([tenantId, generationStatus, deliveryStatus])
+  @@index([tenantId, generationStatus, deliveryStatus, lastAttemptedAt])
   @@index([scheduleId, scheduledFor])
   @@index([reportRequestId, locationId])
 }
@@ -637,6 +726,7 @@ model AuditEvent {
   reportRequest         ReportRequest? @relation(fields: [reportRequestId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, createdAt])
+  @@index([tenantId, correlationId, createdAt])
   @@index([actorId])
   @@index([businessId])
   @@index([programId])
@@ -721,6 +811,9 @@ model YelpLead {
   mappedServiceLabel    String?
   metadataJson          Json?
   rawSnapshotJson       Json?
+  latestWebhookStatus   SyncRunStatus?
+  latestWebhookReceivedAt DateTime?
+  latestWebhookErrorSummary String?
   firstSeenAt           DateTime           @default(now())
   lastSyncedAt          DateTime?
   createdAt             DateTime           @default(now())
@@ -735,12 +828,16 @@ model YelpLead {
   crmStatusEvents       CrmStatusEvent[]
   automationAttempts    LeadAutomationAttempt[]
   conversationActions   LeadConversationAction[]
+  conversationAutomationState LeadConversationAutomationState?
+  conversationAutomationTurns LeadConversationAutomationTurn[]
   operatorIssues        OperatorIssue[]
   syncRuns              SyncRun[]
 
   @@unique([tenantId, externalLeadId])
   @@index([tenantId, createdAtYelp])
+  @@index([tenantId, latestInteractionAt, createdAtYelp])
   @@index([tenantId, internalStatus])
+  @@index([tenantId, latestWebhookStatus, latestInteractionAt])
   @@index([businessId, locationId, serviceCategoryId])
 }
 
@@ -791,6 +888,7 @@ model YelpWebhookEvent {
 
   @@unique([tenantId, eventKey])
   @@index([tenantId, topic, receivedAt])
+  @@index([tenantId, status, receivedAt])
   @@index([tenantId, deliveryId])
 }
 
@@ -921,6 +1019,7 @@ model LeadAutomationTemplate {
   business        Business?             @relation(fields: [businessId], references: [id], onDelete: SetNull)
   rules           LeadAutomationRule[]
   attempts        LeadAutomationAttempt[]
+  conversationTurns LeadConversationAutomationTurn[]
 
   @@index([tenantId, channel, isEnabled])
   @@index([tenantId, businessId, channel, isEnabled])
@@ -972,6 +1071,12 @@ model LeadAutomationBusinessOverride {
   followUp7dDelayDays Int                   @default(7)
   aiAssistEnabled     Boolean               @default(true)
   aiModel             String                @default("gpt-5-nano")
+  conversationAutomationEnabled Boolean     @default(false)
+  conversationMode    LeadConversationAutomationMode @default(REVIEW_ONLY)
+  conversationAllowedIntentsJson Json       @default("[\"MISSING_DETAILS_PROVIDED\",\"BASIC_ACKNOWLEDGMENT\",\"SIMPLE_NEXT_STEP_CLARIFICATION\"]")
+  conversationMaxAutomatedTurns Int         @default(2)
+  conversationReviewFallbackEnabled Boolean @default(true)
+  conversationEscalateToIssueQueue Boolean  @default(true)
   metadataJson        Json?
   createdAt           DateTime              @default(now())
   updatedAt           DateTime              @updatedAt
@@ -1020,6 +1125,7 @@ model LeadAutomationAttempt {
 
   @@unique([leadId, cadence])
   @@index([tenantId, cadence, status, dueAt])
+  @@index([tenantId, status, dueAt, startedAt])
   @@index([tenantId, status, triggeredAt])
   @@index([tenantId, businessId, locationId, serviceCategoryId])
 }
@@ -1053,6 +1159,65 @@ model LeadConversationAction {
   @@index([tenantId, leadId, createdAt])
   @@index([tenantId, status, createdAt])
   @@index([tenantId, automationAttemptId])
+}
+
+model LeadConversationAutomationState {
+  id                    String                        @id @default(cuid())
+  tenantId              String
+  leadId                String                        @unique
+  isEnabled             Boolean                       @default(false)
+  mode                  LeadConversationAutomationMode @default(REVIEW_ONLY)
+  automatedTurnCount    Int                           @default(0)
+  lastAutomatedReplyAt  DateTime?
+  lastProcessedEventKey String?
+  lastInboundAt         DateTime?
+  lastIntent            LeadConversationIntent?
+  lastDecision          LeadConversationDecision?
+  lastStopReason        LeadConversationStopReason?
+  blockedAt             DateTime?
+  escalatedAt           DateTime?
+  humanTakeoverAt       DateTime?
+  metadataJson          Json?
+  createdAt             DateTime                      @default(now())
+  updatedAt             DateTime                      @updatedAt
+  tenant                Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lead                  YelpLead                       @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  turns                 LeadConversationAutomationTurn[]
+
+  @@index([tenantId, mode, updatedAt])
+  @@index([tenantId, escalatedAt])
+}
+
+model LeadConversationAutomationTurn {
+  id                  String                     @id @default(cuid())
+  tenantId            String
+  leadId              String
+  stateId             String?
+  sourceEventKey      String
+  sourceExternalEventId String?
+  mode                LeadConversationAutomationMode
+  intent              LeadConversationIntent
+  decision            LeadConversationDecision
+  confidence          LeadConversationConfidence @default(LOW)
+  stopReason          LeadConversationStopReason?
+  templateId          String?
+  channel             LeadAutomationChannel      @default(YELP_THREAD)
+  renderedSubject     String?
+  renderedBody        String?
+  errorSummary        String?
+  metadataJson        Json?
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
+  completedAt         DateTime?
+  tenant              Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lead                YelpLead                    @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  state               LeadConversationAutomationState? @relation(fields: [stateId], references: [id], onDelete: SetNull)
+  template            LeadAutomationTemplate?     @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, sourceEventKey])
+  @@index([tenantId, leadId, createdAt])
+  @@index([tenantId, decision, createdAt])
+  @@index([tenantId, stopReason, createdAt])
 }
 
 model OperatorIssue {
@@ -1095,6 +1260,7 @@ model OperatorIssue {
 
   @@unique([tenantId, dedupeKey])
   @@index([tenantId, status, severity, lastDetectedAt])
+  @@index([tenantId, status, issueType, lastDetectedAt])
   @@index([businessId, locationId, leadId, reportRequestId, reportScheduleRunId, syncRunId])
 }
 
@@ -1129,6 +1295,7 @@ model SyncRun {
   errors              SyncError[]
 
   @@index([tenantId, type, status])
+  @@index([tenantId, type, status, createdAt])
   @@index([tenantId, startedAt])
   @@index([businessId, locationId, leadId, reportingJobId])
 }
@@ -1164,4 +1331,86 @@ model SystemSetting {
 
   @@unique([tenantId, key])
   @@index([tenantId])
+}
+
+model OperationalMetricRollup {
+  id           String                @id @default(cuid())
+  tenantId     String
+  metricKey    String
+  kind         OperationalMetricKind @default(COUNTER)
+  bucketStart  DateTime
+  bucketMinutes Int                  @default(60)
+  dimensionKey String                @default("all")
+  dimensionsJson Json?
+  totalValue   Int                   @default(0)
+  sampleCount  Int                   @default(0)
+  lastValue    Int?
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+  tenant       Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, metricKey, bucketStart, dimensionKey])
+  @@index([tenantId, bucketStart])
+  @@index([tenantId, metricKey, bucketStart])
+}
+
+model ExternalSideEffect {
+  id                    String                   @id @default(cuid())
+  tenantId              String
+  idempotencyKey        String
+  provider              String
+  operation             String
+  status                ExternalSideEffectStatus @default(CLAIMED)
+  businessId            String?
+  leadId                String?
+  automationAttemptId   String?
+  conversationActionId  String?
+  reportScheduleRunId   String?
+  providerMessageId     String?
+  requestJson           Json?
+  responseJson          Json?
+  errorSummary          String?
+  claimedAt             DateTime                 @default(now())
+  completedAt           DateTime?
+  createdAt             DateTime                 @default(now())
+  updatedAt             DateTime                 @updatedAt
+  tenant                Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, provider, operation, status])
+  @@index([tenantId, leadId, operation])
+  @@index([tenantId, reportScheduleRunId, operation])
+  @@index([tenantId, createdAt])
+}
+
+model WorkerJob {
+  id               String          @id @default(cuid())
+  tenantId         String?
+  jobKey           String          @unique
+  kind             WorkerJobKind
+  status           WorkerJobStatus @default(QUEUED)
+  attempts         Int             @default(0)
+  maxAttempts      Int             @default(3)
+  priority         Int             @default(100)
+  queuedAt         DateTime        @default(now())
+  nextAttemptAt    DateTime?       @default(now())
+  claimedAt        DateTime?
+  claimExpiresAt   DateTime?
+  claimedBy        String?
+  startedAt        DateTime?
+  finishedAt       DateTime?
+  deadLetteredAt   DateTime?
+  lastHeartbeatAt  DateTime?
+  lastErrorSummary String?
+  lastErrorJson    Json?
+  payloadJson      Json?
+  resultJson       Json?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  tenant           Tenant?         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, kind, status])
+  @@index([kind, status, nextAttemptAt])
+  @@index([status, nextAttemptAt])
+  @@index([claimExpiresAt])
 }

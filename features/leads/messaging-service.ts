@@ -1,5 +1,7 @@
 import "server-only";
 
+import { createHash } from "node:crypto";
+
 import type { LeadAutomationChannel } from "@prisma/client";
 
 import { canUseAiReplyAssistant } from "@/features/leads/ai-reply-service";
@@ -11,6 +13,12 @@ import {
   createLeadConversationAction,
   updateLeadConversationAction
 } from "@/lib/db/lead-messaging-repository";
+import {
+  claimExternalSideEffect,
+  completeExternalSideEffect,
+  resetExternalSideEffectClaim
+} from "@/lib/db/external-side-effects-repository";
+import { claimProviderRequestBudget } from "@/features/operations/provider-budget-service";
 import { getLeadRecordById } from "@/lib/db/leads-repository";
 import { toJsonValue } from "@/lib/db/json";
 import { logError, logInfo } from "@/lib/utils/logging";
@@ -31,6 +39,43 @@ function buildLeadAutomationHtml(body: string) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/\n/g, "<br />")}</div>`;
+}
+
+function hashIdempotencyPayload(value: unknown) {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 24);
+}
+
+function buildSendSideEffectKey(params: {
+  leadId: string;
+  channel: LeadAutomationChannel;
+  initiator: "AUTOMATION" | "OPERATOR";
+  automationAttemptId?: string | null;
+  explicitIdempotencyKey?: string | null;
+  renderedSubject?: string | null;
+  renderedBody: string;
+}) {
+  if (params.explicitIdempotencyKey?.trim()) {
+    return `lead-send:${params.leadId}:${params.explicitIdempotencyKey.trim()}`;
+  }
+
+  if (params.automationAttemptId) {
+    return `lead-send:${params.leadId}:attempt:${params.automationAttemptId}:${params.channel}`;
+  }
+
+  if (params.initiator === "AUTOMATION") {
+    return `lead-send:${params.leadId}:automation:${params.channel}:${hashIdempotencyPayload({
+      subject: params.renderedSubject ?? null,
+      body: params.renderedBody
+    })}`;
+  }
+
+  return null;
+}
+
+function buildDuplicateSuppressedAction(id: string | null | undefined) {
+  return {
+    id: id ?? "duplicate-suppressed"
+  };
 }
 
 function getFallbackSubject(params: {
@@ -166,7 +211,69 @@ async function sendLeadReplyInYelpThread(params: {
   automationAttemptId?: string | null;
   renderedBody: string;
   providerMetadataJson?: Record<string, unknown> | null;
+  idempotencyKey?: string | null;
 }) {
+  const sideEffectKey = buildSendSideEffectKey({
+    leadId: params.lead.id,
+    channel: "YELP_THREAD",
+    initiator: params.initiator,
+    automationAttemptId: params.automationAttemptId ?? null,
+    explicitIdempotencyKey: params.idempotencyKey ?? null,
+    renderedBody: params.renderedBody
+  });
+  const sideEffect =
+    sideEffectKey
+      ? await claimExternalSideEffect({
+          tenantId: params.tenantId,
+          idempotencyKey: sideEffectKey,
+          provider: "YELP",
+          operation: "lead.thread.send",
+          businessId: params.lead.businessId ?? params.lead.business?.id ?? null,
+          leadId: params.lead.id,
+          automationAttemptId: params.automationAttemptId ?? null,
+          requestJson: {
+            externalLeadId: params.lead.externalLeadId,
+            bodyHash: hashIdempotencyPayload(params.renderedBody)
+          }
+        })
+      : null;
+
+  if (sideEffect && !sideEffect.claimed) {
+    if (sideEffect.sideEffect.status === "SUCCEEDED") {
+      return {
+        status: "SENT" as const,
+        action: buildDuplicateSuppressedAction(sideEffect.sideEffect.conversationActionId),
+        warning: "Duplicate send suppressed by idempotency record."
+      };
+    }
+
+    if (sideEffect.sideEffect.status === "CLAIMED") {
+      return createFailedConversationAction({
+        tenantId: params.tenantId,
+        leadId: params.lead.id,
+        automationAttemptId: params.automationAttemptId ?? null,
+        actorId: params.actorId ?? null,
+        initiator: params.initiator,
+        channel: "YELP_THREAD",
+        actionType: "SEND_MESSAGE",
+        renderedBody: params.renderedBody,
+        error: new YelpValidationError("A matching Yelp thread send is already in progress."),
+        providerMetadataJson: {
+          idempotencyKey: sideEffectKey,
+          duplicateSideEffectId: sideEffect.sideEffect.id,
+          ...(params.providerMetadataJson ?? {})
+        }
+      });
+    }
+
+    await resetExternalSideEffectClaim(sideEffect.sideEffect.id, {
+      requestJson: {
+        externalLeadId: params.lead.externalLeadId,
+        bodyHash: hashIdempotencyPayload(params.renderedBody)
+      }
+    });
+  }
+
   const action = await createLeadConversationAction({
     tenantId: params.tenantId,
     leadId: params.lead.id,
@@ -180,11 +287,18 @@ async function sendLeadReplyInYelpThread(params: {
     startedAt: new Date(),
     providerMetadataJson: {
       deliveryChannel: "YELP_THREAD",
+      ...(sideEffectKey ? { idempotencyKey: sideEffectKey } : {}),
       ...(params.providerMetadataJson ?? {})
     }
   });
 
   try {
+    await claimProviderRequestBudget({
+      tenantId: params.tenantId,
+      provider: "YELP",
+      operation: "lead.thread.send",
+      businessId: params.lead.businessId ?? params.lead.business?.id ?? null
+    });
     const { credential } = await ensureYelpLeadsAccess(params.tenantId);
     const client = new YelpLeadsClient(credential);
     const response = await client.writeLeadEvent(params.lead.externalLeadId, {
@@ -203,11 +317,22 @@ async function sendLeadReplyInYelpThread(params: {
       providerMetadataJson: {
         deliveryChannel: "YELP_THREAD",
         correlationId: response.correlationId,
+        ...(sideEffectKey ? { idempotencyKey: sideEffectKey } : {}),
         ...(params.providerMetadataJson ?? {}),
         ...(refreshWarning ? { refreshWarning } : {})
       },
       completedAt: new Date()
     });
+    if (sideEffect) {
+      await completeExternalSideEffect(sideEffect.sideEffect.id, {
+        status: "SUCCEEDED",
+        conversationActionId: saved.id,
+        responseJson: {
+          correlationId: response.correlationId,
+          refreshWarning
+        }
+      });
+    }
 
     return {
       status: "SENT" as const,
@@ -221,11 +346,23 @@ async function sendLeadReplyInYelpThread(params: {
       providerStatus: "failed",
       providerMetadataJson: {
         deliveryChannel: "YELP_THREAD",
+        ...(sideEffectKey ? { idempotencyKey: sideEffectKey } : {}),
         ...(params.providerMetadataJson ?? {})
       },
       errorSummary: normalized.message,
       completedAt: new Date()
     });
+    if (sideEffect) {
+      await completeExternalSideEffect(sideEffect.sideEffect.id, {
+        status: "FAILED",
+        conversationActionId: saved.id,
+        errorSummary: normalized.message,
+        responseJson: {
+          code: normalized.code,
+          details: normalized.details ?? null
+        }
+      });
+    }
 
     return {
       status: "FAILED" as const,
@@ -262,6 +399,12 @@ async function markLeadAsRepliedOnYelp(params: {
   });
 
   try {
+    await claimProviderRequestBudget({
+      tenantId: params.tenantId,
+      provider: "YELP",
+      operation: "lead.mark_replied",
+      businessId: params.lead.businessId ?? params.lead.business?.id ?? null
+    });
     const { credential } = await ensureYelpLeadsAccess(params.tenantId);
     const client = new YelpLeadsClient(credential);
     const response = await client.markLeadAsReplied(params.lead.externalLeadId, {
@@ -320,6 +463,7 @@ async function sendLeadReplyByEmail(params: {
   renderedSubject?: string | null;
   renderedBody: string;
   providerMetadataJson?: Record<string, unknown> | null;
+  idempotencyKey?: string | null;
 }) {
   const maskedEmail = getLeadMaskedEmail(params.lead);
 
@@ -342,6 +486,72 @@ async function sendLeadReplyByEmail(params: {
     });
   }
 
+  const sideEffectKey = buildSendSideEffectKey({
+    leadId: params.lead.id,
+    channel: "EMAIL",
+    initiator: params.initiator,
+    automationAttemptId: params.automationAttemptId ?? null,
+    explicitIdempotencyKey: params.idempotencyKey ?? null,
+    renderedSubject: params.renderedSubject ?? null,
+    renderedBody: params.renderedBody
+  });
+  const sideEffect =
+    sideEffectKey
+      ? await claimExternalSideEffect({
+          tenantId: params.tenantId,
+          idempotencyKey: sideEffectKey,
+          provider: "SMTP",
+          operation: "lead.email.send",
+          businessId: params.lead.businessId ?? params.lead.business?.id ?? null,
+          leadId: params.lead.id,
+          automationAttemptId: params.automationAttemptId ?? null,
+          requestJson: {
+            recipient: maskedEmail,
+            subject: params.renderedSubject ?? null,
+            bodyHash: hashIdempotencyPayload(params.renderedBody)
+          }
+        })
+      : null;
+
+  if (sideEffect && !sideEffect.claimed) {
+    if (sideEffect.sideEffect.status === "SUCCEEDED") {
+      return {
+        status: "SENT" as const,
+        action: buildDuplicateSuppressedAction(sideEffect.sideEffect.conversationActionId),
+        warning: "Duplicate email send suppressed by idempotency record."
+      };
+    }
+
+    if (sideEffect.sideEffect.status === "CLAIMED") {
+      return createFailedConversationAction({
+        tenantId: params.tenantId,
+        leadId: params.lead.id,
+        automationAttemptId: params.automationAttemptId ?? null,
+        actorId: params.actorId ?? null,
+        initiator: params.initiator,
+        channel: "EMAIL",
+        actionType: "SEND_MESSAGE",
+        renderedSubject: params.renderedSubject ?? null,
+        renderedBody: params.renderedBody,
+        recipient: maskedEmail,
+        error: new YelpValidationError("A matching Yelp masked-email send is already in progress."),
+        providerMetadataJson: {
+          idempotencyKey: sideEffectKey,
+          duplicateSideEffectId: sideEffect.sideEffect.id,
+          ...(params.providerMetadataJson ?? {})
+        }
+      });
+    }
+
+    await resetExternalSideEffectClaim(sideEffect.sideEffect.id, {
+      requestJson: {
+        recipient: maskedEmail,
+        subject: params.renderedSubject ?? null,
+        bodyHash: hashIdempotencyPayload(params.renderedBody)
+      }
+    });
+  }
+
   const action = await createLeadConversationAction({
     tenantId: params.tenantId,
     leadId: params.lead.id,
@@ -357,11 +567,18 @@ async function sendLeadReplyByEmail(params: {
     startedAt: new Date(),
     providerMetadataJson: {
       deliveryChannel: "EMAIL",
+      ...(sideEffectKey ? { idempotencyKey: sideEffectKey } : {}),
       ...(params.providerMetadataJson ?? {})
     }
   });
 
   try {
+    await claimProviderRequestBudget({
+      tenantId: params.tenantId,
+      provider: "SMTP",
+      operation: "lead.email.send",
+      businessId: params.lead.businessId ?? params.lead.business?.id ?? null
+    });
     const email = await sendLeadAutomationEmail({
       to: maskedEmail,
       subject:
@@ -380,6 +597,7 @@ async function sendLeadReplyByEmail(params: {
       providerStatus: "sent",
       providerMetadataJson: {
         deliveryChannel: "EMAIL",
+        ...(sideEffectKey ? { idempotencyKey: sideEffectKey } : {}),
         accepted: email.accepted.map((value) => String(value)),
         rejected: email.rejected.map((value) => String(value)),
         response: email.response,
@@ -387,6 +605,18 @@ async function sendLeadReplyByEmail(params: {
       },
       completedAt: new Date()
     });
+    if (sideEffect) {
+      await completeExternalSideEffect(sideEffect.sideEffect.id, {
+        status: "SUCCEEDED",
+        conversationActionId: sentAction.id,
+        providerMessageId: email.messageId ?? null,
+        responseJson: {
+          accepted: email.accepted.map((value) => String(value)),
+          rejected: email.rejected.map((value) => String(value)),
+          response: email.response
+        }
+      });
+    }
     const markReplied = await markLeadAsRepliedOnYelp({
       tenantId: params.tenantId,
       lead: params.lead,
@@ -423,6 +653,17 @@ async function sendLeadReplyByEmail(params: {
       errorSummary: normalized.message,
       completedAt: new Date()
     });
+    if (sideEffect) {
+      await completeExternalSideEffect(sideEffect.sideEffect.id, {
+        status: "FAILED",
+        conversationActionId: saved.id,
+        errorSummary: normalized.message,
+        responseJson: {
+          code: normalized.code,
+          details: normalized.details ?? null
+        }
+      });
+    }
 
     return {
       status: "FAILED" as const,
@@ -436,7 +677,10 @@ export async function sendLeadReplyWorkflow(
   tenantId: string,
   actorId: string,
   leadId: string,
-  input: unknown
+  input: unknown,
+  options?: {
+    idempotencyKey?: string | null;
+  }
 ) {
   const values = leadReplyFormSchema.parse(input);
   const lead = await getLeadRecordById(tenantId, leadId);
@@ -449,7 +693,8 @@ export async function sendLeadReplyWorkflow(
           lead,
           actorId,
           initiator: "OPERATOR",
-          renderedBody: normalizedBody
+          renderedBody: normalizedBody,
+          idempotencyKey: options?.idempotencyKey ?? null
         })
       : await sendLeadReplyByEmail({
           tenantId,
@@ -462,8 +707,9 @@ export async function sendLeadReplyWorkflow(
               businessName: lead.business?.name ?? null,
               customerName: lead.customerName ?? null,
               leadReference: lead.externalLeadId
-            }),
-          renderedBody: normalizedBody
+          }),
+          renderedBody: normalizedBody,
+          idempotencyKey: options?.idempotencyKey ?? null
         });
 
   await recordAuditEvent({
@@ -561,6 +807,12 @@ export async function markLeadAsReadWorkflow(tenantId: string, actorId: string, 
   });
 
   try {
+    await claimProviderRequestBudget({
+      tenantId,
+      provider: "YELP",
+      operation: "lead.mark_read",
+      businessId: lead.businessId ?? lead.business?.id ?? null
+    });
     const { credential } = await ensureYelpLeadsAccess(tenantId);
     const client = new YelpLeadsClient(credential);
     const response = await client.markLeadEventAsRead(lead.externalLeadId, {
@@ -689,12 +941,13 @@ export async function deliverLeadAutomationMessage(params: {
   tenantId: string;
   actorId?: string | null;
   leadId: string;
-  automationAttemptId: string;
+  automationAttemptId: string | null;
   channel: LeadAutomationChannel;
   renderedSubject: string;
   renderedBody: string;
   recipient: string | null;
   allowEmailFallback?: boolean;
+  idempotencyKey?: string | null;
 }) {
   const lead = await getLeadRecordById(params.tenantId, params.leadId);
 
@@ -705,7 +958,8 @@ export async function deliverLeadAutomationMessage(params: {
       actorId: params.actorId ?? null,
       initiator: "AUTOMATION",
       automationAttemptId: params.automationAttemptId,
-      renderedBody: params.renderedBody
+      renderedBody: params.renderedBody,
+      idempotencyKey: params.idempotencyKey ?? null
     });
 
     if (primary.status === "SENT") {
@@ -741,7 +995,8 @@ export async function deliverLeadAutomationMessage(params: {
       providerMetadataJson: {
         fallbackFrom: "YELP_THREAD",
         fallbackReason: primary.error.message
-      }
+      },
+      idempotencyKey: params.idempotencyKey ? `${params.idempotencyKey}:email-fallback` : null
     });
 
     if (fallback.status === "FAILED") {
@@ -771,7 +1026,8 @@ export async function deliverLeadAutomationMessage(params: {
     initiator: "AUTOMATION",
     automationAttemptId: params.automationAttemptId,
     renderedSubject: params.renderedSubject,
-    renderedBody: params.renderedBody
+    renderedBody: params.renderedBody,
+    idempotencyKey: params.idempotencyKey ?? null
   });
 
   if (result.status === "FAILED") {

@@ -28,3 +28,14 @@ export async function upsertSystemSetting(tenantId: string, key: string, valueJs
     create: { tenantId, key, valueJson: toJsonValue(valueJson) }
   });
 }
+
+export async function listTenantIds() {
+  return prisma.tenant.findMany({
+    select: {
+      id: true
+    },
+    orderBy: {
+      createdAt: "asc"
+    }
+  });
+}

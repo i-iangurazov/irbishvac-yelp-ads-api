@@ -36,6 +36,8 @@ export type LeadAutomationCandidate = {
     completedAt?: Date | null;
   }>;
   events?: Array<{
+    eventKey?: string;
+    externalEventId?: string | null;
     eventType: string;
     actorType?: string | null;
     occurredAt?: Date | null;
@@ -48,6 +50,42 @@ export type LeadAutomationCandidate = {
     status: "PENDING" | "SENT" | "FAILED" | "SKIPPED";
     createdAt: Date;
     completedAt?: Date | null;
+  }>;
+  conversationAutomationState?: {
+    id: string;
+    isEnabled: boolean;
+    mode: "REVIEW_ONLY" | "BOUNDED_AUTO_REPLY" | "HUMAN_HANDOFF";
+    automatedTurnCount: number;
+    lastAutomatedReplyAt?: Date | null;
+    lastProcessedEventKey?: string | null;
+    lastInboundAt?: Date | null;
+    lastIntent?: string | null;
+    lastDecision?: string | null;
+    lastStopReason?: string | null;
+    blockedAt?: Date | null;
+    escalatedAt?: Date | null;
+    humanTakeoverAt?: Date | null;
+    metadataJson?: unknown;
+  } | null;
+  conversationAutomationTurns?: Array<{
+    id: string;
+    sourceEventKey: string;
+    sourceExternalEventId?: string | null;
+    mode: "REVIEW_ONLY" | "BOUNDED_AUTO_REPLY" | "HUMAN_HANDOFF";
+    intent: string;
+    decision: "AUTO_REPLY" | "REVIEW_ONLY" | "HUMAN_HANDOFF";
+    confidence: "HIGH" | "MEDIUM" | "LOW";
+    stopReason?: string | null;
+    renderedSubject?: string | null;
+    renderedBody?: string | null;
+    errorSummary?: string | null;
+    createdAt: Date;
+    completedAt?: Date | null;
+    metadataJson?: unknown;
+    template?: {
+      id: string;
+      name: string;
+    } | null;
   }>;
 };
 

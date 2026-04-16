@@ -11,6 +11,7 @@ export function LeadsFilterForm({
   values: {
     businessId?: string;
     status?: string;
+    attention?: string;
     mappingState?: string;
     internalStatus?: string;
     from?: string;
@@ -22,7 +23,7 @@ export function LeadsFilterForm({
   return (
     <form
       action="/leads"
-      className="grid gap-3 rounded-[1.4rem] border border-border/80 bg-muted/10 p-4 md:grid-cols-2 2xl:grid-cols-[1.1fr_0.9fr_0.9fr_1fr_0.78fr_0.78fr_0.65fr_auto_auto]"
+      className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.05fr_0.85fr_0.85fr_0.85fr_1fr_0.78fr_0.78fr_0.68fr_auto_auto]"
     >
       <input name="page" type="hidden" value="1" />
 
@@ -42,6 +43,21 @@ export function LeadsFilterForm({
               {business.name}
             </option>
           ))}
+        </select>
+      </div>
+
+      <div className="space-y-1">
+        <label className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground" htmlFor="attention">
+          Attention
+        </label>
+        <select
+          className="ui-native-select"
+          defaultValue={values.attention ?? ""}
+          id="attention"
+          name="attention"
+        >
+          <option value="">All leads</option>
+          <option value="NEEDS_ATTENTION">Needs attention</option>
         </select>
       </div>
 
@@ -142,7 +158,7 @@ export function LeadsFilterForm({
       </div>
 
       <div className="flex items-end">
-        <Button className="w-full" type="submit" variant="outline">
+        <Button className="w-full" type="submit">
           Apply
         </Button>
       </div>

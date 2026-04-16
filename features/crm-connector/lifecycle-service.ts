@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import type { InternalLeadStatus } from "@prisma/client";
 
 import { recordAuditEvent } from "@/features/audit/service";
+import { recordServiceTitanMetric } from "@/features/operations/observability-service";
 import {
   buildServiceTitanAppointmentSignal,
   buildServiceTitanJobSignal,
@@ -362,6 +363,11 @@ async function syncServiceTitanLifecycleForLead(params: {
       appendedEventCount: appendedCount,
       errorCount: errors.length
     });
+    await recordServiceTitanMetric({
+      tenantId: params.tenantId,
+      scope: "LIFECYCLE",
+      status: status === "FAILED" ? "FAILED" : "SUCCEEDED"
+    });
 
     return {
       leadId: lead.id,
@@ -414,6 +420,11 @@ async function syncServiceTitanLifecycleForLead(params: {
       syncRunId: syncRun.id,
       leadId: params.leadId,
       message: normalized.message
+    });
+    await recordServiceTitanMetric({
+      tenantId: params.tenantId,
+      scope: "LIFECYCLE",
+      status: "FAILED"
     });
 
     return {

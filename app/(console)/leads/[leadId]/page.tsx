@@ -105,6 +105,10 @@ function getAttentionItems(detail: LeadDetail) {
     items.set("processing", "Recent webhook processing had partial or failed intake.");
   }
 
+  if (["FAILED", "PARTIAL", "UNRESOLVED"].includes(detail.yelpConnection.status)) {
+    items.set("yelp-connection", detail.yelpConnection.detail);
+  }
+
   if (["FAILED", "CONFLICT", "ERROR", "STALE"].includes(detail.crm.health.status)) {
     items.set("crm-health", detail.crm.health.message);
   }
@@ -115,6 +119,14 @@ function getAttentionItems(detail: LeadDetail) {
 
   if (detail.automationSummary.status === "FAILED") {
     items.set("automation", detail.automationSummary.message);
+  }
+
+  if (detail.conversationReview?.needsReview) {
+    items.set("conversation-review", "Conversation automation is waiting on human review or handoff.");
+  }
+
+  if (detail.conversationState?.lastDecision === "HUMAN_HANDOFF" && detail.conversationState.lastStopReasonLabel) {
+    items.set("conversation", detail.conversationState.lastStopReasonLabel);
   }
 
   if (detail.nextFollowUp && detail.nextFollowUp.dueAt.getTime() <= Date.now()) {
@@ -134,7 +146,7 @@ function SummaryFact({
   subtle?: boolean;
 }) {
   return (
-    <div className="rounded-2xl border border-border/70 bg-muted/10 p-4">
+    <div className="rounded-xl bg-muted/10 px-4 py-3">
       <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{label}</div>
       <div className={`mt-2 text-sm ${subtle ? "text-muted-foreground" : "font-medium text-foreground"}`}>{value}</div>
     </div>
@@ -155,36 +167,59 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
         title={getLeadTitle(detail)}
         description={getLeadDescription(detail)}
         actions={
-          <div className="flex flex-wrap gap-2">
-            <StatusChip status={detail.lead.replyState} />
-            <StatusChip status={detail.automationSummary.status} />
-            <StatusChip status={detail.crm.currentInternalStatus} />
-            {detail.linkedIssues.length > 0 ? (
-              <Badge variant="warning">
-                {detail.linkedIssues.length} open issue{detail.linkedIssues.length === 1 ? "" : "s"}
-              </Badge>
-            ) : null}
-          </div>
+          <Button asChild size="sm" variant="outline">
+            <Link href="/leads">Back to leads</Link>
+          </Button>
         }
       />
 
-      <Card>
+      <Card className="shadow-none">
         <CardContent className="grid gap-6 p-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
           <div className="space-y-4">
             <div className="flex flex-wrap gap-2">
+              <StatusChip status={detail.lead.replyState} />
+              <StatusChip status={detail.automationSummary.status} />
+              <StatusChip status={detail.crm.currentInternalStatus} />
+              <Badge variant="outline">{detail.automationScope.conversationPolicy.pilotLabel}</Badge>
               <Badge variant="outline">{getIntakeLabel(detail)}</Badge>
               <Badge variant="outline">{detail.automationScope.scopeLabel}</Badge>
               <Badge variant="outline">{channelLabel(detail.replyComposer.latestOutboundChannel)}</Badge>
               {latestIntake?.status ? <StatusChip status={latestIntake.status} /> : <StatusChip status={detail.latestWebhookStatus} />}
+              {detail.conversationReview?.needsReview ? <Badge variant="warning">Human review needed</Badge> : null}
+              {detail.linkedIssues.length > 0 ? (
+                <Badge variant="warning">
+                  {detail.linkedIssues.length} open issue{detail.linkedIssues.length === 1 ? "" : "s"}
+                </Badge>
+              ) : null}
             </div>
 
             <div className="grid gap-3 md:grid-cols-2">
               <SummaryFact label="Mapped business" value={detail.lead.business ? <Link className="hover:underline" href={`/businesses/${detail.lead.business.id}`}>{detail.lead.business.name}</Link> : "Not mapped"} />
               <SummaryFact label="Customer" value={detail.lead.customerName ?? "Not provided"} />
               <SummaryFact label="Latest activity" value={detail.lead.latestInteractionAt ? formatDateTime(detail.lead.latestInteractionAt) : "No activity timestamp yet"} />
+              <SummaryFact
+                label="Yelp connection"
+                value={
+                  <span className="inline-flex flex-wrap items-center gap-2">
+                    <StatusChip status={detail.yelpConnection.status} />
+                    <span className="text-muted-foreground">{detail.yelpConnection.label}</span>
+                  </span>
+                }
+              />
               <SummaryFact label="Current reply state" value={<StatusChip status={detail.lead.replyState} />} />
               <SummaryFact label="Initial response" value={<StatusChip status={detail.automationSummary.status} />} />
               <SummaryFact label="Next follow-up" value={getNextFollowUpLabel(detail)} subtle />
+              <SummaryFact
+                label="Last Yelp proof"
+                value={
+                  detail.yelpConnection.latestWebhookReceivedAt
+                    ? `Webhook ${formatDateTime(detail.yelpConnection.latestWebhookReceivedAt)}`
+                    : detail.yelpConnection.latestIntakeAt
+                      ? `Intake ${formatDateTime(detail.yelpConnection.latestIntakeAt)}`
+                      : "No webhook or intake proof yet"
+                }
+                subtle
+              />
             </div>
           </div>
 
@@ -196,8 +231,8 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
                 </div>
                 <div className="mt-1 text-sm text-muted-foreground">
                   {attentionItems.length > 0
-                    ? "These are the first things to resolve before treating the lead as healthy."
-                    : "Reply, mapping, automation, and recent intake all look clear."}
+                    ? "Resolve these before treating the lead as healthy."
+                    : "Reply, mapping, and recent intake look clear."}
                 </div>
               </div>
               <Badge variant={attentionItems.length > 0 ? "warning" : "success"}>
@@ -214,21 +249,21 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
                 ))}
               </div>
             ) : (
-              <div className="mt-4 rounded-2xl border border-border/70 bg-background/70 px-4 py-3 text-sm text-muted-foreground">
-                Keep the reply moving in Yelp, and use partner operations only when mapping or lifecycle changes are needed.
+              <div className="mt-4 rounded-2xl bg-background/70 px-4 py-3 text-sm text-muted-foreground">
+                Keep the reply moving in Yelp. Use partner operations only when mapping or lifecycle changes are needed.
               </div>
             )}
           </div>
         </CardContent>
       </Card>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)]">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(360px,0.8fr)]">
         <div className="space-y-6">
           <Card>
             <CardHeader>
               <CardTitle>Conversation and activity</CardTitle>
               <CardDescription>
-                Keep the lead grounded in the Yelp thread first. Internal logs and automation stay available, but secondary.
+                Keep the live thread first. Automation and partner history stay available, but secondary.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -329,10 +364,162 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
                 </TabsContent>
 
                 <TabsContent className="mt-4 space-y-4" value="automation">
-                  <div className="grid gap-3 md:grid-cols-3">
+                  <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-5">
                     <SummaryFact label="Current status" value={<StatusChip status={detail.automationSummary.status} />} />
                     <SummaryFact label="Scope" value={detail.automationScope.scopeLabel} subtle />
                     <SummaryFact label="Next follow-up" value={getNextFollowUpLabel(detail)} subtle />
+                    <SummaryFact
+                      label="Conversation rollout"
+                      value={detail.automationScope.conversationPolicy.rolloutLabel}
+                      subtle
+                    />
+                    <SummaryFact
+                      label="Auto turns"
+                      value={
+                        detail.conversationState
+                          ? `${detail.conversationState.automatedTurnCount} / ${detail.automationScope.conversationPolicy.maxAutomatedTurns}`
+                          : `0 / ${detail.automationScope.conversationPolicy.maxAutomatedTurns}`
+                      }
+                      subtle
+                    />
+                  </div>
+
+                  <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                    <div className="rounded-2xl border border-border/80 p-4">
+                      <div className="text-sm font-semibold">Conversation automation</div>
+                      <div className="mt-1 text-sm text-muted-foreground">
+                        {detail.automationScope.conversationPolicy.rolloutDescription}
+                      </div>
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <Badge variant={detail.automationScope.conversationPolicy.paused ? "warning" : "outline"}>
+                          {detail.automationScope.conversationPolicy.pilotLabel}
+                        </Badge>
+                        {detail.conversationReview?.needsReview ? <Badge variant="warning">Human review needed</Badge> : null}
+                        {detail.conversationReview?.latestIssue ? (
+                          <Badge variant="outline">{detail.conversationReview.latestIssue.severity.toLowerCase()} linked issue</Badge>
+                        ) : null}
+                      </div>
+                      <div className="mt-4 grid gap-3 md:grid-cols-2">
+                        <SummaryFact
+                          label="Last decision"
+                          value={detail.conversationState?.lastDecisionLabel ?? "No decision yet"}
+                          subtle
+                        />
+                        <SummaryFact
+                          label="Last intent"
+                          value={detail.conversationState?.lastIntentLabel ?? "No inbound turn processed"}
+                          subtle
+                        />
+                        <SummaryFact
+                          label="Last auto reply"
+                          value={
+                            detail.conversationState?.lastAutomatedReplyAt
+                              ? formatDateTime(detail.conversationState.lastAutomatedReplyAt)
+                              : "No auto reply yet"
+                          }
+                          subtle
+                        />
+                        <SummaryFact
+                          label="Next action"
+                          value={detail.conversationRecommendedNextAction}
+                          subtle
+                        />
+                      </div>
+                      {detail.conversationReview?.latestIssue ? (
+                        <div className="mt-3 rounded-2xl border border-border/70 bg-muted/10 px-4 py-3 text-sm text-muted-foreground">
+                          {detail.conversationReview.latestIssue.summary}
+                        </div>
+                      ) : null}
+                      {detail.conversationState?.lastStopReasonLabel ? (
+                        <div className="mt-3 rounded-2xl border border-border/70 bg-muted/10 px-4 py-3 text-sm text-muted-foreground">
+                          {detail.conversationState.lastStopReasonLabel}
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="rounded-2xl border border-border/80 p-4">
+                      <div className="text-sm font-semibold">Latest conversation handling</div>
+                      <div className="mt-1 text-sm text-muted-foreground">
+                        Review-only and human-handoff decisions stay visible here so operators can trust why automation did or did not reply.
+                      </div>
+                      {detail.conversationHistory.length === 0 ? (
+                        <div className="mt-4 rounded-2xl border border-dashed border-border/80 bg-muted/10 px-4 py-4 text-sm text-muted-foreground">
+                          No inbound conversation turn has been processed yet.
+                        </div>
+                      ) : (
+                        <div className="mt-4 space-y-3">
+                          {detail.conversationHistory.slice(0, 3).map((turn) => (
+                            <div className="rounded-2xl border border-border/70 bg-muted/10 px-4 py-3" key={turn.id}>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <StatusChip status={turn.decision} />
+                                <Badge variant="secondary">{turn.intentLabel}</Badge>
+                                <Badge variant="outline">{turn.modeLabel}</Badge>
+                              </div>
+                              <div className="mt-2 text-xs text-muted-foreground">
+                                {formatDateTime(turn.createdAt)} • Confidence {turn.confidence.toLowerCase()}
+                              </div>
+                              {turn.stopReasonLabel ? (
+                                <div className="mt-2 text-sm text-muted-foreground">{turn.stopReasonLabel}</div>
+                              ) : null}
+                              <div className="mt-3 grid gap-2 rounded-xl border border-border/60 bg-background/70 p-3 text-xs text-muted-foreground md:grid-cols-2">
+                                <div>
+                                  <span className="font-medium text-foreground">Source:</span>{" "}
+                                  {turn.decisionTrace.contentSourceLabel}
+                                  {turn.decisionTrace.aiModel ? ` • ${turn.decisionTrace.aiModel}` : ""}
+                                </div>
+                                <div>
+                                  <span className="font-medium text-foreground">Template:</span>{" "}
+                                  {turn.decisionTrace.templateName ?? turn.templateName ?? "Not recorded"}
+                                  {turn.decisionTrace.templateRenderMode ? ` • ${turn.decisionTrace.templateRenderMode}` : ""}
+                                </div>
+                                <div>
+                                  <span className="font-medium text-foreground">Prompt:</span>{" "}
+                                  {turn.decisionTrace.promptSourceLabel}
+                                </div>
+                                <div>
+                                  <span className="font-medium text-foreground">Operator:</span>{" "}
+                                  {turn.decisionTrace.operatorReviewRequired
+                                    ? turn.decisionTrace.operatorEditStatus === "WAITING_FOR_OPERATOR"
+                                      ? "Review needed"
+                                      : "Human handling required"
+                                    : "No review required"}
+                                </div>
+                                {turn.decisionTrace.inboundMessageExcerpt ? (
+                                  <div className="md:col-span-2">
+                                    <span className="font-medium text-foreground">Customer:</span>{" "}
+                                    {turn.decisionTrace.inboundMessageExcerpt}
+                                  </div>
+                                ) : null}
+                                {turn.decisionTrace.aiPromptPreview ? (
+                                  <div className="md:col-span-2">
+                                    <span className="font-medium text-foreground">Prompt preview:</span>{" "}
+                                    {turn.decisionTrace.aiPromptPreview}
+                                  </div>
+                                ) : null}
+                                {turn.decisionTrace.fallbackReason ? (
+                                  <div>
+                                    <span className="font-medium text-foreground">Fallback:</span>{" "}
+                                    {turn.decisionTrace.fallbackReason}
+                                  </div>
+                                ) : null}
+                                {turn.decisionTrace.warningCodes.length > 0 ? (
+                                  <div>
+                                    <span className="font-medium text-foreground">Warnings:</span>{" "}
+                                    {turn.decisionTrace.warningCodes.join(", ")}
+                                  </div>
+                                ) : null}
+                              </div>
+                              {turn.renderedBody ? (
+                                <div className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{turn.renderedBody}</div>
+                              ) : null}
+                              {turn.errorSummary ? (
+                                <div className="mt-2 text-sm text-destructive">{turn.errorSummary}</div>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   {detail.automationHistory.length === 0 ? (
@@ -421,7 +608,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
           <Card>
             <CardHeader>
               <CardTitle>Partner operations</CardTitle>
-              <CardDescription>Update CRM mapping and partner lifecycle without mixing them into Yelp-native thread history.</CardDescription>
+              <CardDescription>Update CRM mapping and downstream lifecycle without mixing them into Yelp-native thread history.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="rounded-2xl border border-border/80 bg-muted/10 p-4">
@@ -634,7 +821,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
           <Card>
             <CardHeader>
               <CardTitle>Reply</CardTitle>
-              <CardDescription>Keep the response inside Yelp first. Use fallback channels only when the real follow-up happened elsewhere.</CardDescription>
+              <CardDescription>Primary operator action. Keep the response inside Yelp first.</CardDescription>
             </CardHeader>
             <CardContent>
               <LeadReplyForm
@@ -647,6 +834,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
                 latestOutboundChannel={detail.replyComposer.latestOutboundChannel}
                 canMarkAsReplied={detail.replyComposer.canMarkAsReplied}
                 canGenerateAiDrafts={detail.replyComposer.canGenerateAiDrafts}
+                conversationSuggestion={detail.conversationSuggestion}
               />
             </CardContent>
           </Card>
@@ -659,8 +847,8 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
 
           <Card>
             <CardHeader>
-              <CardTitle>Operations</CardTitle>
-              <CardDescription>Quick internal context for mapping, lifecycle, and open lead-level issues.</CardDescription>
+              <CardTitle>Lead ops</CardTitle>
+              <CardDescription>Internal mapping, lifecycle, and issue context.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-3">

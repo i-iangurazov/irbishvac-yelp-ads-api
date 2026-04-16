@@ -17,6 +17,7 @@ import {
   resolveLeadAiModel
 } from "@/features/autoresponder/config";
 import { recordAuditEvent } from "@/features/audit/service";
+import { claimProviderRequestBudget } from "@/features/operations/provider-budget-service";
 import {
   leadReplyDraftRequestSchema,
   leadReplyDraftUsageSchema,
@@ -468,6 +469,12 @@ export async function generateLeadReplyDraftsWorkflow(
   }
 
   try {
+    await claimProviderRequestBudget({
+      tenantId,
+      provider: "OPENAI",
+      operation: "lead.reply_draft",
+      businessId: lead.businessId ?? automationCandidate.business?.id ?? null
+    });
     const generated = await createOpenAiLeadDrafts({
       channel: values.channel,
       variantCount: values.variantCount,

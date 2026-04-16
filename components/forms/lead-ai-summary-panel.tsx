@@ -94,7 +94,7 @@ export function LeadAiSummaryPanel({
   };
 
   return (
-    <Card>
+    <Card className="shadow-none">
       <CardHeader>
         <CardTitle>AI summary</CardTitle>
         <CardDescription>Review-only triage assist. It never changes Yelp or partner records.</CardDescription>

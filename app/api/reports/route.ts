@@ -13,7 +13,7 @@ export async function GET() {
 
     const reports = await getReportingIndex(user.tenantId);
 
-    return NextResponse.json(reports);
+    return NextResponse.json(reports.reports);
   } catch (error) {
     return handleRouteError(error);
   }

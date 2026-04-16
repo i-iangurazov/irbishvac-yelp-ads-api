@@ -138,11 +138,11 @@ export function ReportScheduleForm({
   }
 
   return (
-    <Card>
+    <Card className="shadow-none">
       <CardHeader>
         <CardTitle>{isEditing ? "Edit recurring delivery" : "New recurring delivery"}</CardTitle>
         <CardDescription>
-          Configure rollup and per-location delivery with explicit fallback routing. Reports still send a dashboard link plus CSV attachment.
+          Configure rollup and per-location delivery with explicit fallback routing.
         </CardDescription>
       </CardHeader>
       <CardContent>

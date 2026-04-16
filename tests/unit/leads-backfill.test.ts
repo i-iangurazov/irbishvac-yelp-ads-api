@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const getBusinessById = vi.fn();
 const countLeadRecordsByBusiness = vi.fn();
 const countLeadRecords = vi.fn();
+const claimLeadWebhookSyncRunForProcessing = vi.fn();
 const createLeadSyncRun = vi.fn();
 const createLeadSyncError = vi.fn();
 const createWebhookEventRecord = vi.fn();
@@ -17,6 +18,7 @@ const listLeadBusinessOptions = vi.fn();
 const listLeadRecords = vi.fn();
 const listLeadWebhookSyncRunsForReconcile = vi.fn();
 const updateLeadSyncRun = vi.fn();
+const updateLeadWebhookSnapshot = vi.fn();
 const updateWebhookEventRecord = vi.fn();
 const upsertLeadEventRecords = vi.fn();
 const upsertLeadRecord = vi.fn();
@@ -24,6 +26,7 @@ const recordAuditEvent = vi.fn();
 const ensureYelpLeadsAccess = vi.fn();
 const getCapabilityFlags = vi.fn();
 const processLeadAutoresponderForNewLead = vi.fn();
+const processLeadConversationAutomationForInboundMessage = vi.fn();
 const getLeadConversionSummary = vi.fn();
 const getDefaultTenant = vi.fn();
 const logInfo = vi.fn();
@@ -31,6 +34,8 @@ const logError = vi.fn();
 const getBusinessLeadIds = vi.fn();
 const getLead = vi.fn();
 const getLeadEvents = vi.fn();
+const recordWebhookIntakeMetric = vi.fn();
+const recordWebhookReconcileMetric = vi.fn();
 let backfillRunState: Record<string, unknown> | null = null;
 
 vi.mock("@/lib/db/businesses-repository", () => ({
@@ -40,6 +45,7 @@ vi.mock("@/lib/db/businesses-repository", () => ({
 vi.mock("@/lib/db/leads-repository", () => ({
   countLeadRecordsByBusiness,
   countLeadRecords,
+  claimLeadWebhookSyncRunForProcessing,
   createLeadSyncError,
   createLeadSyncRun,
   createWebhookEventRecord,
@@ -54,6 +60,7 @@ vi.mock("@/lib/db/leads-repository", () => ({
   listLeadRecords,
   listLeadWebhookSyncRunsForReconcile,
   updateLeadSyncRun,
+  updateLeadWebhookSnapshot,
   updateWebhookEventRecord,
   upsertLeadEventRecords,
   upsertLeadRecord
@@ -70,6 +77,10 @@ vi.mock("@/lib/yelp/runtime", () => ({
 
 vi.mock("@/features/autoresponder/service", () => ({
   processLeadAutoresponderForNewLead
+}));
+
+vi.mock("@/features/autoresponder/conversation-service", () => ({
+  processLeadConversationAutomationForInboundMessage
 }));
 
 vi.mock("@/features/crm-enrichment/service", () => ({
@@ -94,10 +105,16 @@ vi.mock("@/lib/yelp/leads-client", () => ({
   }))
 }));
 
+vi.mock("@/features/operations/observability-service", () => ({
+  recordWebhookIntakeMetric,
+  recordWebhookReconcileMetric
+}));
+
 describe("lead backfill workflow", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     countLeadRecordsByBusiness.mockResolvedValue([]);
+    claimLeadWebhookSyncRunForProcessing.mockResolvedValue(true);
     getBusinessById.mockResolvedValue({
       id: "business_1",
       tenantId: "tenant_1",
@@ -189,6 +206,10 @@ describe("lead backfill workflow", () => {
       scheduledJobs: 0,
       completedJobs: 0,
       closeRate: 0
+    });
+    processLeadConversationAutomationForInboundMessage.mockResolvedValue({
+      processed: false,
+      reason: "NO_NEW_INBOUND_EVENT"
     });
     getDefaultTenant.mockResolvedValue({
       id: "tenant_1"

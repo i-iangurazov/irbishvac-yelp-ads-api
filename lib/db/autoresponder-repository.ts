@@ -5,8 +5,14 @@ import type {
   LeadAutomationAttemptStatus,
   LeadAutomationChannel,
   LeadAutomationSkipReason,
+  LeadConversationAutomationMode,
+  LeadConversationConfidence,
+  LeadConversationDecision,
+  LeadConversationIntent,
+  LeadConversationStopReason,
   Prisma,
-  RecordSourceSystem
+  RecordSourceSystem,
+  SyncRunType
 } from "@prisma/client";
 
 import { prisma } from "@/lib/db/prisma";
@@ -31,6 +37,25 @@ export async function listLeadAutomationTemplates(tenantId: string) {
       }
     },
     orderBy: [{ isEnabled: "desc" }, { name: "asc" }, { createdAt: "asc" }]
+  });
+}
+
+export async function listEnabledLeadAutomationTemplates(tenantId: string) {
+  return prisma.leadAutomationTemplate.findMany({
+    where: {
+      tenantId,
+      isEnabled: true
+    },
+    include: {
+      business: {
+        select: {
+          id: true,
+          name: true,
+          encryptedYelpBusinessId: true
+        }
+      }
+    },
+    orderBy: [{ businessId: "asc" }, { name: "asc" }, { createdAt: "asc" }]
   });
 }
 
@@ -245,6 +270,8 @@ export async function getLeadAutomationCandidate(tenantId: string, leadId: strin
       },
       events: {
         select: {
+          eventKey: true,
+          externalEventId: true,
           id: true,
           eventType: true,
           actorType: true,
@@ -264,6 +291,19 @@ export async function getLeadAutomationCandidate(tenantId: string, leadId: strin
           completedAt: true
         },
         orderBy: [{ createdAt: "asc" }]
+      },
+      conversationAutomationState: true,
+      conversationAutomationTurns: {
+        orderBy: [{ createdAt: "desc" }],
+        take: 12,
+        include: {
+          template: {
+            select: {
+              id: true,
+              name: true
+            }
+          }
+        }
       },
       automationAttempts: {
         include: {
@@ -399,6 +439,222 @@ export async function deleteLeadAutomationBusinessOverride(tenantId: string, bus
         tenantId,
         businessId
       }
+    }
+  });
+}
+
+export async function getLeadConversationAutomationState(tenantId: string, leadId: string) {
+  return prisma.leadConversationAutomationState.findFirst({
+    where: {
+      tenantId,
+      leadId
+    }
+  });
+}
+
+export async function upsertLeadConversationAutomationState(
+  tenantId: string,
+  leadId: string,
+  data: Omit<Prisma.LeadConversationAutomationStateUncheckedCreateInput, "tenantId" | "leadId">
+) {
+  return prisma.leadConversationAutomationState.upsert({
+    where: {
+      leadId
+    },
+    update: data,
+    create: {
+      tenantId,
+      leadId,
+      ...data
+    }
+  });
+}
+
+export async function createLeadConversationAutomationTurn(data: {
+  tenantId: string;
+  leadId: string;
+  stateId?: string | null;
+  sourceEventKey: string;
+  sourceExternalEventId?: string | null;
+  mode: LeadConversationAutomationMode;
+  intent: LeadConversationIntent;
+  decision: LeadConversationDecision;
+  confidence?: LeadConversationConfidence;
+  stopReason?: LeadConversationStopReason | null;
+  templateId?: string | null;
+  channel?: LeadAutomationChannel;
+  renderedSubject?: string | null;
+  renderedBody?: string | null;
+  errorSummary?: string | null;
+  metadataJson?: unknown;
+  completedAt?: Date | null;
+}) {
+  return prisma.leadConversationAutomationTurn.create({
+    data: {
+      tenantId: data.tenantId,
+      leadId: data.leadId,
+      stateId: data.stateId ?? null,
+      sourceEventKey: data.sourceEventKey,
+      sourceExternalEventId: data.sourceExternalEventId ?? null,
+      mode: data.mode,
+      intent: data.intent,
+      decision: data.decision,
+      confidence: data.confidence ?? "LOW",
+      stopReason: data.stopReason ?? null,
+      templateId: data.templateId ?? null,
+      channel: data.channel ?? "YELP_THREAD",
+      renderedSubject: data.renderedSubject ?? null,
+      renderedBody: data.renderedBody ?? null,
+      errorSummary: data.errorSummary ?? null,
+      metadataJson: data.metadataJson === undefined ? undefined : toJsonValue(data.metadataJson),
+      completedAt: data.completedAt ?? null
+    }
+  });
+}
+
+export async function getLeadConversationAutomationTurnBySourceEventKey(tenantId: string, sourceEventKey: string) {
+  return prisma.leadConversationAutomationTurn.findUnique({
+    where: {
+      tenantId_sourceEventKey: {
+        tenantId,
+        sourceEventKey
+      }
+    },
+    include: {
+      template: {
+        select: {
+          id: true,
+          name: true
+        }
+      }
+    }
+  });
+}
+
+export async function listLeadConversationAutomationTurnMetrics(tenantId: string, since: Date) {
+  return prisma.leadConversationAutomationTurn.findMany({
+    where: {
+      tenantId,
+      createdAt: {
+        gte: since
+      }
+    },
+    select: {
+      leadId: true,
+      decision: true,
+      stopReason: true,
+      createdAt: true
+    },
+    orderBy: [{ createdAt: "desc" }]
+  });
+}
+
+export async function countLeadConversationOperatorTakeovers(tenantId: string, since: Date) {
+  return prisma.leadConversationAction.count({
+    where: {
+      tenantId,
+      initiator: "OPERATOR",
+      status: "SENT",
+      actionType: {
+        in: ["SEND_MESSAGE", "MARK_REPLIED"]
+      },
+      createdAt: {
+        gte: since
+      }
+    }
+  });
+}
+
+export async function listLeadConversationReviewTurns(
+  tenantId: string,
+  params: {
+    since: Date;
+    take?: number;
+  }
+) {
+  return prisma.leadConversationAutomationTurn.findMany({
+    where: {
+      tenantId,
+      createdAt: {
+        gte: params.since
+      },
+      decision: {
+        in: ["REVIEW_ONLY", "HUMAN_HANDOFF"]
+      }
+    },
+    select: {
+      id: true,
+      leadId: true,
+      createdAt: true,
+      mode: true,
+      intent: true,
+      decision: true,
+      confidence: true,
+      stopReason: true,
+      renderedBody: true,
+      errorSummary: true,
+      lead: {
+        select: {
+          id: true,
+          externalLeadId: true,
+          customerName: true,
+          business: {
+            select: {
+              id: true,
+              name: true
+            }
+          },
+          conversationActions: {
+            where: {
+              initiator: "OPERATOR",
+              status: "SENT",
+              actionType: {
+                in: ["SEND_MESSAGE", "MARK_REPLIED"]
+              }
+            },
+            select: {
+              id: true,
+              actionType: true,
+              createdAt: true,
+              completedAt: true
+            },
+            orderBy: [{ createdAt: "desc" }],
+            take: 8
+          }
+        }
+      }
+    },
+    orderBy: [{ createdAt: "desc" }],
+    ...(params.take ? { take: params.take } : {})
+  });
+}
+
+export async function updateLeadConversationAutomationTurn(
+  turnId: string,
+  data: {
+    decision?: LeadConversationDecision;
+    confidence?: LeadConversationConfidence;
+    stopReason?: LeadConversationStopReason | null;
+    templateId?: string | null;
+    renderedSubject?: string | null;
+    renderedBody?: string | null;
+    errorSummary?: string | null;
+    metadataJson?: unknown;
+    completedAt?: Date | null;
+  }
+) {
+  return prisma.leadConversationAutomationTurn.update({
+    where: { id: turnId },
+    data: {
+      ...(data.decision !== undefined ? { decision: data.decision } : {}),
+      ...(data.confidence !== undefined ? { confidence: data.confidence } : {}),
+      ...(data.stopReason !== undefined ? { stopReason: data.stopReason } : {}),
+      ...(data.templateId !== undefined ? { templateId: data.templateId } : {}),
+      ...(data.renderedSubject !== undefined ? { renderedSubject: data.renderedSubject } : {}),
+      ...(data.renderedBody !== undefined ? { renderedBody: data.renderedBody } : {}),
+      ...(data.errorSummary !== undefined ? { errorSummary: data.errorSummary } : {}),
+      ...(data.metadataJson !== undefined ? { metadataJson: toJsonValue(data.metadataJson) } : {}),
+      ...(data.completedAt !== undefined ? { completedAt: data.completedAt } : {})
     }
   });
 }
@@ -667,6 +923,145 @@ export async function getLeadAutomationBusinessAttemptHealth(tenantId: string) {
     failedCounts,
     pendingDueCounts,
     lastSuccessfulAttempts
+  };
+}
+
+const yelpLeadSyncTypes: SyncRunType[] = ["YELP_LEADS_WEBHOOK", "YELP_LEADS_BACKFILL"];
+
+export async function getLeadAutomationBusinessConnectionHealth(tenantId: string) {
+  const [
+    leadCounts,
+    latestLeadActivity,
+    latestWebhookActivity,
+    latestSuccessfulSyncRuns,
+    latestFailedSyncRuns,
+    pendingSyncCounts
+  ] = await Promise.all([
+    prisma.yelpLead.groupBy({
+      by: ["businessId"],
+      where: {
+        tenantId,
+        businessId: {
+          not: null
+        }
+      },
+      _count: {
+        _all: true
+      }
+    }),
+    prisma.yelpLead.findMany({
+      where: {
+        tenantId,
+        businessId: {
+          not: null
+        }
+      },
+      select: {
+        businessId: true,
+        externalLeadId: true,
+        latestInteractionAt: true,
+        createdAtYelp: true,
+        lastSyncedAt: true
+      },
+      orderBy: [{ latestInteractionAt: "desc" }, { createdAtYelp: "desc" }, { updatedAt: "desc" }],
+      distinct: ["businessId"]
+    }),
+    prisma.yelpLead.findMany({
+      where: {
+        tenantId,
+        businessId: {
+          not: null
+        },
+        latestWebhookReceivedAt: {
+          not: null
+        }
+      },
+      select: {
+        businessId: true,
+        externalLeadId: true,
+        latestWebhookReceivedAt: true,
+        latestWebhookStatus: true,
+        latestWebhookErrorSummary: true
+      },
+      orderBy: [{ latestWebhookReceivedAt: "desc" }, { updatedAt: "desc" }],
+      distinct: ["businessId"]
+    }),
+    prisma.syncRun.findMany({
+      where: {
+        tenantId,
+        businessId: {
+          not: null
+        },
+        type: {
+          in: yelpLeadSyncTypes
+        },
+        status: {
+          in: ["COMPLETED", "PARTIAL"]
+        }
+      },
+      select: {
+        businessId: true,
+        type: true,
+        status: true,
+        startedAt: true,
+        finishedAt: true,
+        lastSuccessfulSyncAt: true,
+        errorSummary: true
+      },
+      orderBy: [{ finishedAt: "desc" }, { startedAt: "desc" }],
+      distinct: ["businessId"]
+    }),
+    prisma.syncRun.findMany({
+      where: {
+        tenantId,
+        businessId: {
+          not: null
+        },
+        type: {
+          in: yelpLeadSyncTypes
+        },
+        status: {
+          in: ["FAILED", "PARTIAL"]
+        }
+      },
+      select: {
+        businessId: true,
+        type: true,
+        status: true,
+        startedAt: true,
+        finishedAt: true,
+        errorSummary: true
+      },
+      orderBy: [{ finishedAt: "desc" }, { startedAt: "desc" }],
+      distinct: ["businessId"]
+    }),
+    prisma.syncRun.groupBy({
+      by: ["businessId"],
+      where: {
+        tenantId,
+        businessId: {
+          not: null
+        },
+        type: {
+          in: yelpLeadSyncTypes
+        },
+        status: {
+          in: ["QUEUED", "PROCESSING"]
+        }
+      },
+      _count: {
+        _all: true
+      }
+    })
+  ]);
+
+  return {
+    leadCounts,
+    latestLeadActivity,
+    latestWebhookActivity,
+    latestSuccessfulSyncRuns,
+    latestFailedSyncRuns,
+    pendingSyncCounts
   };
 }
 

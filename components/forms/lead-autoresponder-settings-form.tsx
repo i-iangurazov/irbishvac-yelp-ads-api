@@ -12,7 +12,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { leadAutomationScopeModeOptions } from "@/features/autoresponder/constants";
+import {
+  leadAutomationScopeModeOptions,
+  leadConversationAutomationModeOptions,
+  leadConversationIntentOptions
+} from "@/features/autoresponder/constants";
 import {
   leadAutoresponderSettingsSchema,
   type LeadAutoresponderSettingsValues
@@ -60,25 +64,42 @@ export function LeadAutoresponderSettingsForm({
   const aiAssistEnabled = watch("aiAssistEnabled");
   const scopeMode = watch("scopeMode");
   const scopedBusinessIds = watch("scopedBusinessIds");
+  const conversationAutomationEnabled = watch("conversationAutomationEnabled");
+  const conversationGlobalPauseEnabled = watch("conversationGlobalPauseEnabled");
+  const conversationMode = watch("conversationMode");
+  const conversationAllowedIntents = watch("conversationAllowedIntents");
 
   const toggleScopedBusiness = (businessId: string, checked: boolean) => {
     const next = checked
       ? Array.from(new Set([...(scopedBusinessIds ?? []), businessId]))
-      : (scopedBusinessIds ?? []).filter((candidate) => candidate !== businessId);
+      : (scopedBusinessIds ?? []).filter((candidate: string) => candidate !== businessId);
 
     setValue("scopedBusinessIds", next, {
       shouldValidate: true
     });
   };
 
+  const toggleConversationIntent = (intent: LeadAutoresponderSettingsValues["conversationAllowedIntents"][number], checked: boolean) => {
+    const next = checked
+      ? Array.from(new Set([...(conversationAllowedIntents ?? []), intent]))
+      : (conversationAllowedIntents ?? []).filter(
+          (candidate: LeadAutoresponderSettingsValues["conversationAllowedIntents"][number]) =>
+            candidate !== intent
+        );
+
+    setValue("conversationAllowedIntents", next, {
+      shouldValidate: true
+    });
+  };
+
   return (
-    <Card>
+    <Card className="shadow-none">
       <CardHeader className="pb-3">
         <CardTitle>Tenant defaults</CardTitle>
-        <CardDescription>Default automation for the businesses you choose here, unless a business override replaces it.</CardDescription>
+        <CardDescription>Default automation for the businesses covered here, unless a business override replaces it.</CardDescription>
       </CardHeader>
       <CardContent>
-        <form className="space-y-4" onSubmit={submit}>
+        <form className="space-y-5" onSubmit={submit}>
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
             <div className="space-y-4 rounded-xl border border-border/80 bg-muted/10 p-4">
               <div className="flex items-center justify-between gap-3">
@@ -257,7 +278,7 @@ export function LeadAutoresponderSettingsForm({
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="text-sm font-medium">AI assist</div>
-                <div className="text-xs text-muted-foreground">Allows AI-assisted live templates and review-mode lead tools.</div>
+                <div className="text-xs text-muted-foreground">Allows AI-assisted live templates and review tools.</div>
               </div>
               <Switch
                 checked={aiAssistEnabled}
@@ -297,6 +318,146 @@ export function LeadAutoresponderSettingsForm({
             ) : (
               <div className="text-xs text-muted-foreground">
                 {aiAssistConfigured ? "AI assist is off." : "Add `OPENAI_API_KEY` before enabling AI assist."}
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-4 rounded-xl border border-border/80 bg-muted/10 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-medium">Conversation automation</div>
+                <div className="text-xs text-muted-foreground">Handle new inbound Yelp thread messages conservatively after the first reply.</div>
+              </div>
+              <Switch
+                checked={conversationAutomationEnabled}
+                onCheckedChange={(checked) => setValue("conversationAutomationEnabled", checked)}
+              />
+            </div>
+
+            {conversationAutomationEnabled ? (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-background px-3 py-3">
+                  <div>
+                    <div className="text-sm font-medium">Quick pause</div>
+                    <div className="text-xs text-muted-foreground">Stop new conversation auto-handling tenant-wide without deleting the pilot setup.</div>
+                  </div>
+                  <Switch
+                    checked={conversationGlobalPauseEnabled}
+                    onCheckedChange={(checked) =>
+                      setValue("conversationGlobalPauseEnabled", checked, {
+                        shouldValidate: true
+                      })
+                    }
+                  />
+                </div>
+
+                {conversationGlobalPauseEnabled ? (
+                  <div className="rounded-xl border border-border/70 bg-background px-4 py-3 text-sm text-muted-foreground">
+                    Conversation automation is paused. Existing review, mode, and handoff settings stay saved and will apply again when you turn the pilot back on.
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_10rem]">
+                      <div className="space-y-2">
+                        <Label>Conversation mode</Label>
+                        <Select
+                          value={conversationMode}
+                          onValueChange={(value) =>
+                            setValue("conversationMode", value as LeadAutoresponderSettingsValues["conversationMode"], {
+                              shouldValidate: true
+                            })
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {leadConversationAutomationModeOptions.map((option) => (
+                              <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">
+                          {leadConversationAutomationModeOptions.find((option) => option.value === conversationMode)?.description}
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Max auto turns</Label>
+                        <Input
+                          min={1}
+                          max={5}
+                          type="number"
+                          value={watch("conversationMaxAutomatedTurns")}
+                          onChange={(event) =>
+                            setValue("conversationMaxAutomatedTurns", Number(event.target.value), {
+                              shouldValidate: true
+                            })
+                          }
+                        />
+                      </div>
+                    </div>
+
+                    {conversationMode === "BOUNDED_AUTO_REPLY" ? (
+                      <div className="space-y-3">
+                        <div>
+                          <div className="text-sm font-medium">Approved low-risk auto-reply intents</div>
+                          <div className="text-xs text-muted-foreground">Everything else falls back to review or human handoff.</div>
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-2">
+                          {leadConversationIntentOptions.slice(0, 3).map((intent) => {
+                            const checked = conversationAllowedIntents.includes(intent.value);
+
+                            return (
+                              <label
+                                key={intent.value}
+                                className="flex items-start gap-3 rounded-xl border border-border/70 bg-background px-3 py-3"
+                              >
+                                <Checkbox
+                                  checked={checked}
+                                  onCheckedChange={(value) => toggleConversationIntent(intent.value, value === true)}
+                                />
+                                <div className="min-w-0">
+                                  <div className="text-sm font-medium">{intent.label}</div>
+                                  <div className="text-xs text-muted-foreground">{intent.description}</div>
+                                </div>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-background px-3 py-3">
+                        <div>
+                          <div className="text-sm font-medium">Review fallback</div>
+                          <div className="text-xs text-muted-foreground">Use a suggested draft when bounded auto-reply cannot safely act.</div>
+                        </div>
+                        <Switch
+                          checked={watch("conversationReviewFallbackEnabled")}
+                          onCheckedChange={(checked) => setValue("conversationReviewFallbackEnabled", checked)}
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-background px-3 py-3">
+                        <div>
+                          <div className="text-sm font-medium">Issue queue escalation</div>
+                          <div className="text-xs text-muted-foreground">Open an issue when automation blocks on risky inbound messages.</div>
+                        </div>
+                        <Switch
+                          checked={watch("conversationEscalateToIssueQueue")}
+                          onCheckedChange={(checked) => setValue("conversationEscalateToIssueQueue", checked)}
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : (
+              <div className="text-xs text-muted-foreground">
+                New inbound customer thread messages will stay human-only for this tenant default.
               </div>
             )}
           </div>

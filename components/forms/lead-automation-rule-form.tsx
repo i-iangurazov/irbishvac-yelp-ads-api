@@ -228,13 +228,13 @@ export function LeadAutomationRuleForm({
   };
 
   return (
-    <Card>
+    <Card className="shadow-none">
       <CardHeader className="pb-3">
         <CardTitle>{isEditing ? "Edit rule" : "New rule"}</CardTitle>
         <CardDescription>Choose which template is eligible for each cadence and scope. Lower priority wins.</CardDescription>
       </CardHeader>
       <CardContent>
-        <form className="space-y-4" onSubmit={submit}>
+        <form className="space-y-5" onSubmit={submit}>
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="automation-rule-name">Rule name</Label>

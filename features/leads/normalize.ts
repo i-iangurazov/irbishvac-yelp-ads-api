@@ -467,6 +467,9 @@ export function buildLeadListEntry(lead: {
   business?: { id: string; name: string; location?: { id: string; name: string } | null } | null;
   location?: { id: string; name: string } | null;
   serviceCategory?: { id: string; name: string } | null;
+  latestWebhookStatus?: SyncRunStatus | null;
+  latestWebhookReceivedAt?: Date | null;
+  latestWebhookErrorSummary?: string | null;
   webhookEvents?: Array<{ status: SyncRunStatus; errorJson?: unknown | null }>;
   crmLeadMappings?: Array<{
     state: CrmLeadMappingState;
@@ -500,11 +503,16 @@ export function buildLeadListEntry(lead: {
   internalStatus: InternalLeadStatus;
 }): LeadListEntry {
   const latestWebhook = lead.webhookEvents?.[0] ?? null;
+  const processingStatus =
+    lead.latestWebhookStatus ??
+    latestWebhook?.status ??
+    (lead.lastSyncedAt ? "COMPLETED" : "NOT_RECEIVED");
   const mapping = lead.crmLeadMappings?.[0] ?? null;
   const latestInternalStatus = lead.crmStatusEvents?.[0] ?? null;
   const latestAutomationAttempt = lead.automationAttempts?.[0] ?? null;
   const errorJson = asRecord(latestWebhook?.errorJson ?? null);
   const processingError =
+    lead.latestWebhookErrorSummary ??
     getString(errorJson, [["message"], ["error", "message"]]) ??
     getString(errorJson, [["details", "message"]]) ??
     null;
@@ -517,8 +525,8 @@ export function buildLeadListEntry(lead: {
   });
   const automationSummary = buildLeadAutomationSummary(latestAutomationAttempt);
   const attentionReasons = [
-    ...(latestWebhook && ["FAILED", "PARTIAL"].includes(latestWebhook.status)
-      ? [processingError ?? `Intake ${latestWebhook.status === "FAILED" ? "failed" : "is partial"}`]
+    ...(["FAILED", "PARTIAL"].includes(processingStatus)
+      ? [processingError ?? `Intake ${processingStatus === "FAILED" ? "failed" : "is partial"}`]
       : []),
     ...(!mapping || mapping.state === "UNRESOLVED" ? ["Needs CRM mapping"] : []),
     ...(mapping?.state === "CONFLICT" ? ["CRM mapping conflict"] : []),
@@ -540,7 +548,7 @@ export function buildLeadListEntry(lead: {
     latestActivityAt: lead.latestInteractionAt ?? null,
     lastSyncedAt: lead.lastSyncedAt ?? null,
     replyState: lead.replyState,
-    processingStatus: latestWebhook?.status ?? (lead.lastSyncedAt ? "COMPLETED" : "NOT_RECEIVED"),
+    processingStatus,
     processingError,
     mappingState: mapping?.state ?? "UNRESOLVED",
     mappingReference: mapping ? getMappingReferenceLabel(mapping) : "No CRM entity linked",

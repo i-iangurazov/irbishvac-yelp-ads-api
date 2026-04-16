@@ -6,6 +6,7 @@ const recordAuditEvent = vi.fn();
 const fetchWithRetry = vi.fn();
 const logInfo = vi.fn();
 const logError = vi.fn();
+const claimProviderRequestBudget = vi.fn();
 
 vi.mock("@/features/leads/service", () => ({
   getLeadDetail
@@ -29,6 +30,10 @@ vi.mock("@/features/leads/ai-reply-service", () => ({
 
 vi.mock("@/features/audit/service", () => ({
   recordAuditEvent
+}));
+
+vi.mock("@/features/operations/provider-budget-service", () => ({
+  claimProviderRequestBudget
 }));
 
 vi.mock("@/lib/utils/fetch", () => ({
@@ -107,6 +112,11 @@ describe("ai lead summary helpers", () => {
       model: "gpt-5-nano",
       modelLabel: "gpt-5-nano • Cheapest / test",
       guardrails: []
+    });
+    claimProviderRequestBudget.mockResolvedValue({
+      used: 1,
+      limit: 300,
+      provider: "OPENAI"
     });
   });
 

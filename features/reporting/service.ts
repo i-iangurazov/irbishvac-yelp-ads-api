@@ -3,7 +3,8 @@ import "server-only";
 import Papa from "papaparse";
 
 import { recordAuditEvent } from "@/features/audit/service";
-import { buildBreakdownCsvRows, buildReportBreakdown } from "@/features/reporting/breakdowns";
+import { claimProviderRequestBudget } from "@/features/operations/provider-budget-service";
+import { buildBreakdownCsvRows, buildReportBreakdownFromAggregates } from "@/features/reporting/breakdowns";
 import { buildCombinedReportPayload } from "@/features/reporting/payloads";
 import {
   reportBreakdownFiltersSchema,
@@ -14,11 +15,14 @@ import {
 import { getBusinessById } from "@/lib/db/businesses-repository";
 import { toJsonValue } from "@/lib/db/json";
 import {
+  countReportRequests,
+  countReportsByGranularity,
+  countReportsByStatus,
   getReportRequestById,
-  listLeadsForReportBreakdown,
+  listLeadAggregatesForReportBreakdown,
   listReportBreakdownOptions,
   listPendingReportRequests,
-  listReportRequests,
+  listReportRequestSummaries,
   createReportRequest,
   updateReportRequest,
   upsertReportResult
@@ -69,8 +73,64 @@ function getRequestedBusinessIds(report: Awaited<ReturnType<typeof getReportRequ
   return report.businessId ? [report.businessId] : [];
 }
 
-export async function getReportingIndex(tenantId: string) {
-  return listReportRequests(tenantId);
+export async function getReportingIndex(tenantId: string, page = 1) {
+  const pageSize = 50;
+  const currentPage = Math.max(page, 1);
+  const [
+    totalReports,
+    readyCount,
+    pendingRequestedCount,
+    pendingProcessingCount,
+    failedCount,
+    dailyCount,
+    monthlyCount,
+    reports
+  ] = await Promise.all([
+    countReportRequests(tenantId),
+    countReportsByStatus(tenantId, "READY"),
+    countReportsByStatus(tenantId, "REQUESTED"),
+    countReportsByStatus(tenantId, "PROCESSING"),
+    countReportsByStatus(tenantId, "FAILED"),
+    countReportsByGranularity(tenantId, "DAILY"),
+    countReportsByGranularity(tenantId, "MONTHLY"),
+    listReportRequestSummaries(tenantId, {
+      skip: (currentPage - 1) * pageSize,
+      take: pageSize
+    })
+  ]);
+  const totalPages = totalReports === 0 ? 1 : Math.ceil(totalReports / pageSize);
+  const normalizedPage = Math.min(currentPage, totalPages);
+
+  const visibleReports =
+    normalizedPage === currentPage
+      ? reports
+      : await listReportRequestSummaries(tenantId, {
+          skip: (normalizedPage - 1) * pageSize,
+          take: pageSize
+        });
+
+  return {
+    summary: {
+      totalReports,
+      readyCount,
+      pendingCount: pendingRequestedCount + pendingProcessingCount,
+      failedCount,
+      dailyCount,
+      monthlyCount
+    },
+    pagination: {
+      currentPage: normalizedPage,
+      pageSize,
+      totalPages,
+      hasPreviousPage: normalizedPage > 1,
+      hasNextPage: normalizedPage < totalPages,
+      filteredTotal: totalReports
+    },
+    reports: visibleReports.map((report) => ({
+      ...report,
+      latestResultFetchedAt: report.results[0]?.fetchedAt ?? null
+    }))
+  };
 }
 
 export async function requestReportByValues(tenantId: string, actorId: string | null, values: ReportRequestFormValues) {
@@ -115,6 +175,11 @@ export async function requestReportByValues(tenantId: string, actorId: string | 
       tenantId,
       capabilityKey: "reportingApiEnabled",
       credentialKind: "REPORTING_FUSION"
+    });
+    await claimProviderRequestBudget({
+      tenantId,
+      provider: "YELP",
+      operation: "report.request"
     });
     const client = new YelpReportingClient(credential);
     const response =
@@ -184,6 +249,11 @@ export async function pollReportWorkflow(tenantId: string, reportRequestId: stri
     capabilityKey: "reportingApiEnabled",
     credentialKind: "REPORTING_FUSION"
   });
+  await claimProviderRequestBudget({
+    tenantId,
+    provider: "YELP",
+    operation: "report.poll"
+  });
   const client = new YelpReportingClient(credential);
 
   const response = await pollUntil({
@@ -251,12 +321,14 @@ export async function getReportBreakdownView(
     serviceCategoryId: parsed.serviceCategoryId
   } as const;
   const businessIds = getRequestedBusinessIds(report);
-  const [options, leads] = await Promise.all([
+  const [options, leadAggregates] = await Promise.all([
     listReportBreakdownOptions(tenantId),
-    listLeadsForReportBreakdown(tenantId, {
+    listLeadAggregatesForReportBreakdown(tenantId, {
       businessIds,
       from: startOfDay(filters.from),
-      to: endOfDay(filters.to)
+      to: endOfDay(filters.to),
+      locationId: filters.locationId ?? null,
+      serviceCategoryId: filters.serviceCategoryId ?? null
     })
   ]);
 
@@ -265,10 +337,10 @@ export async function getReportBreakdownView(
     payload: buildCombinedReportPayload(report),
     filters,
     options,
-    breakdown: buildReportBreakdown({
+    breakdown: buildReportBreakdownFromAggregates({
       view: filters.view,
       filters,
-      leads,
+      leadAggregates,
       results: report.results,
       options
     })

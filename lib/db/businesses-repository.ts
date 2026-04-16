@@ -28,8 +28,73 @@ export async function getBusinessById(id: string, tenantId: string) {
   return prisma.business.findFirstOrThrow({
     where: { id, tenantId },
     include: {
+      location: {
+        select: {
+          id: true,
+          name: true,
+          externalCrmLocationId: true
+        }
+      },
+      mappings: {
+        orderBy: [{ isPrimary: "desc" }, { updatedAt: "desc" }],
+        take: 5
+      },
       programs: {
         orderBy: { updatedAt: "desc" }
+      },
+      yelpLeads: {
+        orderBy: [{ latestInteractionAt: "desc" }, { createdAtYelp: "desc" }],
+        take: 1,
+        select: {
+          id: true,
+          latestInteractionAt: true,
+          latestWebhookReceivedAt: true,
+          latestWebhookStatus: true,
+          lastSyncedAt: true
+        }
+      },
+      leadAutomationOverrides: {
+        take: 1,
+        select: {
+          isEnabled: true,
+          defaultChannel: true,
+          followUp24hEnabled: true,
+          followUp7dEnabled: true,
+          aiAssistEnabled: true,
+          conversationAutomationEnabled: true,
+          conversationMode: true
+        }
+      },
+      reportSchedules: {
+        orderBy: { updatedAt: "desc" },
+        take: 5,
+        select: {
+          id: true,
+          name: true,
+          isEnabled: true,
+          deliverPerLocation: true,
+          recipientEmailsJson: true,
+          locationRecipientOverridesJson: true,
+          lastSuccessfulDeliveryAt: true
+        }
+      },
+      operatorIssues: {
+        where: { status: "OPEN" },
+        orderBy: [{ severity: "desc" }, { lastDetectedAt: "desc" }],
+        take: 5
+      },
+      syncRuns: {
+        orderBy: [{ startedAt: "desc" }, { createdAt: "desc" }],
+        take: 5,
+        select: {
+          id: true,
+          type: true,
+          status: true,
+          startedAt: true,
+          finishedAt: true,
+          lastSuccessfulSyncAt: true,
+          errorSummary: true
+        }
       },
       auditEvents: {
         orderBy: { createdAt: "desc" },
@@ -38,6 +103,18 @@ export async function getBusinessById(id: string, tenantId: string) {
       reportRequests: {
         orderBy: { createdAt: "desc" },
         take: 10
+      },
+      _count: {
+        select: {
+          yelpLeads: true,
+          programs: true,
+          reportSchedules: true,
+          operatorIssues: true,
+          mappings: true,
+          leadAutomationOverrides: true,
+          leadAutomationRules: true,
+          leadAutomationTemplates: true
+        }
       }
     }
   });

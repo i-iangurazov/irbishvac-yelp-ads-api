@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
@@ -38,6 +38,17 @@ type SelectedAiDraft = {
   warningCodes: string[];
 };
 
+type ConversationSuggestion = {
+  turnId: string;
+  title: string;
+  subject: string | null;
+  body: string;
+  warningCodes: string[];
+  contentSourceLabel: string;
+  promptSourceLabel: string;
+  stopReasonLabel: string | null;
+};
+
 function channelLabel(channel: "YELP_THREAD" | "EMAIL" | "PHONE" | null) {
   if (channel === "YELP_THREAD") {
     return "Yelp thread";
@@ -63,7 +74,8 @@ export function LeadReplyForm({
   canMarkAsRead,
   latestOutboundChannel,
   canMarkAsReplied,
-  canGenerateAiDrafts
+  canGenerateAiDrafts,
+  conversationSuggestion
 }: {
   leadId: string;
   defaultChannel: "YELP_THREAD" | "EMAIL" | null;
@@ -74,12 +86,18 @@ export function LeadReplyForm({
   latestOutboundChannel: "YELP_THREAD" | "EMAIL" | "PHONE" | null;
   canMarkAsReplied: boolean;
   canGenerateAiDrafts: boolean;
+  conversationSuggestion?: ConversationSuggestion | null;
 }) {
   const router = useRouter();
   const [externalReplyType, setExternalReplyType] = useState<"PHONE" | "EMAIL">("PHONE");
   const [isMarkingReplied, setIsMarkingReplied] = useState(false);
   const [draftResult, setDraftResult] = useState<LeadReplyDraftResponse | null>(null);
   const [selectedAiDraft, setSelectedAiDraft] = useState<SelectedAiDraft | null>(null);
+  const submitIdempotencyKeyRef = useRef(
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`
+  );
   const [isGeneratingDrafts, setIsGeneratingDrafts] = useState(false);
   const [isDiscardingDrafts, setIsDiscardingDrafts] = useState(false);
   const {
@@ -127,6 +145,9 @@ export function LeadReplyForm({
     try {
       const result = await apiFetch<{ status: string; warning?: string | null }>(`/api/leads/${leadId}/reply`, {
         method: "POST",
+        headers: {
+          "Idempotency-Key": submitIdempotencyKeyRef.current
+        },
         body: JSON.stringify({
           ...values,
           aiDraft: selectedAiDraft
@@ -139,6 +160,10 @@ export function LeadReplyForm({
             : undefined
         })
       });
+      submitIdempotencyKeyRef.current =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
       if (result.status === "PARTIAL" && result.warning) {
         toast.warning(result.warning);
@@ -286,6 +311,27 @@ export function LeadReplyForm({
     toast.success("Draft copied into the reply composer.");
   };
 
+  const applyConversationSuggestion = () => {
+    if (!conversationSuggestion || !canUseYelpThread) {
+      return;
+    }
+
+    setValue("channel", "YELP_THREAD", { shouldValidate: true });
+    setValue("body", conversationSuggestion.body, { shouldDirty: true, shouldTouch: true });
+    setValue("subject", conversationSuggestion.subject ?? "", { shouldDirty: true, shouldTouch: true });
+    setSelectedAiDraft({
+      requestId: `conversation:${conversationSuggestion.turnId}`,
+      draftId: conversationSuggestion.turnId,
+      channel: "YELP_THREAD",
+      body: conversationSuggestion.body,
+      subject: conversationSuggestion.subject,
+      warningCodes: conversationSuggestion.warningCodes
+    });
+    setDraftResult(null);
+
+    toast.success("Conversation suggestion copied into the reply composer.");
+  };
+
   return (
     <form className="space-y-5" onSubmit={submit}>
       <div className="grid gap-4 md:grid-cols-[minmax(0,0.8fr)_auto] md:items-end">
@@ -320,6 +366,40 @@ export function LeadReplyForm({
             : `Fallback path. Sends through Yelp's masked email${maskedEmail ? ` (${maskedEmail})` : ""}.`}
         {latestOutboundChannel ? ` Last outbound channel: ${channelLabel(latestOutboundChannel)}.` : ""}
       </div>
+
+      {conversationSuggestion ? (
+        <div className="rounded-xl border border-amber-300/80 bg-amber-50/70 px-4 py-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="space-y-2">
+              <div className="text-sm font-medium text-amber-950">{conversationSuggestion.title}</div>
+              <div className="flex flex-wrap gap-2 text-[11px] font-medium text-amber-900">
+                <span className="rounded-full border border-amber-300 bg-amber-100 px-2.5 py-1">
+                  Review-only
+                </span>
+                <span className="rounded-full border border-amber-300 bg-amber-100 px-2.5 py-1">
+                  {conversationSuggestion.contentSourceLabel}
+                </span>
+                <span className="rounded-full border border-amber-300 bg-amber-100 px-2.5 py-1">
+                  {conversationSuggestion.promptSourceLabel}
+                </span>
+              </div>
+              {conversationSuggestion.stopReasonLabel ? (
+                <p className="text-xs text-amber-900">{conversationSuggestion.stopReasonLabel}</p>
+              ) : null}
+              <p className="whitespace-pre-wrap text-sm leading-6 text-amber-950">{conversationSuggestion.body}</p>
+            </div>
+            <Button
+              disabled={!canUseYelpThread || isSubmitting}
+              onClick={applyConversationSuggestion}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              Use suggestion
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="rounded-xl border border-border/80 px-4 py-3">
         <div className="flex flex-wrap items-center justify-between gap-3">

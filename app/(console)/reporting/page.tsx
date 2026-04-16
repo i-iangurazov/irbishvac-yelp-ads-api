@@ -26,40 +26,39 @@ export default async function ReportingPage({
 }: {
   searchParams?: Promise<{
     schedule?: string;
+    page?: string;
   }>;
 }) {
   const user = await requireUser();
   const params = await searchParams;
   const [reports, businesses, conversionMetrics, deliveryAdminState, lifecycleOverview] = await Promise.all([
-    getReportingIndex(user.tenantId),
+    getReportingIndex(user.tenantId, params?.page ? Number(params.page) : 1),
     getBusinessesIndex(user.tenantId),
     getLeadConversionSummary(user.tenantId),
     getReportDeliveryAdminState(user.tenantId, params?.schedule),
     getServiceTitanLifecycleSyncOverview(user.tenantId)
   ]);
-  const pendingReports = reports.filter((report) => report.status === "REQUESTED" || report.status === "PROCESSING");
-  const readyReports = reports.filter((report) => report.status === "READY");
-  const failedReports = reports.filter((report) => report.status === "FAILED");
   const enabledSchedules = deliveryAdminState.schedules.filter((schedule) => schedule.isEnabled);
   const failedDeliveries = deliveryAdminState.recentRuns.filter((run) => run.deliveryStatus === "FAILED");
   const lastDeliveredRun = [...deliveryAdminState.recentRuns]
     .filter((run) => run.deliveredAt)
     .sort((left, right) => right.deliveredAt!.getTime() - left.deliveredAt!.getTime())[0];
-  const latestSnapshotAt = reports
-    .flatMap((report) => report.results.map((result) => result.fetchedAt))
+  const latestSnapshotAt = reports.reports
+    .map((report) => report.latestResultFetchedAt)
+    .filter((value): value is Date => value instanceof Date)
     .sort((left, right) => right.getTime() - left.getTime())[0];
 
   return (
     <div>
       <PageHeader
         title="Reporting"
-        description="Request Yelp batch reports for lead creation and on-Yelp engagement, then compare them with separate partner lifecycle outcomes."
+        description="Request Yelp batch snapshots, manage recurring delivery, and review reporting health."
       />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard title="Ready" value={readyReports.length} description="Saved requests with at least one ready batch result." />
-        <MetricCard title="Waiting on Yelp" value={pendingReports.length} description="Batch requests still being generated upstream." />
-        <MetricCard title="Failed" value={failedReports.length} description="Requests that need a retry or credential review." />
+        <MetricCard title="Ready" value={reports.summary.readyCount} description="Saved requests with at least one ready batch result." />
+        <MetricCard title="Waiting on Yelp" value={reports.summary.pendingCount} description="Batch requests still being generated upstream." />
+        <MetricCard title="Failed" value={reports.summary.failedCount} description="Requests that need a retry or credential review." />
         <MetricCard title="Last batch" value={latestSnapshotAt ? formatDateTime(latestSnapshotAt) : "Not yet"} description="Most recent stored Yelp reporting snapshot." />
       </div>
 
@@ -67,7 +66,7 @@ export default async function ReportingPage({
         <Badge>Yelp batch data</Badge>
         <Badge variant="outline">Not real-time</Badge>
         <Badge variant="secondary">CSV export</Badge>
-        <span>Results land after Yelp finishes generating the batch.</span>
+        <span>Results land after Yelp finishes the batch upstream.</span>
       </div>
 
       <Card className="mt-6 border-border/70 bg-muted/10">
@@ -80,40 +79,40 @@ export default async function ReportingPage({
               : " No ServiceTitan lifecycle refresh has completed yet."}
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-3 xl:grid-cols-8">
-          <div className="rounded-xl border border-border/80 bg-background px-4 py-3">
+        <CardContent className="grid gap-3 md:grid-cols-3 xl:grid-cols-5">
+          <div className="rounded-xl bg-background px-4 py-3">
             <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Mapped leads</div>
             <div className="mt-1 text-lg font-semibold">{conversionMetrics.mappedLeads}</div>
           </div>
-          <div className="rounded-xl border border-border/80 bg-background px-4 py-3">
+          <div className="rounded-xl bg-background px-4 py-3">
             <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Active</div>
             <div className="mt-1 text-lg font-semibold">{conversionMetrics.activeLeads}</div>
           </div>
-          <div className="rounded-xl border border-border/80 bg-background px-4 py-3">
+          <div className="rounded-xl bg-background px-4 py-3">
             <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Contacted</div>
             <div className="mt-1 text-lg font-semibold">{conversionMetrics.contactedLeads}</div>
           </div>
-          <div className="rounded-xl border border-border/80 bg-background px-4 py-3">
+          <div className="rounded-xl bg-background px-4 py-3">
             <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Booked</div>
             <div className="mt-1 text-lg font-semibold">{conversionMetrics.bookedLeads}</div>
           </div>
-          <div className="rounded-xl border border-border/80 bg-background px-4 py-3">
+          <div className="rounded-xl bg-background px-4 py-3">
             <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Scheduled</div>
             <div className="mt-1 text-lg font-semibold">{conversionMetrics.scheduledJobs}</div>
           </div>
-          <div className="rounded-xl border border-border/80 bg-background px-4 py-3">
+          <div className="rounded-xl bg-background px-4 py-3">
             <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">In progress</div>
             <div className="mt-1 text-lg font-semibold">{conversionMetrics.jobInProgressJobs}</div>
           </div>
-          <div className="rounded-xl border border-border/80 bg-background px-4 py-3">
+          <div className="rounded-xl bg-background px-4 py-3">
             <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Completed</div>
             <div className="mt-1 text-lg font-semibold">{conversionMetrics.completedJobs}</div>
           </div>
-          <div className="rounded-xl border border-border/80 bg-background px-4 py-3">
+          <div className="rounded-xl bg-background px-4 py-3">
             <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Won / lost</div>
             <div className="mt-1 text-lg font-semibold">{conversionMetrics.wonLeads} / {conversionMetrics.lostLeads}</div>
           </div>
-          <div className="rounded-xl border border-border/80 bg-background px-4 py-3">
+          <div className="rounded-xl bg-background px-4 py-3">
             <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Close rate</div>
             <div className="mt-1 text-lg font-semibold">{conversionMetrics.closeRate}%</div>
           </div>
@@ -131,11 +130,11 @@ export default async function ReportingPage({
         )}
       </div>
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+      <div className="mt-6 space-y-6">
         <Card>
           <CardHeader>
             <CardTitle>Recurring delivery schedules</CardTitle>
-            <CardDescription>Recurring reports reuse the same saved reporting pipeline. Weekly and monthly windows are generated from delayed Yelp batches, then delivered by email with CSV attachments.</CardDescription>
+            <CardDescription>Weekly and monthly windows reuse the same saved reporting pipeline and deliver email with CSV attachments.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border/80 bg-muted/15 px-4 py-3 text-xs text-muted-foreground">
@@ -318,43 +317,71 @@ export default async function ReportingPage({
           <CardDescription>Review request timing, current status, and freshness before using a report operationally.</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
-          {reports.length === 0 ? (
+          {reports.reports.length === 0 ? (
             <div className="p-6">
               <EmptyState title="No report runs yet" description="Request the first daily or monthly Yelp batch report from the form above." />
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Requested</TableHead>
-                  <TableHead>Business scope</TableHead>
-                  <TableHead>Window</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Freshness</TableHead>
-                  <TableHead></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {reports.map((report) => {
-                  const latestResult = [...report.results].sort((left, right) => right.fetchedAt.getTime() - left.fetchedAt.getTime())[0];
-
-                  return (
+            <div className="space-y-4">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Requested</TableHead>
+                    <TableHead>Business scope</TableHead>
+                    <TableHead>Window</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Freshness</TableHead>
+                    <TableHead></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {reports.reports.map((report) => (
                     <TableRow key={report.id}>
                       <TableCell>{formatDateTime(report.createdAt)}</TableCell>
                       <TableCell>{report.business?.name ?? "Multiple businesses"}</TableCell>
                       <TableCell>{`${report.granularity} • ${formatDateTime(report.startDate, "MMM d, yyyy")} to ${formatDateTime(report.endDate, "MMM d, yyyy")}`}</TableCell>
                       <TableCell><StatusChip status={report.status} /></TableCell>
-                      <TableCell>{latestResult ? formatDateTime(latestResult.fetchedAt) : "Still waiting on Yelp"}</TableCell>
+                      <TableCell>{report.latestResultFetchedAt ? formatDateTime(report.latestResultFetchedAt) : "Still waiting on Yelp"}</TableCell>
                       <TableCell>
                         <Link className="font-medium hover:underline" href={`/reporting/${report.id}`}>
                           Open report
                         </Link>
                       </TableCell>
                     </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+                  ))}
+                </TableBody>
+              </Table>
+              {reports.pagination.totalPages > 1 ? (
+                <div className="flex flex-wrap items-center justify-between gap-3 px-4 pb-4 text-sm text-muted-foreground">
+                  <span>
+                    Page {reports.pagination.currentPage} of {reports.pagination.totalPages} •{" "}
+                    {reports.pagination.filteredTotal} saved runs
+                  </span>
+                  <div className="flex gap-2">
+                    <Link
+                      className={`rounded-md border px-3 py-1 ${
+                        reports.pagination.hasPreviousPage
+                          ? "border-border/70 text-foreground hover:bg-muted/30"
+                          : "pointer-events-none border-border/50 opacity-50"
+                      }`}
+                      href={`/reporting?page=${reports.pagination.currentPage - 1}`}
+                    >
+                      Previous
+                    </Link>
+                    <Link
+                      className={`rounded-md border px-3 py-1 ${
+                        reports.pagination.hasNextPage
+                          ? "border-border/70 text-foreground hover:bg-muted/30"
+                          : "pointer-events-none border-border/50 opacity-50"
+                      }`}
+                      href={`/reporting?page=${reports.pagination.currentPage + 1}`}
+                    >
+                      Next
+                    </Link>
+                  </div>
+                </div>
+              ) : null}
+            </div>
           )}
         </CardContent>
       </Card>

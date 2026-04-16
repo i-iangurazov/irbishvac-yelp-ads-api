@@ -6,10 +6,19 @@ export const operatorIssueFiltersSchema = z.object({
   locationId: z.string().optional(),
   severity: z.string().optional(),
   status: z.string().optional().default("OPEN"),
-  age: z.enum(["", "1", "3", "7", "14"]).optional().default("")
+  age: z.enum(["", "1", "3", "7", "14"]).optional().default(""),
+  page: z.coerce.number().int().min(1).optional().default(1)
 });
 
-export type OperatorIssueFiltersInput = z.infer<typeof operatorIssueFiltersSchema>;
+export type OperatorIssueFiltersInput = {
+  issueType?: string;
+  businessId?: string;
+  locationId?: string;
+  severity?: string;
+  status?: string;
+  age?: "" | "1" | "3" | "7" | "14";
+  page?: string | number;
+};
 
 export const operatorIssueResolutionSchema = z.object({
   reason: z.string().trim().min(2).max(120),

@@ -1,0 +1,36 @@
+name: Retention Redaction Sweep
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: retention-redaction-sweep
+  cancel-in-progress: false
+
+jobs:
+  retention:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Call internal retention runner
+        env:
+          RECONCILE_URL: ${{ secrets.RECONCILE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$RECONCILE_URL" ]; then
+            echo "RECONCILE_URL secret is not configured."
+            exit 1
+          fi
+
+          if [ -z "$CRON_SECRET" ]; then
+            echo "CRON_SECRET secret is not configured."
+            exit 1
+          fi
+
+          RETENTION_URL="${RECONCILE_URL%/api/internal/reconcile}/api/internal/operations/retention?limit=250"
+
+          curl --fail-with-body --silent --show-error --retry 2 --retry-delay 5 --retry-all-errors \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$RETENTION_URL"

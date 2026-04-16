@@ -25,7 +25,38 @@ export async function getProgramById(programId: string, tenantId: string) {
   return prisma.program.findFirstOrThrow({
     where: { id: programId, tenantId },
     include: {
-      business: true,
+      business: {
+        include: {
+          location: {
+            select: {
+              id: true,
+              name: true,
+              externalCrmLocationId: true
+            }
+          },
+          leadAutomationOverrides: {
+            take: 1,
+            select: {
+              isEnabled: true,
+              defaultChannel: true,
+              conversationAutomationEnabled: true,
+              conversationMode: true
+            }
+          },
+          operatorIssues: {
+            where: { status: "OPEN" },
+            orderBy: [{ severity: "desc" }, { lastDetectedAt: "desc" }],
+            take: 3
+          },
+          _count: {
+            select: {
+              yelpLeads: true,
+              reportSchedules: true,
+              operatorIssues: true
+            }
+          }
+        }
+      },
       jobs: {
         orderBy: { createdAt: "desc" }
       },

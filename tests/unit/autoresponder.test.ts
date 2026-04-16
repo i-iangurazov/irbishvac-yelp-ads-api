@@ -12,6 +12,7 @@ import {
   buildLeadAutomationHistory,
   buildLeadAutomationSummary
 } from "@/features/autoresponder/normalize";
+import type { LeadAutoresponderSettingsValues } from "@/features/autoresponder/schemas";
 
 const getSystemSetting = vi.fn();
 const listLeadAutomationTemplates = vi.fn();
@@ -36,6 +37,10 @@ const upsertLeadAutomationAttemptByLeadCadence = vi.fn();
 const updateLeadAutomationAttempt = vi.fn();
 const getLeadAutomationAttemptSummary = vi.fn();
 const getLeadAutomationBusinessAttemptHealth = vi.fn();
+const getLeadAutomationBusinessConnectionHealth = vi.fn();
+const listLeadConversationAutomationTurnMetrics = vi.fn();
+const countLeadConversationOperatorTakeovers = vi.fn();
+const listLeadConversationReviewTurns = vi.fn();
 const listDueLeadAutomationAttempts = vi.fn();
 const listRecentLeadAutomationAttempts = vi.fn();
 const claimLeadAutomationAttemptForProcessing = vi.fn();
@@ -49,6 +54,7 @@ const logInfo = vi.fn();
 const logError = vi.fn();
 const isSmtpConfigured = vi.fn();
 const ensureYelpLeadsAccess = vi.fn();
+const recordAutoresponderMetric = vi.fn();
 
 vi.mock("@/lib/db/settings-repository", () => ({
   getSystemSetting,
@@ -78,6 +84,10 @@ vi.mock("@/lib/db/autoresponder-repository", () => ({
   updateLeadAutomationAttempt,
   getLeadAutomationAttemptSummary,
   getLeadAutomationBusinessAttemptHealth,
+  getLeadAutomationBusinessConnectionHealth,
+  listLeadConversationAutomationTurnMetrics,
+  countLeadConversationOperatorTakeovers,
+  listLeadConversationReviewTurns,
   listDueLeadAutomationAttempts,
   listRecentLeadAutomationAttempts,
   claimLeadAutomationAttemptForProcessing
@@ -115,6 +125,10 @@ vi.mock("@/features/report-delivery/email", () => ({
 
 vi.mock("@/lib/yelp/runtime", () => ({
   ensureYelpLeadsAccess
+}));
+
+vi.mock("@/features/operations/observability-service", () => ({
+  recordAutoresponderMetric
 }));
 
 const baseLead = {
@@ -174,7 +188,7 @@ const baseRule = {
   }
 };
 
-const baseSettings = {
+const baseSettings: LeadAutoresponderSettingsValues = {
   isEnabled: true,
   scopeMode: "ALL_BUSINESSES" as const,
   scopedBusinessIds: [],
@@ -185,7 +199,18 @@ const baseSettings = {
   followUp7dEnabled: false,
   followUp7dDelayDays: 7,
   aiAssistEnabled: true,
-  aiModel: "gpt-5-nano" as const
+  aiModel: "gpt-5-nano" as const,
+  conversationAutomationEnabled: false,
+  conversationGlobalPauseEnabled: false,
+  conversationMode: "REVIEW_ONLY" as const,
+  conversationAllowedIntents: [
+    "MISSING_DETAILS_PROVIDED",
+    "BASIC_ACKNOWLEDGMENT",
+    "SIMPLE_NEXT_STEP_CLARIFICATION"
+  ],
+  conversationMaxAutomatedTurns: 2,
+  conversationReviewFallbackEnabled: true,
+  conversationEscalateToIssueQueue: true
 };
 
 describe("autoresponder helpers", () => {
@@ -425,6 +450,17 @@ describe("autoresponder service", () => {
       pendingDueCounts: [],
       lastSuccessfulAttempts: []
     });
+    getLeadAutomationBusinessConnectionHealth.mockResolvedValue({
+      leadCounts: [],
+      latestLeadActivity: [],
+      latestWebhookActivity: [],
+      latestSuccessfulSyncRuns: [],
+      latestFailedSyncRuns: [],
+      pendingSyncCounts: []
+    });
+    listLeadConversationAutomationTurnMetrics.mockResolvedValue([]);
+    countLeadConversationOperatorTakeovers.mockResolvedValue(0);
+    listLeadConversationReviewTurns.mockResolvedValue([]);
     listDueLeadAutomationAttempts.mockResolvedValue([]);
     listRecentLeadAutomationAttempts.mockResolvedValue([]);
     claimLeadAutomationAttemptForProcessing.mockResolvedValue(true);
@@ -1342,6 +1378,69 @@ describe("autoresponder service", () => {
         }
       ]
     });
+    getLeadAutomationBusinessConnectionHealth.mockResolvedValueOnce({
+      leadCounts: [
+        {
+          businessId: "business_1",
+          _count: {
+            _all: 12
+          }
+        },
+        {
+          businessId: "business_2",
+          _count: {
+            _all: 3
+          }
+        }
+      ],
+      latestLeadActivity: [
+        {
+          businessId: "business_1",
+          externalLeadId: "lead_1",
+          latestInteractionAt: new Date("2026-04-07T09:05:00.000Z"),
+          createdAtYelp: new Date("2026-04-07T09:00:00.000Z"),
+          lastSyncedAt: new Date("2026-04-07T09:06:00.000Z")
+        },
+        {
+          businessId: "business_2",
+          externalLeadId: "lead_2",
+          latestInteractionAt: new Date("2026-04-07T08:00:00.000Z"),
+          createdAtYelp: new Date("2026-04-07T08:00:00.000Z"),
+          lastSyncedAt: new Date("2026-04-07T08:01:00.000Z")
+        }
+      ],
+      latestWebhookActivity: [
+        {
+          businessId: "business_1",
+          externalLeadId: "lead_1",
+          latestWebhookReceivedAt: new Date("2026-04-07T09:00:30.000Z"),
+          latestWebhookStatus: "COMPLETED",
+          latestWebhookErrorSummary: null
+        }
+      ],
+      latestSuccessfulSyncRuns: [
+        {
+          businessId: "business_1",
+          type: "YELP_LEADS_WEBHOOK",
+          status: "COMPLETED",
+          startedAt: new Date("2026-04-07T09:00:30.000Z"),
+          finishedAt: new Date("2026-04-07T09:01:00.000Z"),
+          lastSuccessfulSyncAt: new Date("2026-04-07T09:01:00.000Z"),
+          errorSummary: null
+        },
+        {
+          businessId: "business_2",
+          type: "YELP_LEADS_BACKFILL",
+          status: "COMPLETED",
+          startedAt: new Date("2026-04-07T08:00:30.000Z"),
+          finishedAt: new Date("2026-04-07T08:01:00.000Z"),
+          lastSuccessfulSyncAt: new Date("2026-04-07T08:01:00.000Z"),
+          errorSummary: null
+        }
+      ],
+      latestFailedSyncRuns: [],
+      pendingSyncCounts: []
+    });
     listRecentLeadAutomationAttempts.mockResolvedValueOnce([
       {
         id: "attempt_1",
@@ -1383,6 +1482,12 @@ describe("autoresponder service", () => {
         followUp7dDelayDays: 7,
         aiAssistEnabled: true,
         aiModel: "gpt-5-mini",
+        conversationAutomationEnabled: true,
+        conversationMode: "BOUNDED_AUTO_REPLY",
+        conversationAllowedIntentsJson: ["BASIC_ACKNOWLEDGMENT"],
+        conversationMaxAutomatedTurns: 2,
+        conversationReviewFallbackEnabled: true,
+        conversationEscalateToIssueQueue: true,
         updatedAt: new Date("2026-04-07T11:00:00.000Z"),
         business: {
           id: "business_1",
@@ -1411,6 +1516,51 @@ describe("autoresponder service", () => {
         responseSummaryJson: { summary: { warningCodes: ["INSUFFICIENT_CONTEXT"] } }
       }
     ]);
+    listLeadConversationAutomationTurnMetrics.mockResolvedValueOnce([
+      {
+        leadId: "lead_local_1",
+        decision: "AUTO_REPLY",
+        stopReason: null,
+        createdAt: new Date("2026-04-07T09:00:00.000Z")
+      },
+      {
+        leadId: "lead_local_1",
+        decision: "REVIEW_ONLY",
+        stopReason: "MODE_REVIEW_ONLY",
+        createdAt: new Date("2026-04-07T09:30:00.000Z")
+      },
+      {
+        leadId: "lead_local_2",
+        decision: "HUMAN_HANDOFF",
+        stopReason: "LOW_CONFIDENCE",
+        createdAt: new Date("2026-04-07T10:00:00.000Z")
+      }
+    ]);
+    countLeadConversationOperatorTakeovers.mockResolvedValueOnce(2);
+    listLeadConversationReviewTurns.mockResolvedValueOnce([
+      {
+        id: "turn_1",
+        leadId: "lead_local_2",
+        createdAt: new Date("2026-04-07T10:00:00.000Z"),
+        mode: "REVIEW_ONLY",
+        intent: "SIMPLE_NEXT_STEP_CLARIFICATION",
+        decision: "REVIEW_ONLY",
+        confidence: "MEDIUM",
+        stopReason: "MODE_REVIEW_ONLY",
+        renderedBody: "Draft reply",
+        errorSummary: null,
+        lead: {
+          id: "lead_local_2",
+          externalLeadId: "lead_2",
+          customerName: "Sam Client",
+          business: {
+            id: "business_2",
+            name: "Skyline Electric"
+          },
+          conversationActions: []
+        }
+      }
+    ]);
     listOperatorIssues.mockResolvedValueOnce([
       {
         id: "issue_1",
@@ -1433,10 +1583,12 @@ describe("autoresponder service", () => {
       enabledRuleCount: 1,
       businessOverrideCount: 1,
       deliveryAccessStatus: "READY",
+      conversationRolloutLabel: "Human-only",
       sentCount: 4,
       failedCount: 1,
       scheduledCount: 1,
       openIssueCount: 1,
+      conversationReviewOpenCount: 1,
       businessReadyCount: 2,
       businessLiveCount: 0,
       businessNeedsSetupCount: 0,
@@ -1451,6 +1603,23 @@ describe("autoresponder service", () => {
       reviewRequired: true,
       modelLabel: "gpt-5-nano • Cheapest / test"
     });
+    expect(result.conversationMetrics).toMatchObject({
+      automatedReplyCount: 1,
+      reviewOnlyCount: 1,
+      humanHandoffCount: 1,
+      lowConfidenceCount: 1,
+      operatorTakeoverCount: 2,
+      replyAfterAutomationRate: 100
+    });
+    expect(result.conversationReviewQueue.items).toEqual([
+      expect.objectContaining({
+        id: "turn_1",
+        leadId: "lead_local_2",
+        businessName: "Skyline Electric",
+        decisionLabel: "Review-only",
+        intentLabel: "Simple Next Step Clarification"
+      })
+    ]);
     expect(result.recentActivity.map((item) => item.actionLabel)).toEqual(
       expect.arrayContaining(["Initial response sent", "AI draft generated"])
     );
@@ -1466,12 +1635,19 @@ describe("autoresponder service", () => {
         expect.objectContaining({
           businessId: "business_1",
           healthStatus: "PARTIAL",
+          conversationRolloutLabel: "Limited auto-reply pilot",
+          yelpConnectionStatus: "ACTIVE",
+          yelpConnectionLabel: "Webhook live",
+          leadCount: 12,
           sentCount: 4,
           hasOverride: true
         }),
         expect.objectContaining({
           businessId: "business_2",
           healthStatus: "READY",
+          yelpConnectionStatus: "READY",
+          yelpConnectionLabel: "Sync verified",
+          leadCount: 3,
           hasOverride: false
         })
       ])

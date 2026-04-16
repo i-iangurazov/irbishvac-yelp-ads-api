@@ -7,6 +7,7 @@ import { z } from "zod";
 import { defaultLeadAiModel } from "@/features/autoresponder/constants";
 import { getAiReplyAssistantState, extractLeadReplyThreadContext } from "@/features/leads/ai-reply-service";
 import { recordAuditEvent } from "@/features/audit/service";
+import { claimProviderRequestBudget } from "@/features/operations/provider-budget-service";
 import {
   leadSummaryRequestSchema,
   leadSummaryUsageSchema
@@ -481,6 +482,12 @@ export async function generateLeadSummaryWorkflow(
   }
 
   try {
+    await claimProviderRequestBudget({
+      tenantId,
+      provider: "OPENAI",
+      operation: "lead.summary",
+      businessId: context.businessId ?? null
+    });
     const generated = await createOpenAiLeadSummary({
       model: aiState.model ?? defaultLeadAiModel,
       context
