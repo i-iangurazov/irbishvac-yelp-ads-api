@@ -106,105 +106,38 @@ export default async function LeadsPage({
       ) : null}
 
       <div className="mt-6 grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,20rem)]">
-        <div className="space-y-4">
-          <Card className="shadow-none">
-            <CardContent className="grid gap-4 p-4 sm:grid-cols-2 xl:grid-cols-4">
-              <div className="space-y-1 xl:border-r xl:border-border/70 xl:pr-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Synced</div>
-                <div className="text-2xl font-semibold tracking-tight">{formatLeadCount(overview.summary.totalSyncedLeads)}</div>
-                <div className="text-xs text-muted-foreground">Stored locally</div>
+        <Card className="self-start shadow-none">
+          <CardContent className="grid gap-4 p-4 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="space-y-1 xl:border-r xl:border-border/70 xl:pr-4">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Synced</div>
+              <div className="text-2xl font-semibold tracking-tight">{formatLeadCount(overview.summary.totalSyncedLeads)}</div>
+              <div className="text-xs text-muted-foreground">Stored locally</div>
+            </div>
+            <div className="space-y-1 xl:border-r xl:border-border/70 xl:px-4">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Matching</div>
+              <div className="text-2xl font-semibold tracking-tight">{formatLeadCount(overview.summary.filteredLeads)}</div>
+              <div className="text-xs text-muted-foreground">
+                {overview.summary.filteredLeads === 0
+                  ? "No rows in the current slice"
+                  : `${formatLeadCount(overview.pagination.visibleRows)} on this page`}
               </div>
-              <div className="space-y-1 xl:border-r xl:border-border/70 xl:px-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Matching</div>
-                <div className="text-2xl font-semibold tracking-tight">{formatLeadCount(overview.summary.filteredLeads)}</div>
-                <div className="text-xs text-muted-foreground">
-                  {overview.summary.filteredLeads === 0
-                    ? "No rows in the current slice"
-                    : `${formatLeadCount(overview.pagination.visibleRows)} on this page`}
-                </div>
+            </div>
+            <div className="space-y-1 xl:border-r xl:border-border/70 xl:px-4">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Attention</div>
+              <div className="text-2xl font-semibold tracking-tight">{formatLeadCount(overview.summary.needsAttention)}</div>
+              <div className="text-xs text-muted-foreground">
+                {formatLeadCount(overview.summary.unresolvedLeads)} unmapped • {formatLeadCount(overview.summary.crmIssues)} lifecycle issues
               </div>
-              <div className="space-y-1 xl:border-r xl:border-border/70 xl:px-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Attention</div>
-                <div className="text-2xl font-semibold tracking-tight">{formatLeadCount(overview.summary.needsAttention)}</div>
-                <div className="text-xs text-muted-foreground">
-                  {formatLeadCount(overview.summary.unresolvedLeads)} unmapped • {formatLeadCount(overview.summary.crmIssues)} lifecycle issues
-                </div>
+            </div>
+            <div className="space-y-1 xl:pl-4">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Current page</div>
+              <div className="text-2xl font-semibold tracking-tight">
+                {overview.pagination.currentPage} / {overview.pagination.totalPages}
               </div>
-              <div className="space-y-1 xl:pl-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Current page</div>
-                <div className="text-2xl font-semibold tracking-tight">
-                  {overview.pagination.currentPage} / {overview.pagination.totalPages}
-                </div>
-                <div className="text-xs text-muted-foreground">{formatLeadCount(overview.pagination.pageSize)} rows per page</div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="shadow-none">
-            <CardHeader className="pb-3">
-              <div className="flex flex-col gap-2 xl:flex-row xl:items-start xl:justify-between">
-                <div>
-                  <CardTitle className="text-base">Queue controls</CardTitle>
-                  <CardDescription>Filter the queue and switch business scope without leaving the list.</CardDescription>
-                </div>
-                <div className="flex flex-wrap items-center gap-2 text-xs">
-                  <Badge variant="outline">{queueSummary}</Badge>
-                  {overview.summary.needsAttention > 0 ? (
-                    <Badge variant="warning">{formatLeadCount(overview.summary.needsAttention)} need attention</Badge>
-                  ) : null}
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {overview.businessSplit.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    asChild
-                    size="sm"
-                    variant={overview.filters.businessId ? "outline" : "default"}
-                  >
-                    <Link
-                      href={buildLeadsQuery({
-                        ...overview.filters,
-                        businessId: null,
-                        page: 1,
-                        pageSize: overview.pagination.pageSize
-                      })}
-                    >
-                      All businesses
-                      <span className="ml-2 text-xs opacity-80">{formatLeadCount(allBusinessCount)}</span>
-                    </Link>
-                  </Button>
-                  {overview.businessSplit.map((business) => (
-                    <Button
-                      key={business.id}
-                      asChild
-                      size="sm"
-                      variant={business.isSelected ? "default" : "outline"}
-                    >
-                      <Link
-                        href={buildLeadsQuery({
-                          ...overview.filters,
-                          businessId: business.id,
-                          page: 1,
-                          pageSize: overview.pagination.pageSize
-                        })}
-                      >
-                        {business.name}
-                        <span className="ml-2 text-xs opacity-80">{formatLeadCount(business.count)}</span>
-                      </Link>
-                    </Button>
-                  ))}
-                </div>
-              ) : null}
-
-              <LeadsFilterForm
-                businesses={overview.businesses.map((business) => ({ id: business.id, name: business.name }))}
-                values={overview.filters}
-              />
-            </CardContent>
-          </Card>
-        </div>
+              <div className="text-xs text-muted-foreground">{formatLeadCount(overview.pagination.pageSize)} rows per page</div>
+            </div>
+          </CardContent>
+        </Card>
 
         <Card className="border-dashed border-border/80 bg-muted/10 shadow-none">
           <CardHeader className="pb-2">
@@ -235,6 +168,71 @@ export default async function LeadsPage({
           </CardContent>
         </Card>
       </div>
+
+      <Card className="mt-4 shadow-none">
+        <CardHeader className="pb-3">
+          <div className="flex flex-col gap-2 xl:flex-row xl:items-start xl:justify-between">
+            <div>
+              <CardTitle className="text-base">Queue controls</CardTitle>
+              <CardDescription>Filter the queue and switch business scope without leaving the list.</CardDescription>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <Badge variant="outline">{queueSummary}</Badge>
+              {overview.summary.needsAttention > 0 ? (
+                <Badge variant="warning">{formatLeadCount(overview.summary.needsAttention)} need attention</Badge>
+              ) : null}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {overview.businessSplit.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              <Button
+                asChild
+                size="sm"
+                variant={overview.filters.businessId ? "outline" : "default"}
+              >
+                <Link
+                  href={buildLeadsQuery({
+                    ...overview.filters,
+                    businessId: null,
+                    page: 1,
+                    pageSize: overview.pagination.pageSize
+                  })}
+                >
+                  All businesses
+                  <span className="ml-2 text-xs opacity-80">{formatLeadCount(allBusinessCount)}</span>
+                </Link>
+              </Button>
+              {overview.businessSplit.map((business) => (
+                <Button
+                  key={business.id}
+                  asChild
+                  size="sm"
+                  variant={business.isSelected ? "default" : "outline"}
+                >
+                  <Link
+                    href={buildLeadsQuery({
+                      ...overview.filters,
+                      businessId: business.id,
+                      page: 1,
+                      pageSize: overview.pagination.pageSize
+                    })}
+                  >
+                    {business.name}
+                    <span className="ml-2 text-xs opacity-80">{formatLeadCount(business.count)}</span>
+                  </Link>
+                </Button>
+              ))}
+            </div>
+          ) : null}
+
+          <LeadsFilterForm
+            businesses={overview.businesses.map((business) => ({ id: business.id, name: business.name }))}
+            values={overview.filters}
+          />
+        </CardContent>
+      </Card>
 
       <Card className="mt-4">
         <CardHeader className="gap-2 border-b border-border/70 pb-4">
