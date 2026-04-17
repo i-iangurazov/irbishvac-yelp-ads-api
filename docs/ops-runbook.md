@@ -48,7 +48,7 @@ This runbook covers the current production-pilot operating loop:
 
 ### Verify
 
-1. Confirm GitHub Actions workflow is running on schedule.
+1. Confirm GitHub Actions workflow is running on its 5-minute schedule.
 2. Confirm both routes return success with cron auth.
 3. Open `/autoresponder` and confirm recent activity is moving.
 4. Open a lead with a due follow-up and confirm:
