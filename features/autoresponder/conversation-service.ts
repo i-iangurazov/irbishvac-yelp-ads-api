@@ -262,6 +262,51 @@ function getConversationIssueSeverity(stopReason: LeadConversationStopReason | n
   }
 }
 
+function shouldSendConversationHandoffAcknowledgement(params: {
+  settings: {
+    conversationAutomationEnabled: boolean;
+    conversationGlobalPauseEnabled?: boolean;
+    conversationMode: LeadConversationAutomationMode;
+  };
+  stopReason: LeadConversationStopReason | null;
+}) {
+  if (
+    !params.settings.conversationAutomationEnabled ||
+    params.settings.conversationGlobalPauseEnabled ||
+    params.settings.conversationMode !== "BOUNDED_AUTO_REPLY"
+  ) {
+    return false;
+  }
+
+  return (
+    params.stopReason === "PRICING_RISK" ||
+    params.stopReason === "AVAILABILITY_RISK" ||
+    params.stopReason === "UNCLEAR_SERVICE" ||
+    params.stopReason === "LOW_CONFIDENCE" ||
+    params.stopReason === "INTENT_NOT_ALLOWED"
+  );
+}
+
+function buildConversationHandoffAcknowledgement(params: {
+  lead: LeadAutomationCandidate;
+  stopReason: LeadConversationStopReason | null;
+}) {
+  const subject = "";
+  const body =
+    params.stopReason === "PRICING_RISK"
+      ? "Thanks for asking. We do not want to guess on pricing from the current details. A team member will review this Yelp thread and follow up with the right next step. If you can, add photos, the address, and a short description here."
+      : params.stopReason === "AVAILABILITY_RISK"
+        ? "Thanks for checking. We cannot promise timing automatically here. A team member will review availability and follow up. If helpful, please add your preferred timing and address in this Yelp thread."
+        : "Thanks, we received your message. A team member needs to review this before we reply further. If you can, add photos, the address, or a short description here in Yelp.";
+
+  return applyLeadAutomationDisclosure({
+    channel: "YELP_THREAD",
+    subject,
+    body,
+    businessName: params.lead.business?.name ?? null
+  });
+}
+
 async function upsertConversationIssue(params: {
   tenantId: string;
   lead: LeadAutomationCandidate;
@@ -836,6 +881,49 @@ export async function processLeadConversationAutomationForInboundMessage(params:
     };
   }
 
+  const shouldSendHandoffAcknowledgement = shouldSendConversationHandoffAcknowledgement({
+    settings: settingsScope.effectiveSettings,
+    stopReason: decision.stopReason
+  });
+  let handoffDelivery: Awaited<ReturnType<typeof deliverLeadAutomationMessage>> | null = null;
+  let handoffRenderedSubject: string | null = null;
+  let handoffRenderedBody: string | null = null;
+  let handoffErrorSummary: string | null = null;
+  let finalStopReason = decision.stopReason;
+  let automatedTurnDelta = 0;
+  let lastAutomatedReplyAt: Date | null = null;
+
+  if (shouldSendHandoffAcknowledgement) {
+    const rendered = buildConversationHandoffAcknowledgement({
+      lead,
+      stopReason: decision.stopReason
+    });
+
+    handoffRenderedSubject = rendered.subject || null;
+    handoffRenderedBody = rendered.body;
+    handoffDelivery = await deliverLeadAutomationMessage({
+      tenantId: params.tenantId,
+      actorId: null,
+      leadId: lead.id,
+      automationAttemptId: null,
+      channel: "YELP_THREAD",
+      renderedSubject: rendered.subject,
+      renderedBody: rendered.body,
+      recipient: null,
+      allowEmailFallback: false,
+      idempotencyKey: `conversation-handoff:${sourceEvent.eventKey}`
+    });
+
+    if (handoffDelivery.status === "FAILED") {
+      const normalized = normalizeUnknownError(handoffDelivery.error);
+      finalStopReason = "SEND_FAILED";
+      handoffErrorSummary = normalized.message;
+    } else {
+      automatedTurnDelta = 1;
+      lastAutomatedReplyAt = new Date();
+    }
+  }
+
   const savedState = await upsertLeadConversationAutomationState(
     params.tenantId,
     lead.id,
@@ -846,7 +934,9 @@ export async function processLeadConversationAutomationForInboundMessage(params:
       occurredAt: sourceEvent.occurredAt,
       intent: classification.intent,
       decision: "HUMAN_HANDOFF",
-      stopReason: decision.stopReason
+      stopReason: finalStopReason,
+      automatedTurnDelta,
+      lastAutomatedReplyAt
     })
   );
   const turn = await createLeadConversationAutomationTurn({
@@ -859,23 +949,42 @@ export async function processLeadConversationAutomationForInboundMessage(params:
     intent: classification.intent,
     decision: "HUMAN_HANDOFF",
     confidence: classification.confidence,
-    stopReason: decision.stopReason,
+    stopReason: finalStopReason,
     templateId: selectedTemplate.id,
+    renderedSubject: handoffRenderedSubject,
+    renderedBody: handoffRenderedBody,
+    errorSummary: handoffErrorSummary,
     metadataJson: buildTurnMetadata({
       decision: "HUMAN_HANDOFF",
-      stopReason: decision.stopReason,
-      issueCreated: decision.shouldCreateIssue
+      stopReason: finalStopReason,
+      issueCreated: decision.shouldCreateIssue,
+      automatedTurnDelta,
+      renderedMetadata: handoffRenderedBody
+        ? {
+            contentSource: "STATIC_HANDOFF_ACKNOWLEDGEMENT",
+            templateKind: selectedTemplateMetadata.templateKind,
+            templateRenderMode: "STATIC"
+          }
+        : undefined,
+      delivery: handoffDelivery
+        ? {
+            deliveryStatus: handoffDelivery.status,
+            deliveryChannel: handoffDelivery.deliveryChannel,
+            warning: handoffDelivery.warning ?? null
+          }
+        : undefined,
+      errorSummary: handoffErrorSummary
     }),
     completedAt: new Date()
   });
 
-  if (decision.shouldCreateIssue && decision.stopReason) {
+  if (decision.shouldCreateIssue && finalStopReason) {
     await upsertConversationIssue({
       tenantId: params.tenantId,
       lead,
       sourceEventKey: sourceEvent.eventKey,
       classification,
-      stopReason: decision.stopReason
+      stopReason: finalStopReason
     });
   }
 
@@ -889,12 +998,13 @@ export async function processLeadConversationAutomationForInboundMessage(params:
     requestSummary: toJsonValue({
       intent: classification.intent,
       mode: settingsScope.effectiveSettings.conversationMode
-    }),
-    responseSummary: toJsonValue({
-      decision: turn.decision,
-      stopReason: turn.stopReason
-    })
-  });
+      }),
+      responseSummary: toJsonValue({
+        decision: turn.decision,
+        stopReason: turn.stopReason,
+        handoffAcknowledgementSent: handoffDelivery?.status === "SENT"
+      })
+    });
   await recordConversationDecisionMetric({
     tenantId: params.tenantId,
     decision: turn.decision,

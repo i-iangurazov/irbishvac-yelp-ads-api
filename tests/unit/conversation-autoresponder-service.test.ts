@@ -209,7 +209,7 @@ describe("conversation autoresponder service", () => {
     );
   });
 
-  it("creates an operator issue when a pricing request requires human handoff", async () => {
+  it("sends a safe handoff acknowledgement and creates an issue for pricing requests", async () => {
     getLeadAutomationCandidate.mockResolvedValue(
       buildLead({
         events: [
@@ -232,6 +232,12 @@ describe("conversation autoresponder service", () => {
         conversationMode: "BOUNDED_AUTO_REPLY"
       })
     });
+    deliverLeadAutomationMessage.mockResolvedValue({
+      status: "SENT",
+      deliveryChannel: "YELP_THREAD",
+      warning: null,
+      error: null
+    });
 
     const { processLeadConversationAutomationForInboundMessage } = await import(
       "@/features/autoresponder/conversation-service"
@@ -248,13 +254,27 @@ describe("conversation autoresponder service", () => {
       decision: "HUMAN_HANDOFF",
       stopReason: "PRICING_RISK"
     });
-    expect(deliverLeadAutomationMessage).not.toHaveBeenCalled();
+    expect(deliverLeadAutomationMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: "tenant_1",
+        leadId: "lead_1",
+        channel: "YELP_THREAD",
+        renderedBody: expect.stringContaining("do not want to guess on pricing")
+      })
+    );
     expect(createOperatorIssue).toHaveBeenCalledWith(
       "tenant_1",
       expect.objectContaining({
         issueType: "AUTORESPONDER_FAILURE",
         severity: "HIGH",
         leadId: "lead_1"
+      })
+    );
+    expect(createLeadConversationAutomationTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        decision: "HUMAN_HANDOFF",
+        stopReason: "PRICING_RISK",
+        renderedBody: expect.stringContaining("Irbishvac automated message")
       })
     );
   });
