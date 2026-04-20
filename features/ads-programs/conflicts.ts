@@ -8,6 +8,10 @@ type ProgramConflictCandidate = {
   upstreamProgramId?: string | null;
 };
 
+type CategoryOverlapOptions = {
+  listingCategoryAliases?: unknown;
+};
+
 const duplicateProtectedStatuses = new Set<ProgramStatus>(["QUEUED", "PROCESSING", "ACTIVE", "SCHEDULED"]);
 
 function normalizeAlias(value: unknown) {
@@ -22,15 +26,32 @@ export function normalizeProgramCategoryAliases(input: unknown) {
   return [...new Set(input.map(normalizeAlias).filter(Boolean))];
 }
 
-export function cpcCategoryTargetsOverlap(left: unknown, right: unknown) {
-  const leftAliases = normalizeProgramCategoryAliases(left);
-  const rightAliases = normalizeProgramCategoryAliases(right);
+function isListingWideCategoryScope(categories: unknown, listingCategoryAliases: unknown) {
+  const categoryAliases = normalizeProgramCategoryAliases(categories);
+  const listingAliases = normalizeProgramCategoryAliases(listingCategoryAliases);
 
-  if (leftAliases.length === 0 && rightAliases.length === 0) {
+  if (categoryAliases.length === 0) {
     return true;
   }
 
-  if (leftAliases.length === 0 || rightAliases.length === 0) {
+  if (listingAliases.length === 0) {
+    return false;
+  }
+
+  return listingAliases.every((alias) => categoryAliases.includes(alias));
+}
+
+export function cpcCategoryTargetsOverlap(left: unknown, right: unknown, options?: CategoryOverlapOptions) {
+  const leftAliases = normalizeProgramCategoryAliases(left);
+  const rightAliases = normalizeProgramCategoryAliases(right);
+  const leftListingWide = isListingWideCategoryScope(left, options?.listingCategoryAliases);
+  const rightListingWide = isListingWideCategoryScope(right, options?.listingCategoryAliases);
+
+  if (leftListingWide && rightListingWide) {
+    return true;
+  }
+
+  if (leftListingWide || rightListingWide) {
     return false;
   }
 
@@ -40,7 +61,8 @@ export function cpcCategoryTargetsOverlap(left: unknown, right: unknown) {
 export function findConflictingCpcPrograms(
   programs: ProgramConflictCandidate[],
   requestedCategories: unknown,
-  excludeProgramId?: string
+  excludeProgramId?: string,
+  options?: CategoryOverlapOptions
 ) {
   return programs.filter((program) => {
     if (program.id === excludeProgramId) {
@@ -55,6 +77,6 @@ export function findConflictingCpcPrograms(
       return false;
     }
 
-    return cpcCategoryTargetsOverlap(program.adCategoriesJson, requestedCategories);
+    return cpcCategoryTargetsOverlap(program.adCategoriesJson, requestedCategories, options);
   });
 }

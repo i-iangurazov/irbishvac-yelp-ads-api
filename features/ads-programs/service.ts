@@ -50,6 +50,7 @@ import {
 import { summarizeYelpJobIssue } from "@/lib/yelp/job-status";
 import { parseCurrencyToCents } from "@/lib/utils/format";
 import { pollUntil } from "@/lib/utils/polling";
+import { extractYelpCategoryAliases } from "@/lib/yelp/categories";
 
 function mergeConfigurationJson(existing: unknown, patch: Record<string, unknown>) {
   const current = typeof existing === "object" && existing !== null ? (existing as Record<string, unknown>) : {};
@@ -112,9 +113,12 @@ function describeCategoryScope(categories: unknown) {
 function assertNoConflictingCpcPrograms(
   programs: Awaited<ReturnType<typeof listPrograms>>,
   requestedCategories: unknown,
+  listingCategoryAliases: unknown,
   excludeProgramId?: string
 ) {
-  const conflicts = findConflictingCpcPrograms(programs, requestedCategories, excludeProgramId);
+  const conflicts = findConflictingCpcPrograms(programs, requestedCategories, excludeProgramId, {
+    listingCategoryAliases
+  });
 
   if (conflicts.length === 0) {
     return;
@@ -334,7 +338,7 @@ export async function createProgramWorkflow(tenantId: string, actorId: string, i
 
   if (values.programType === "CPC") {
     const existingPrograms = await listPrograms(tenantId, business.id);
-    assertNoConflictingCpcPrograms(existingPrograms, values.adCategories);
+    assertNoConflictingCpcPrograms(existingPrograms, values.adCategories, extractYelpCategoryAliases(business.categoriesJson));
   }
 
   const requestPayload = mapCreateProgramFormToDto(values, business.encryptedYelpBusinessId);
@@ -462,7 +466,12 @@ export async function editProgramWorkflow(tenantId: string, actorId: string, inp
 
   if (values.programType === "CPC") {
     const existingPrograms = await listPrograms(tenantId, business.id);
-    assertNoConflictingCpcPrograms(existingPrograms, values.adCategories, program.id);
+    assertNoConflictingCpcPrograms(
+      existingPrograms,
+      values.adCategories,
+      extractYelpCategoryAliases(business.categoriesJson),
+      program.id
+    );
   }
 
   const requestPayload = mapEditProgramFormToDto(values);

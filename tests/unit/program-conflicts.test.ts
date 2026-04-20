@@ -20,6 +20,46 @@ describe("program conflict detection", () => {
     expect(cpcCategoryTargetsOverlap([], [])).toBe(true);
   });
 
+  it("treats explicit full listing categories as the main listing-wide program", () => {
+    const listingCategoryAliases = ["waterheaterinstallrepair", "plumbing", "hvac"];
+
+    expect(
+      cpcCategoryTargetsOverlap(
+        ["waterheaterinstallrepair", "plumbing", "hvac"],
+        ["plumbing"],
+        { listingCategoryAliases }
+      )
+    ).toBe(false);
+    expect(
+      cpcCategoryTargetsOverlap(
+        ["waterheaterinstallrepair", "plumbing", "hvac"],
+        [],
+        { listingCategoryAliases }
+      )
+    ).toBe(true);
+  });
+
+  it("does not flag a synced main CPC as a conflict for a category-specific CPC", () => {
+    const result = findConflictingCpcPrograms(
+      [
+        {
+          id: "program-main",
+          upstreamProgramId: "4WnJ0ZU6e36WnJHdLt-leA",
+          type: "CPC",
+          status: "ACTIVE",
+          adCategoriesJson: ["waterheaterinstallrepair", "plumbing", "hvac"]
+        }
+      ],
+      ["plumbing"],
+      undefined,
+      {
+        listingCategoryAliases: ["waterheaterinstallrepair", "plumbing", "hvac"]
+      }
+    );
+
+    expect(result).toEqual([]);
+  });
+
   it("finds only active-like CPC conflicts and ignores the edited program itself", () => {
     const result = findConflictingCpcPrograms(
       [
