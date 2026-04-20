@@ -4,7 +4,8 @@ import {
   classifyInboundConversationEvent,
   decideInboundConversationResponse,
   extractLeadConversationMessage,
-  findNextInboundConversationEvent
+  findNextInboundConversationEvent,
+  getAutomatedConversationReplyCount
 } from "@/features/autoresponder/conversation";
 import type { LeadAutoresponderSettingsValues } from "@/features/autoresponder/schemas";
 
@@ -78,7 +79,21 @@ describe("conversation autoresponder classification", () => {
       })
     ).toMatchObject({
       intent: "MISSING_DETAILS_PROVIDED",
-      confidence: "MEDIUM",
+      confidence: "HIGH",
+      templateKind: "RECEIVED_UPDATE"
+    });
+  });
+
+  it("does not treat customer problem details with a time phrase as availability risk", () => {
+    expect(
+      classifyInboundConversationEvent({
+        payloadJson: {
+          message: "The issue is with my water heater. It stopped heating this morning."
+        }
+      })
+    ).toMatchObject({
+      intent: "MISSING_DETAILS_PROVIDED",
+      confidence: "HIGH",
       templateKind: "RECEIVED_UPDATE"
     });
   });
@@ -352,6 +367,74 @@ describe("conversation autoresponder routing", () => {
       decision: "HUMAN_HANDOFF",
       stopReason: "MAX_AUTOMATED_TURNS_REACHED",
       shouldCreateIssue: true
+    });
+  });
+
+  it("does not count human handoff acknowledgements against the bounded auto-reply budget", () => {
+    const classification = classifyInboundConversationEvent({
+      payloadJson: {
+        message: "The issue is with my water heater. It stopped heating this morning."
+      }
+    });
+
+    const leadWithPriorHandoffs = {
+      ...lead,
+      conversationAutomationState: {
+        id: "state_1",
+        isEnabled: true,
+        mode: "BOUNDED_AUTO_REPLY" as const,
+        automatedTurnCount: 3
+      },
+      conversationAutomationTurns: [
+        {
+          id: "turn_handoff_2",
+          sourceEventKey: "evt_pricing_2",
+          mode: "BOUNDED_AUTO_REPLY" as const,
+          intent: "QUOTE_PRICING_REQUEST",
+          decision: "HUMAN_HANDOFF" as const,
+          confidence: "HIGH" as const,
+          stopReason: "PRICING_RISK",
+          createdAt: new Date("2026-04-14T10:00:00.000Z")
+        },
+        {
+          id: "turn_handoff_1",
+          sourceEventKey: "evt_pricing_1",
+          mode: "BOUNDED_AUTO_REPLY" as const,
+          intent: "QUOTE_PRICING_REQUEST",
+          decision: "HUMAN_HANDOFF" as const,
+          confidence: "HIGH" as const,
+          stopReason: "PRICING_RISK",
+          createdAt: new Date("2026-04-14T09:00:00.000Z")
+        },
+        {
+          id: "turn_auto_1",
+          sourceEventKey: "evt_safe_1",
+          mode: "BOUNDED_AUTO_REPLY" as const,
+          intent: "SIMPLE_NEXT_STEP_CLARIFICATION",
+          decision: "AUTO_REPLY" as const,
+          confidence: "MEDIUM" as const,
+          stopReason: null,
+          createdAt: new Date("2026-04-14T08:00:00.000Z")
+        }
+      ]
+    };
+
+    expect(getAutomatedConversationReplyCount(leadWithPriorHandoffs)).toBe(1);
+
+    const result = decideInboundConversationResponse({
+      settings: {
+        ...baseSettings,
+        conversationMaxAutomatedTurns: 2
+      },
+      lead: leadWithPriorHandoffs,
+      classification: classification!,
+      hasHumanTakeover: false
+    });
+
+    expect(result).toEqual({
+      decision: "AUTO_REPLY",
+      stopReason: null,
+      shouldCreateIssue: false
     });
   });
 

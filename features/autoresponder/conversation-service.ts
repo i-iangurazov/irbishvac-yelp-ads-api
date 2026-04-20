@@ -17,6 +17,7 @@ import {
   classifyInboundConversationEvent,
   decideInboundConversationResponse,
   findNextInboundConversationEvent,
+  getAutomatedConversationReplyCount,
   getLeadConversationRolloutState,
   humanizeLeadConversationDecision,
   humanizeLeadConversationIntent,
@@ -387,7 +388,7 @@ function buildStateUpdate(params: {
 }) {
   const latestHumanTakeoverAt = getLatestHumanTakeoverAt(params.lead) ?? params.lead.conversationAutomationState?.humanTakeoverAt ?? null;
   const nextAutomatedTurnCount =
-    (params.lead.conversationAutomationState?.automatedTurnCount ?? 0) + (params.automatedTurnDelta ?? 0);
+    getAutomatedConversationReplyCount(params.lead) + (params.automatedTurnDelta ?? 0);
   const rollout = getLeadConversationRolloutState({
     enabled: params.settings.conversationAutomationEnabled,
     paused: params.settings.conversationGlobalPauseEnabled ?? false,
@@ -549,7 +550,7 @@ export async function processLeadConversationAutomationForInboundMessage(params:
     templateKind: classification.templateKind
   });
   const selectedTemplateMetadata = readLeadAutomationTemplateMetadata(selectedTemplate.metadataJson);
-  const automatedTurnCountBefore = lead.conversationAutomationState?.automatedTurnCount ?? 0;
+  const automatedTurnCountBefore = getAutomatedConversationReplyCount(lead);
   const buildTurnMetadata = (params: {
     decision: LeadConversationDecision;
     stopReason: LeadConversationStopReason | null;
@@ -919,7 +920,6 @@ export async function processLeadConversationAutomationForInboundMessage(params:
       finalStopReason = "SEND_FAILED";
       handoffErrorSummary = normalized.message;
     } else {
-      automatedTurnDelta = 1;
       lastAutomatedReplyAt = new Date();
     }
   }

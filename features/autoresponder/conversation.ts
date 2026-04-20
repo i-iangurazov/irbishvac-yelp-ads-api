@@ -245,6 +245,16 @@ function includesAny(text: string, expressions: RegExp[]) {
   return expressions.some((expression) => expression.test(text));
 }
 
+export function getAutomatedConversationReplyCount(
+  lead: Pick<LeadAutomationCandidate, "conversationAutomationState" | "conversationAutomationTurns">
+) {
+  if (Array.isArray(lead.conversationAutomationTurns)) {
+    return lead.conversationAutomationTurns.filter((turn) => turn.decision === "AUTO_REPLY").length;
+  }
+
+  return lead.conversationAutomationState?.automatedTurnCount ?? 0;
+}
+
 export function classifyInboundConversationEvent(event: Pick<LeadConversationEvent, "payloadJson">): LeadConversationClassification | null {
   const messageText = extractLeadConversationMessage(event.payloadJson)?.trim();
 
@@ -288,18 +298,57 @@ export function classifyInboundConversationEvent(event: Pick<LeadConversationEve
 
   if (
     includesAny(normalized, [
+      /\bphoto\b/,
+      /\bpicture\b/,
+      /\baddress\b/,
+      /\blocated at\b/,
+      /\bzip\b/,
+      /\bcity\b/,
+      /\bunit\b/,
+      /\bleaking\b/,
+      /\bleak\b/,
+      /\bwater heater\b/,
+      /\bheater\b/,
+      /\bfurnace\b/,
+      /\bac\b/,
+      /\bhvac\b/,
+      /\bplumbing\b/,
+      /\bdrain\b/,
+      /\bpipe\b/,
+      /\btoilet\b/,
+      /\bsink\b/,
+      /\bnot working\b/,
+      /\bstopped working\b/,
+      /\bstopped heating\b/,
+      /\bno heat\b/,
+      /\bno hot water\b/,
+      /\bissue is\b/,
+      /\bproblem is\b/,
+      /\bthe issue\b/,
+      /\bthe problem\b/
+    ])
+  ) {
+    return {
+      messageText,
+      intent: "MISSING_DETAILS_PROVIDED",
+      confidence: "HIGH",
+      templateKind: "RECEIVED_UPDATE"
+    };
+  }
+
+  if (
+    includesAny(normalized, [
       /\bavailable\b/,
       /\bavailability\b/,
       /\bwhen can\b/,
       /\bwhat time\b/,
-      /\btoday\b/,
-      /\btomorrow\b/,
-      /\bthis afternoon\b/,
-      /\bthis morning\b/,
+      /\bcan (someone|you|a tech|a technician) (come|arrive|be here)\b/,
       /\barrive\b/,
       /\barrival\b/,
       /\bschedule\b/,
-      /\bappointment\b/
+      /\bappointment\b/,
+      /\b(today|tomorrow|this afternoon|this morning)\b.*\b(available|come|arrive|arrival|appointment|schedule|scheduled)\b/,
+      /\b(available|come|arrive|arrival|appointment|schedule|scheduled)\b.*\b(today|tomorrow|this afternoon|this morning)\b/
     ])
   ) {
     return {
@@ -478,7 +527,10 @@ function isCriticalIntent(intent: LeadConversationIntent) {
 
 export function decideInboundConversationResponse(params: {
   settings: LeadAutoresponderSettingsValues;
-  lead: Pick<LeadAutomationCandidate, "externalConversationId" | "internalStatus" | "conversationActions" | "conversationAutomationState">;
+  lead: Pick<
+    LeadAutomationCandidate,
+    "externalConversationId" | "internalStatus" | "conversationActions" | "conversationAutomationState" | "conversationAutomationTurns"
+  >;
   classification: LeadConversationClassification;
   hasHumanTakeover: boolean;
 }) : LeadConversationDecisionResult {
@@ -515,7 +567,7 @@ export function decideInboundConversationResponse(params: {
   }
 
   if (
-    (params.lead.conversationAutomationState?.automatedTurnCount ?? 0) >=
+    getAutomatedConversationReplyCount(params.lead) >=
     params.settings.conversationMaxAutomatedTurns
   ) {
     return {

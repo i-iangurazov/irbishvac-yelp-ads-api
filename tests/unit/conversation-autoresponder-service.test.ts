@@ -277,6 +277,15 @@ describe("conversation autoresponder service", () => {
         renderedBody: expect.stringContaining("Irbishvac automated message")
       })
     );
+    expect(createLeadConversationAutomationTurn.mock.calls[0][0].metadataJson).toEqual(
+      expect.objectContaining({
+        automatedTurns: expect.objectContaining({
+          before: 0,
+          after: 0,
+          max: 2
+        })
+      })
+    );
   });
 
   it("sends a bounded auto-reply for safe acknowledgement intents", async () => {
