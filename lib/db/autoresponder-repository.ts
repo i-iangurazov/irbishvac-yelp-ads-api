@@ -1051,6 +1051,10 @@ export async function getLeadAutomationBusinessConnectionHealth(tenantId: string
       },
       _count: {
         _all: true
+      },
+      _min: {
+        startedAt: true,
+        updatedAt: true
       }
     })
   ]);

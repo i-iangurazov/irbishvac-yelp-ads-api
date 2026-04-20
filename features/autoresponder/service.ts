@@ -192,6 +192,8 @@ function isAfter(left: Date | null, right: Date | null) {
   return Boolean(left && (!right || left.getTime() > right.getTime()));
 }
 
+const staleSyncBacklogMs = 15 * 60 * 1000;
+
 function buildBusinessYelpConnectionHealth(params: {
   hasYelpBusinessId: boolean;
   yelpThreadAccess: {
@@ -200,6 +202,7 @@ function buildBusinessYelpConnectionHealth(params: {
   };
   leadCount: number;
   pendingSyncCount: number;
+  pendingSyncOldestAt: Date | null;
   lastLeadActivityAt: Date | null;
   lastWebhookReceivedAt: Date | null;
   lastWebhookStatus: string | null;
@@ -227,6 +230,18 @@ function buildBusinessYelpConnectionHealth(params: {
   }
 
   if (params.pendingSyncCount > 0) {
+    const hasStaleBacklog =
+      params.pendingSyncOldestAt !== null &&
+      params.pendingSyncOldestAt.getTime() <= Date.now() - staleSyncBacklogMs;
+
+    if (hasStaleBacklog) {
+      return {
+        status: "PARTIAL",
+        label: "Sync backlog",
+        detail: `${params.pendingSyncCount} Yelp intake job${params.pendingSyncCount === 1 ? "" : "s"} queued for more than 15 minutes. Reconcile is behind or blocked.`
+      };
+    }
+
     return {
       status: "PROCESSING",
       label: "Sync running",
@@ -746,6 +761,11 @@ export async function getLeadAutomationModuleState(tenantId: string) {
       .filter((entry) => entry.businessId)
       .map((entry) => [entry.businessId as string, entry._count._all])
   );
+  const pendingSyncOldestByBusiness = new Map(
+    businessConnectionHealth.pendingSyncCounts
+      .filter((entry) => entry.businessId)
+      .map((entry) => [entry.businessId as string, entry._min.startedAt ?? entry._min.updatedAt ?? null])
+  );
   const issueCountByBusiness = new Map<string, number>();
   const openIssuesByLeadId = new Map<
     string,
@@ -829,6 +849,11 @@ export async function getLeadAutomationModuleState(tenantId: string) {
     const latestSuccessfulSync = latestSuccessfulSyncByBusiness.get(business.id) ?? null;
     const latestFailedSync = latestFailedSyncByBusiness.get(business.id) ?? null;
     const pendingSyncCount = pendingSyncCountByBusiness.get(business.id) ?? 0;
+    const pendingSyncOldestAt = pendingSyncOldestByBusiness.get(business.id) ?? null;
+    const hasStaleSyncBacklog =
+      pendingSyncCount > 0 &&
+      pendingSyncOldestAt !== null &&
+      pendingSyncOldestAt.getTime() <= Date.now() - staleSyncBacklogMs;
     const followUp24hEnabled = override
       ? override.followUp24hEnabled
       : adminState.settings.followUp24hEnabled && isEnabled;
@@ -847,6 +872,7 @@ export async function getLeadAutomationModuleState(tenantId: string) {
       yelpThreadAccess,
       leadCount,
       pendingSyncCount,
+      pendingSyncOldestAt,
       lastLeadActivityAt: latestLeadActivity?.lastActivityAt ?? null,
       lastWebhookReceivedAt: latestWebhook?.receivedAt ?? null,
       lastWebhookStatus: latestWebhook?.status ?? null,
@@ -934,6 +960,8 @@ export async function getLeadAutomationModuleState(tenantId: string) {
       yelpConnectionDetail: yelpConnection.detail,
       leadCount,
       pendingSyncCount,
+      pendingSyncOldestAt,
+      hasStaleSyncBacklog,
       latestLeadExternalId: latestLeadActivity?.externalLeadId ?? latestWebhook?.externalLeadId ?? null,
       lastLeadActivityAt: latestLeadActivity?.lastActivityAt ?? null,
       lastWebhookReceivedAt: latestWebhook?.receivedAt ?? null,

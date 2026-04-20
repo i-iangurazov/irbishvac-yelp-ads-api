@@ -1635,7 +1635,8 @@ describe("autoresponder service", () => {
         expect.objectContaining({
           businessId: "business_1",
           healthStatus: "PARTIAL",
-          conversationRolloutLabel: "Limited auto-reply pilot",
+          conversationRolloutLabel: "Bounded auto-reply",
+          conversationPilotLabel: "Auto-reply on",
           yelpConnectionStatus: "ACTIVE",
           yelpConnectionLabel: "Webhook live",
           leadCount: 12,

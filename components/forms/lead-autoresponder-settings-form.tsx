@@ -339,7 +339,7 @@ export function LeadAutoresponderSettingsForm({
                 <div className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-background px-3 py-3">
                   <div>
                     <div className="text-sm font-medium">Quick pause</div>
-                    <div className="text-xs text-muted-foreground">Stop new conversation auto-handling tenant-wide without deleting the pilot setup.</div>
+                    <div className="text-xs text-muted-foreground">Stop new conversation auto-handling tenant-wide without deleting the saved setup.</div>
                   </div>
                   <Switch
                     checked={conversationGlobalPauseEnabled}
@@ -353,7 +353,7 @@ export function LeadAutoresponderSettingsForm({
 
                 {conversationGlobalPauseEnabled ? (
                   <div className="rounded-xl border border-border/70 bg-background px-4 py-3 text-sm text-muted-foreground">
-                    Conversation automation is paused. Existing review, mode, and handoff settings stay saved and will apply again when you turn the pilot back on.
+                    Conversation automation is paused. Existing review, mode, and handoff settings stay saved and will apply again when you resume automation.
                   </div>
                 ) : (
                   <>

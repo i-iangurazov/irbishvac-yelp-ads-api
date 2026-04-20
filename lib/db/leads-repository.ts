@@ -326,38 +326,61 @@ export async function updateWebhookEventRecord(
 
 export async function listLeadWebhookSyncRunsForReconcile(limit = 20) {
   const staleBefore = new Date(Date.now() - 15 * 60 * 1000);
-
-  return prisma.syncRun.findMany({
-    where: {
-      type: "YELP_LEADS_WEBHOOK",
-      OR: [
-        {
-          status: {
-            in: ["QUEUED", "FAILED"]
-          }
-        },
-        {
-          status: "PROCESSING",
-          updatedAt: {
-            lte: staleBefore
-          }
+  const candidateWhere = {
+    type: "YELP_LEADS_WEBHOOK",
+    OR: [
+      {
+        status: {
+          in: ["QUEUED", "FAILED"]
         }
-      ]
-    },
-    select: {
-      id: true,
-      tenantId: true,
-      status: true,
-      statsJson: true,
-      updatedAt: true,
-      errors: {
-        orderBy: [{ occurredAt: "desc" }],
-        take: 1
+      },
+      {
+        status: "PROCESSING",
+        updatedAt: {
+          lte: staleBefore
+        }
+      }
+    ]
+  } satisfies Prisma.SyncRunWhereInput;
+  const syncRunSelect = {
+    id: true,
+    tenantId: true,
+    status: true,
+    statsJson: true,
+    updatedAt: true,
+    errors: {
+      orderBy: [{ occurredAt: "desc" }],
+      take: 1
+    }
+  } satisfies Prisma.SyncRunSelect;
+
+  const mappedRuns = await prisma.syncRun.findMany({
+    where: {
+      ...candidateWhere,
+      businessId: {
+        not: null
       }
     },
+    select: syncRunSelect,
     orderBy: [{ createdAt: "desc" }, { startedAt: "desc" }],
     take: limit
   });
+
+  if (mappedRuns.length >= limit) {
+    return mappedRuns;
+  }
+
+  const unmappedRuns = await prisma.syncRun.findMany({
+    where: {
+      ...candidateWhere,
+      businessId: null
+    },
+    select: syncRunSelect,
+    orderBy: [{ createdAt: "desc" }, { startedAt: "desc" }],
+    take: limit - mappedRuns.length
+  });
+
+  return [...mappedRuns, ...unmappedRuns];
 }
 
 export async function claimLeadWebhookSyncRunForProcessing(

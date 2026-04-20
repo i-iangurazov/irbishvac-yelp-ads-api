@@ -106,7 +106,7 @@ export default async function AutoresponderPage({
               <Badge variant="outline">{channelLabel(overview.moduleSummary.defaultChannel)}</Badge>
               <Badge variant="outline">{overview.moduleSummary.conversationPilotLabel}</Badge>
               <Badge variant="secondary">
-                {activeFollowUpCount === 0 ? "Initial response only" : `${activeFollowUpCount} follow-up cadence${activeFollowUpCount === 1 ? "" : "s"} active`}
+                {activeFollowUpCount === 0 ? "Follow-ups off" : `${activeFollowUpCount} follow-up cadence${activeFollowUpCount === 1 ? "" : "s"} active`}
               </Badge>
             </div>
           </div>
@@ -182,7 +182,7 @@ export default async function AutoresponderPage({
               {overview.moduleSummary.deliveryAccessLabel}
               <span className="mx-2 text-border">•</span>
               {overview.moduleSummary.conversationGlobalPauseEnabled
-                ? "Conversation pilot paused tenant-wide."
+                ? "Conversation automation paused tenant-wide."
                 : overview.moduleSummary.lastSuccessfulAt
                   ? `Last successful send ${formatDateTime(overview.moduleSummary.lastSuccessfulAt)}`
                   : "No successful send recorded yet."}
@@ -222,7 +222,7 @@ export default async function AutoresponderPage({
                 <div className="mt-2 font-medium">{overview.operatingMode.conversationPolicy}</div>
                 <div className="mt-1 text-xs text-muted-foreground">
                   {overview.moduleSummary.conversationGlobalPauseEnabled
-                    ? "Tenant pause is on. Saved pilot settings resume when the pause is lifted."
+                    ? "Tenant pause is on. Saved conversation settings resume when the pause is lifted."
                     : overview.moduleSummary.conversationAutomationEnabled
                       ? overview.moduleSummary.conversationAllowedIntentLabels
                       : "Inbound customer messages stay human-only unless a business override enables conversation automation."}
@@ -268,7 +268,9 @@ export default async function AutoresponderPage({
                         </div>
                         <div className="mt-1 text-xs text-muted-foreground">
                           {business.leadCount} lead{business.leadCount === 1 ? "" : "s"}
-                          {business.pendingSyncCount > 0 ? ` • ${business.pendingSyncCount} sync pending` : ""}
+                          {business.pendingSyncCount > 0
+                            ? ` • ${business.pendingSyncCount} ${business.hasStaleSyncBacklog ? "stale sync" : "sync pending"}`
+                            : ""}
                         </div>
                       </TableCell>
                       <TableCell>
@@ -596,7 +598,7 @@ export default async function AutoresponderPage({
         <Card>
           <CardHeader className="pb-3">
             <CardTitle>Conversation operations</CardTitle>
-            <CardDescription>Keep the bounded-conversation pilot measurable, limited, and easy to review.</CardDescription>
+            <CardDescription>Monitor bounded conversation automation, auto-replies, and handoffs.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="flex flex-wrap items-center gap-2">

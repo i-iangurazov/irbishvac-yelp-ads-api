@@ -36,7 +36,7 @@ export function getLeadConversationRolloutState(params: {
   if (params.paused) {
     return {
       label: "Paused",
-      description: "Conversation automation is paused tenant-wide. New inbound turns stay human-only.",
+      description: "Conversation automation is paused tenant-wide. New inbound turns stay with operators.",
       pilotLabel: "Paused"
     };
   }
@@ -52,22 +52,22 @@ export function getLeadConversationRolloutState(params: {
   switch (params.mode) {
     case "BOUNDED_AUTO_REPLY":
       return {
-        label: "Limited auto-reply pilot",
+        label: "Bounded auto-reply",
         description: "Only approved low-risk inbound intents may auto-send. Everything else routes to review or handoff.",
-        pilotLabel: "Limited pilot"
+        pilotLabel: "Auto-reply on"
       };
     case "HUMAN_HANDOFF":
       return {
-        label: "Human-handoff pilot",
+        label: "Human handoff",
         description: "Conversation automation is on for visibility and audit, but every inbound turn still requires a person.",
-        pilotLabel: "Handoff pilot"
+        pilotLabel: "Human handoff"
       };
     case "REVIEW_ONLY":
     default:
       return {
-        label: "Review-only pilot",
+        label: "Review-only",
         description: "Safe inbound turns can prepare suggested replies, but a person must still review and send them.",
-        pilotLabel: "Review pilot"
+        pilotLabel: "Review-only"
       };
   }
 }
