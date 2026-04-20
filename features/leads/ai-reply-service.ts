@@ -97,14 +97,25 @@ function extractEventMessage(payload: unknown) {
     ["request_content"],
     ["content"],
     ["body"],
+    ["event_content"],
+    ["event_content", "text"],
+    ["event_content", "fallback_text"],
     ["data", "message"],
     ["data", "text"],
+    ["data", "event_content", "text"],
+    ["data", "event_content", "fallback_text"],
     ["event", "message"],
     ["event", "text"],
+    ["event", "event_content", "text"],
+    ["event", "event_content", "fallback_text"],
     ["payload", "message"],
     ["payload", "text"],
+    ["payload", "event_content", "text"],
+    ["payload", "event_content", "fallback_text"],
     ["details", "message"],
-    ["details", "text"]
+    ["details", "text"],
+    ["details", "event_content", "text"],
+    ["details", "event_content", "fallback_text"]
   ] as const;
 
   for (const path of candidates) {
@@ -125,7 +136,12 @@ function humanizeActor(actorType: string | null, isReply: boolean) {
     return "Customer";
   }
 
-  if (normalized.includes("business") || normalized.includes("partner") || normalized.includes("owner")) {
+  if (
+    normalized === "biz" ||
+    normalized.includes("business") ||
+    normalized.includes("partner") ||
+    normalized.includes("owner")
+  ) {
     return "Business";
   }
 

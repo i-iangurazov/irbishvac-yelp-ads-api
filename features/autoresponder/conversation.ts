@@ -99,14 +99,25 @@ export function extractLeadConversationMessage(payload: unknown) {
     ["request_content"],
     ["content"],
     ["body"],
+    ["event_content"],
+    ["event_content", "text"],
+    ["event_content", "fallback_text"],
     ["data", "message"],
     ["data", "text"],
+    ["data", "event_content", "text"],
+    ["data", "event_content", "fallback_text"],
     ["event", "message"],
     ["event", "text"],
+    ["event", "event_content", "text"],
+    ["event", "event_content", "fallback_text"],
     ["payload", "message"],
     ["payload", "text"],
+    ["payload", "event_content", "text"],
+    ["payload", "event_content", "fallback_text"],
     ["details", "message"],
-    ["details", "text"]
+    ["details", "text"],
+    ["details", "event_content", "text"],
+    ["details", "event_content", "fallback_text"]
   ] as const;
 
   for (const path of candidates) {
@@ -141,7 +152,12 @@ export function isCustomerConversationEvent(
     return true;
   }
 
-  if (normalized.includes("BUSINESS") || normalized.includes("PARTNER") || normalized.includes("OWNER")) {
+  if (
+    normalized === "BIZ" ||
+    normalized.includes("BUSINESS") ||
+    normalized.includes("PARTNER") ||
+    normalized.includes("OWNER")
+  ) {
     return false;
   }
 
@@ -215,11 +231,13 @@ export function findNextInboundConversationEvent(
   }
 
   return (
-    orderedEvents.find(
-      (event) =>
-        isCustomerConversationEvent(event) &&
-        isEventNewerThanBoundary(event, lead.conversationAutomationState, options?.after ?? null)
-    ) ?? null
+    orderedEvents
+      .filter(
+        (event) =>
+          isCustomerConversationEvent(event) &&
+          isEventNewerThanBoundary(event, lead.conversationAutomationState, options?.after ?? null)
+      )
+      .at(-1) ?? null
   );
 }
 

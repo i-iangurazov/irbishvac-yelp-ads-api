@@ -44,6 +44,17 @@ describe("conversation autoresponder classification", () => {
     ).toBe("Here is the address and a photo.");
   });
 
+  it("extracts Yelp thread text from event_content", () => {
+    expect(
+      extractLeadConversationMessage({
+        event_content: {
+          text: "Can you help me?",
+          fallback_text: "Can you help me?"
+        }
+      })
+    ).toBe("Can you help me?");
+  });
+
   it("classifies pricing questions conservatively", () => {
     expect(
       classifyInboundConversationEvent({
@@ -130,6 +141,77 @@ describe("conversation autoresponder classification", () => {
     );
 
     expect(event?.eventKey).toBe("evt_reply");
+  });
+
+  it("does not treat Yelp BIZ thread messages as customer conversation turns", () => {
+    const event = findNextInboundConversationEvent(
+      {
+        events: [
+          {
+            eventKey: "evt_biz",
+            externalEventId: "evt_biz",
+            eventType: "TEXT",
+            actorType: "BIZ",
+            isReply: false,
+            occurredAt: new Date("2026-04-14T08:10:00.000Z"),
+            payloadJson: {
+              event_content: {
+                text: "Automated reply from business."
+              }
+            }
+          }
+        ],
+        conversationAutomationState: null
+      },
+      null,
+      {
+        after: new Date("2026-04-14T08:05:00.000Z")
+      }
+    );
+
+    expect(event).toBeNull();
+  });
+
+  it("uses the latest unprocessed customer message when a poll finds several new turns", () => {
+    const event = findNextInboundConversationEvent(
+      {
+        events: [
+          {
+            eventKey: "evt_old",
+            externalEventId: "evt_old",
+            eventType: "TEXT",
+            actorType: "CONSUMER",
+            isReply: false,
+            occurredAt: new Date("2026-04-14T08:10:00.000Z"),
+            payloadJson: {
+              event_content: {
+                text: "First question"
+              }
+            }
+          },
+          {
+            eventKey: "evt_latest",
+            externalEventId: "evt_latest",
+            eventType: "TEXT",
+            actorType: "CONSUMER",
+            isReply: false,
+            occurredAt: new Date("2026-04-14T08:15:00.000Z"),
+            payloadJson: {
+              event_content: {
+                text: "Latest question"
+              }
+            }
+          }
+        ],
+        conversationAutomationState: null
+      },
+      null,
+      {
+        after: new Date("2026-04-14T08:05:00.000Z")
+      }
+    );
+
+    expect(event?.eventKey).toBe("evt_latest");
   });
 
   it("ignores customer events that happened before the latest automated reply", () => {
