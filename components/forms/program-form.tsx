@@ -280,6 +280,7 @@ export function ProgramForm(props: ProgramFormProps) {
                 <div className="space-y-2 rounded-lg border border-border p-3">
                   <div className="rounded-md border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
                     Leave all unchecked to omit <span className="font-mono">ad_categories</span> and let Yelp use the listing categories.
+                    Use checked aliases for a more specific category CPC program alongside the main listing-wide program.
                   </div>
                   {aliasBackedCategories.map((category) => (
                     <Label key={category.alias} className="flex items-start gap-3 rounded-md border border-transparent p-2 hover:bg-muted/40">

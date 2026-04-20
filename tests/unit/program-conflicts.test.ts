@@ -11,9 +11,13 @@ describe("program conflict detection", () => {
     expect(cpcCategoryTargetsOverlap(["electricians"], ["plumbing"])).toBe(false);
   });
 
-  it("treats an unscoped CPC program as overlapping all category-targeted programs", () => {
-    expect(cpcCategoryTargetsOverlap([], ["plumbing"])).toBe(true);
-    expect(cpcCategoryTargetsOverlap(["plumbing"], [])).toBe(true);
+  it("allows all-category CPC programs to coexist with category-specific CPC programs", () => {
+    expect(cpcCategoryTargetsOverlap([], ["plumbing"])).toBe(false);
+    expect(cpcCategoryTargetsOverlap(["plumbing"], [])).toBe(false);
+  });
+
+  it("treats two all-category CPC programs as overlapping", () => {
+    expect(cpcCategoryTargetsOverlap([], [])).toBe(true);
   });
 
   it("finds only active-like CPC conflicts and ignores the edited program itself", () => {

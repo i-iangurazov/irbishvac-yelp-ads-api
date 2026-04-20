@@ -26,8 +26,12 @@ export function cpcCategoryTargetsOverlap(left: unknown, right: unknown) {
   const leftAliases = normalizeProgramCategoryAliases(left);
   const rightAliases = normalizeProgramCategoryAliases(right);
 
-  if (leftAliases.length === 0 || rightAliases.length === 0) {
+  if (leftAliases.length === 0 && rightAliases.length === 0) {
     return true;
+  }
+
+  if (leftAliases.length === 0 || rightAliases.length === 0) {
+    return false;
   }
 
   return leftAliases.some((alias) => rightAliases.includes(alias));
