@@ -147,10 +147,11 @@ export function isCustomerConversationEvent(event: Pick<LeadConversationEvent, "
 
 function isEventNewerThanBoundary(
   event: Pick<LeadConversationEvent, "eventKey" | "occurredAt">,
-  boundary: { lastProcessedEventKey?: string | null; lastInboundAt?: Date | null } | null | undefined
+  boundary: { lastProcessedEventKey?: string | null; lastInboundAt?: Date | null } | null | undefined,
+  after?: Date | null
 ) {
   if (!boundary) {
-    return true;
+    return !after || !event.occurredAt || event.occurredAt.getTime() > after.getTime();
   }
 
   if (boundary.lastProcessedEventKey && event.eventKey && event.eventKey === boundary.lastProcessedEventKey) {
@@ -161,12 +162,19 @@ function isEventNewerThanBoundary(
     return false;
   }
 
+  if (after && event.occurredAt && event.occurredAt.getTime() <= after.getTime()) {
+    return false;
+  }
+
   return true;
 }
 
 export function findNextInboundConversationEvent(
   lead: Pick<LeadAutomationCandidate, "events" | "conversationAutomationState">,
-  sourceEventId?: string | null
+  sourceEventId?: string | null,
+  options?: {
+    after?: Date | null;
+  }
 ) {
   const orderedEvents = [...(lead.events ?? [])].sort((left, right) => {
     const leftTime = left.occurredAt?.getTime() ?? 0;
@@ -181,7 +189,7 @@ export function findNextInboundConversationEvent(
         isCustomerConversationEvent(event)
     );
 
-    if (exact && isEventNewerThanBoundary(exact, lead.conversationAutomationState)) {
+    if (exact && isEventNewerThanBoundary(exact, lead.conversationAutomationState, options?.after ?? null)) {
       return exact;
     }
   }
@@ -190,7 +198,7 @@ export function findNextInboundConversationEvent(
     orderedEvents.find(
       (event) =>
         isCustomerConversationEvent(event) &&
-        isEventNewerThanBoundary(event, lead.conversationAutomationState)
+        isEventNewerThanBoundary(event, lead.conversationAutomationState, options?.after ?? null)
     ) ?? null
   );
 }

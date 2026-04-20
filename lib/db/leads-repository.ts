@@ -659,6 +659,7 @@ export async function listLeadBusinessOptions(tenantId: string) {
     select: {
       id: true,
       name: true,
+      locationId: true,
       encryptedYelpBusinessId: true
     },
     orderBy: [{ name: "asc" }]
@@ -701,7 +702,8 @@ export async function listLeadBackfillRuns(tenantId: string, take = 6) {
   return prisma.syncRun.findMany({
     where: {
       tenantId,
-      type: "YELP_LEADS_BACKFILL"
+      type: "YELP_LEADS_BACKFILL",
+      capabilityKey: "hasLeadsApi"
     },
     include: {
       business: {

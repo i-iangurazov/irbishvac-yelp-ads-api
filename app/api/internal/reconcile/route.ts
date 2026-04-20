@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { reconcilePendingProgramJobs } from "@/features/ads-programs/service";
 import { runLeadAutomationFollowUpWorker } from "@/features/autoresponder/service";
 import { reconcileDueServiceTitanLifecycleSyncs } from "@/features/crm-connector/lifecycle-service";
-import { reconcilePendingLeadWebhooks } from "@/features/leads/service";
+import { reconcilePendingLeadWebhooks, reconcileRecentYelpLeadsForAutomation } from "@/features/leads/service";
 import { reconcileDueReportSchedules, reconcilePendingReportScheduleRuns } from "@/features/report-delivery/service";
 import { reconcilePendingReports } from "@/features/reporting/service";
 import {
@@ -81,6 +81,7 @@ export async function GET(request: Request) {
     const limits = {
       programJobLimit: parseLimit(searchParams.get("programJobLimit"), 25, 100),
       leadWebhookLimit: parseLimit(searchParams.get("leadWebhookLimit"), 25, 100),
+      leadPollingLimit: parseLimit(searchParams.get("leadPollingLimit"), 40, 100),
       scheduledReportLimit: parseLimit(searchParams.get("scheduledReportLimit"), 10, 50),
       reportLimit: parseLimit(searchParams.get("reportLimit"), 10, 50),
       reportDeliveryLimit: parseLimit(searchParams.get("reportDeliveryLimit"), 20, 100),
@@ -106,6 +107,17 @@ export async function GET(request: Request) {
             task: () => reconcilePendingLeadWebhooks(limits.leadWebhookLimit)
           })
         : skippedWorkerOutcome<Awaited<ReturnType<typeof reconcilePendingLeadWebhooks>>>("internal-reconcile:lead-webhooks");
+    const leadPollingOutcome =
+      limits.leadPollingLimit > 0
+        ? await runDurableWorkerTask({
+            kind: "INTERNAL_RECONCILE_LEAD_WEBHOOKS",
+            jobKey: "internal-reconcile:lead-polling",
+            payloadJson: { limit: limits.leadPollingLimit },
+            task: () => reconcileRecentYelpLeadsForAutomation(limits.leadPollingLimit)
+          })
+        : skippedWorkerOutcome<Awaited<ReturnType<typeof reconcileRecentYelpLeadsForAutomation>>>(
+            "internal-reconcile:lead-polling"
+          );
     const scheduledReportsOutcome =
       limits.scheduledReportLimit > 0
         ? await runDurableWorkerTask({
@@ -157,6 +169,19 @@ export async function GET(request: Request) {
           );
     const programJobs = programJobsOutcome.result ?? [];
     const leadWebhooks = leadWebhooksOutcome.result ?? [];
+    const leadPolling =
+      leadPollingOutcome.result ??
+      {
+        tenantCount: 0,
+        businessCount: 0,
+        processedLeadCount: 0,
+        importedCount: 0,
+        updatedCount: 0,
+        failedCount: 0,
+        initialAutomationProcessedCount: 0,
+        conversationAutomationProcessedCount: 0,
+        results: []
+      };
     const scheduledReports = scheduledReportsOutcome.result ?? [];
     const reports = reportsOutcome.result ?? [];
     const reportDeliveries = reportDeliveriesOutcome.result ?? [];
@@ -174,6 +199,7 @@ export async function GET(request: Request) {
     const workerJobs = {
       programJobs: summarizeDurableWorkerOutcome(programJobsOutcome),
       leadWebhooks: summarizeDurableWorkerOutcome(leadWebhooksOutcome),
+      leadPolling: summarizeDurableWorkerOutcome(leadPollingOutcome),
       scheduledReports: summarizeDurableWorkerOutcome(scheduledReportsOutcome),
       reports: summarizeDurableWorkerOutcome(reportsOutcome),
       reportDeliveries: summarizeDurableWorkerOutcome(reportDeliveriesOutcome),
@@ -189,6 +215,8 @@ export async function GET(request: Request) {
       limits,
       programJobs: programJobs.length,
       leadWebhooks: leadWebhooks.length,
+      leadPollingBusinesses: leadPolling.businessCount,
+      leadPollingLeads: leadPolling.processedLeadCount,
       scheduledReports: scheduledReports.length,
       reports: reports.length,
       reportDeliveries: reportDeliveries.length,
@@ -203,6 +231,7 @@ export async function GET(request: Request) {
       limits,
       programJobs,
       leadWebhooks,
+      leadPolling,
       scheduledReports,
       reports,
       reportDeliveries,

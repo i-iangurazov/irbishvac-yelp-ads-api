@@ -106,6 +106,40 @@ describe("conversation autoresponder classification", () => {
 
     expect(event?.eventKey).toBe("evt_2");
   });
+
+  it("ignores customer events that happened before the latest automated reply", () => {
+    const event = findNextInboundConversationEvent(
+      {
+        events: [
+          {
+            eventKey: "evt_initial",
+            externalEventId: "evt_initial",
+            eventType: "MESSAGE",
+            actorType: "CONSUMER",
+            isReply: false,
+            occurredAt: new Date("2026-04-14T08:00:00.000Z"),
+            payloadJson: { message: "Initial request" }
+          },
+          {
+            eventKey: "evt_followup",
+            externalEventId: "evt_followup",
+            eventType: "MESSAGE",
+            actorType: "CONSUMER",
+            isReply: false,
+            occurredAt: new Date("2026-04-14T08:10:00.000Z"),
+            payloadJson: { message: "Here is the address." }
+          }
+        ],
+        conversationAutomationState: null
+      },
+      null,
+      {
+        after: new Date("2026-04-14T08:05:00.000Z")
+      }
+    );
+
+    expect(event?.eventKey).toBe("evt_followup");
+  });
 });
 
 describe("conversation autoresponder routing", () => {

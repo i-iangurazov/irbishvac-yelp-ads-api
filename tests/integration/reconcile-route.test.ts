@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 const reconcilePendingProgramJobs = vi.fn();
 const reconcilePendingLeadWebhooks = vi.fn();
+const reconcileRecentYelpLeadsForAutomation = vi.fn();
 const reconcileDueReportSchedules = vi.fn();
 const reconcilePendingReports = vi.fn();
 const reconcilePendingReportScheduleRuns = vi.fn();
@@ -38,7 +39,8 @@ vi.mock("@/features/ads-programs/service", () => ({
 }));
 
 vi.mock("@/features/leads/service", () => ({
-  reconcilePendingLeadWebhooks
+  reconcilePendingLeadWebhooks,
+  reconcileRecentYelpLeadsForAutomation
 }));
 
 vi.mock("@/features/report-delivery/service", () => ({
@@ -70,13 +72,14 @@ describe("internal reconcile route", () => {
     const { GET } = await import("@/app/api/internal/reconcile/route");
     const response = await GET(
       new Request(
-        "http://localhost/api/internal/reconcile?programJobLimit=0&leadWebhookLimit=250&scheduledReportLimit=0&reportLimit=0&reportDeliveryLimit=0&autoresponderFollowUpLimit=0&connectorLifecycleLimit=0"
+        "http://localhost/api/internal/reconcile?programJobLimit=0&leadWebhookLimit=250&leadPollingLimit=0&scheduledReportLimit=0&reportLimit=0&reportDeliveryLimit=0&autoresponderFollowUpLimit=0&connectorLifecycleLimit=0"
       )
     );
 
     expect(response.status).toBe(200);
     expect(reconcilePendingProgramJobs).not.toHaveBeenCalled();
     expect(reconcilePendingLeadWebhooks).toHaveBeenCalledWith(100);
+    expect(reconcileRecentYelpLeadsForAutomation).not.toHaveBeenCalled();
     expect(reconcileDueReportSchedules).not.toHaveBeenCalled();
     expect(reconcilePendingReports).not.toHaveBeenCalled();
     expect(reconcilePendingReportScheduleRuns).not.toHaveBeenCalled();

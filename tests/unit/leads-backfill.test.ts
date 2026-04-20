@@ -29,6 +29,8 @@ const processLeadAutoresponderForNewLead = vi.fn();
 const processLeadConversationAutomationForInboundMessage = vi.fn();
 const getLeadConversionSummary = vi.fn();
 const getDefaultTenant = vi.fn();
+const listTenantIds = vi.fn();
+const getLeadAutomationScopeConfig = vi.fn();
 const logInfo = vi.fn();
 const logError = vi.fn();
 const getBusinessLeadIds = vi.fn();
@@ -83,6 +85,10 @@ vi.mock("@/features/autoresponder/conversation-service", () => ({
   processLeadConversationAutomationForInboundMessage
 }));
 
+vi.mock("@/features/autoresponder/config", () => ({
+  getLeadAutomationScopeConfig
+}));
+
 vi.mock("@/features/crm-enrichment/service", () => ({
   buildLeadCrmSummary: vi.fn(),
   getLeadConversionSummary
@@ -90,6 +96,10 @@ vi.mock("@/features/crm-enrichment/service", () => ({
 
 vi.mock("@/lib/db/tenant", () => ({
   getDefaultTenant
+}));
+
+vi.mock("@/lib/db/settings-repository", () => ({
+  listTenantIds
 }));
 
 vi.mock("@/lib/utils/logging", () => ({
@@ -211,9 +221,20 @@ describe("lead backfill workflow", () => {
       processed: false,
       reason: "NO_NEW_INBOUND_EVENT"
     });
+    getLeadAutomationScopeConfig.mockResolvedValue({
+      effectiveSettings: {
+        isEnabled: true,
+        conversationAutomationEnabled: true
+      }
+    });
     getDefaultTenant.mockResolvedValue({
       id: "tenant_1"
     });
+    listTenantIds.mockResolvedValue([
+      {
+        id: "tenant_1"
+      }
+    ]);
     findBusinessesByExternalYelpBusinessId.mockResolvedValue([
       {
         id: "business_1",
@@ -782,5 +803,97 @@ describe("lead backfill workflow", () => {
         status: "COMPLETED"
       })
     ]);
+  });
+
+  it("polls recent leads for autoresponder-enabled businesses and processes conversation automation", async () => {
+    listLeadBusinessOptions.mockResolvedValue([
+      {
+        id: "business_enabled",
+        name: "Plumbing Business Tester - Test",
+        encryptedYelpBusinessId: "SNa1ugk6DNIuvIPu8-AiGA",
+        locationId: "location_1"
+      },
+      {
+        id: "business_disabled",
+        name: "IRBIS Air Plumbing Electrical",
+        encryptedYelpBusinessId: "ys4FVTHxbSepIkvCLHYxCA",
+        locationId: "location_2"
+      }
+    ]);
+    getLeadAutomationScopeConfig.mockImplementation(async (_tenantId: string, businessId: string) => ({
+      effectiveSettings: {
+        isEnabled: businessId === "business_enabled",
+        conversationAutomationEnabled: businessId === "business_enabled"
+      }
+    }));
+    getBusinessLeadIds.mockResolvedValue({
+      data: {
+        lead_ids: ["lead_existing"],
+        has_more: false
+      }
+    });
+    findLeadRecordByExternalLeadId.mockResolvedValue({
+      id: "local_lead_existing",
+      internalStatus: "UNMAPPED",
+      firstSeenAt: new Date("2026-04-01T09:00:00.000Z"),
+      locationId: "location_1",
+      serviceCategoryId: null,
+      mappedServiceLabel: null
+    });
+    getLead.mockResolvedValue({
+      data: {
+        id: "lead_existing",
+        business_id: "SNa1ugk6DNIuvIPu8-AiGA",
+        conversation_id: "conversation_1",
+        time_created: "2026-04-01T09:00:00.000Z",
+        customer_name: "Jane Doe"
+      }
+    });
+    getLeadEvents.mockResolvedValue({
+      data: {
+        events: [
+          {
+            event_id: "evt_customer_update",
+            event_type: "MESSAGE",
+            interaction_time: "2026-04-01T09:05:00.000Z",
+            message: "The address is 123 Main St and the pipe is leaking."
+          }
+        ]
+      }
+    });
+    upsertLeadRecord.mockResolvedValue({
+      id: "local_lead_existing",
+      externalLeadId: "lead_existing",
+      businessId: "business_enabled"
+    });
+    processLeadAutoresponderForNewLead.mockResolvedValue({
+      status: "DUPLICATE"
+    });
+    processLeadConversationAutomationForInboundMessage.mockResolvedValue({
+      processed: true,
+      decision: "AUTO_REPLY",
+      stopReason: null
+    });
+
+    const { reconcileRecentYelpLeadsForAutomation } = await import("@/features/leads/service");
+    const result = await reconcileRecentYelpLeadsForAutomation(20);
+
+    expect(getBusinessLeadIds).toHaveBeenCalledTimes(1);
+    expect(getBusinessLeadIds).toHaveBeenCalledWith("SNa1ugk6DNIuvIPu8-AiGA", {
+      limit: 20,
+      offset: 0
+    });
+    expect(processLeadAutoresponderForNewLead).toHaveBeenCalledWith("tenant_1", "local_lead_existing");
+    expect(processLeadConversationAutomationForInboundMessage).toHaveBeenCalledWith({
+      tenantId: "tenant_1",
+      leadId: "local_lead_existing",
+      sourceEventId: null
+    });
+    expect(result).toMatchObject({
+      businessCount: 1,
+      processedLeadCount: 1,
+      updatedCount: 1,
+      conversationAutomationProcessedCount: 1
+    });
   });
 });

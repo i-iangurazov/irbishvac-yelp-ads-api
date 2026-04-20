@@ -75,6 +75,29 @@ function getLatestHumanTakeoverAt(lead: LeadAutomationCandidate) {
   );
 }
 
+function getLatestAutomatedReplyAt(lead: LeadAutomationCandidate) {
+  const attemptReplyTimes =
+    lead.automationAttempts
+      ?.filter((attempt) => attempt.status === "SENT")
+      .map((attempt) => attempt.completedAt ?? attempt.triggeredAt ?? null)
+      .filter((value): value is Date => value instanceof Date) ?? [];
+  const actionReplyTimes =
+    lead.conversationActions
+      ?.filter(
+        (action) =>
+          action.initiator === "AUTOMATION" &&
+          action.status === "SENT" &&
+          (action.actionType === "SEND_MESSAGE" || action.actionType === "MARK_REPLIED")
+      )
+      .map((action) => action.completedAt ?? action.createdAt)
+      .filter((value): value is Date => value instanceof Date) ?? [];
+  const stateReplyTime = lead.conversationAutomationState?.lastAutomatedReplyAt ?? null;
+
+  return [...attemptReplyTimes, ...actionReplyTimes, ...(stateReplyTime ? [stateReplyTime] : [])].sort(
+    (left, right) => right.getTime() - left.getTime()
+  )[0] ?? null;
+}
+
 function excerptForDecisionTrace(value: string | null | undefined, maxLength = 320) {
   if (!value) {
     return null;
@@ -370,7 +393,9 @@ export async function processLeadConversationAutomationForInboundMessage(params:
     listEnabledLeadAutomationTemplates(params.tenantId)
   ]);
   const settingsScope = await getLeadAutomationScopeConfig(params.tenantId, lead.business?.id ?? null);
-  const sourceEvent = findNextInboundConversationEvent(lead, params.sourceEventId);
+  const sourceEvent = findNextInboundConversationEvent(lead, params.sourceEventId, {
+    after: getLatestAutomatedReplyAt(lead)
+  });
 
   if (!sourceEvent?.eventKey) {
     return {

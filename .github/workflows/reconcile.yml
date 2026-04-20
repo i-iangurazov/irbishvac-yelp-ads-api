@@ -31,14 +31,16 @@ jobs:
           fi
 
           FOLLOWUPS_URL="${AUTORESPONDER_FOLLOWUPS_URL:-${RECONCILE_URL%/api/internal/reconcile}/api/internal/autoresponder/followups}"
-          FULL_RECONCILE_URL="${RECONCILE_URL}?programJobLimit=25&leadWebhookLimit=25&scheduledReportLimit=10&reportLimit=10&reportDeliveryLimit=20&autoresponderFollowUpLimit=0&connectorLifecycleLimit=10"
-          WEBHOOK_ONLY_RECONCILE_URL="${RECONCILE_URL}?programJobLimit=0&leadWebhookLimit=25&scheduledReportLimit=0&reportLimit=0&reportDeliveryLimit=0&autoresponderFollowUpLimit=0&connectorLifecycleLimit=0"
+          FULL_RECONCILE_URL="${RECONCILE_URL}?programJobLimit=25&leadWebhookLimit=100&leadPollingLimit=60&scheduledReportLimit=10&reportLimit=10&reportDeliveryLimit=20&autoresponderFollowUpLimit=0&connectorLifecycleLimit=10"
+          WEBHOOK_ONLY_RECONCILE_URL="${RECONCILE_URL}?programJobLimit=0&leadWebhookLimit=100&leadPollingLimit=0&scheduledReportLimit=0&reportLimit=0&reportDeliveryLimit=0&autoresponderFollowUpLimit=0&connectorLifecycleLimit=0"
           FOLLOWUPS_URL_WITH_LIMIT="${FOLLOWUPS_URL}?limit=20"
 
+          echo "Running full reconcile with recent Yelp lead polling at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
           curl --fail-with-body --silent --show-error --retry 2 --retry-delay 5 --retry-all-errors \
             -H "Authorization: Bearer $CRON_SECRET" \
             "$FULL_RECONCILE_URL"
 
+          echo "Draining queued Yelp webhook work at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
           curl --fail-with-body --silent --show-error --retry 2 --retry-delay 5 --retry-all-errors \
             -H "Authorization: Bearer $CRON_SECRET" \
             "$WEBHOOK_ONLY_RECONCILE_URL"
