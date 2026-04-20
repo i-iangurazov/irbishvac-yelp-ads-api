@@ -233,9 +233,9 @@ describe("autoresponder helpers", () => {
         businessName: "Northwind HVAC"
       })
     ).toEqual({
-      subject: "[Automated message] Hi Jane Doe",
+      subject: "[Irbishvac automated message] Hi Jane Doe",
       body:
-        "Automated message from Northwind HVAC via Yelp - a team member may follow up with more details.\n\nThanks for contacting Northwind HVAC."
+        "Irbishvac automated message from Northwind HVAC via Yelp - a team member may follow up with more details.\n\nThanks for contacting Northwind HVAC."
     });
 
     expect(
@@ -249,7 +249,7 @@ describe("autoresponder helpers", () => {
     ).toEqual({
       subject: "Ignored",
       body:
-        "Automated message from Northwind HVAC via Yelp - a team member may follow up with more details.\n\nThanks for contacting Northwind HVAC."
+        "Irbishvac automated message from Northwind HVAC via Yelp - a team member may follow up with more details.\n\nThanks for contacting Northwind HVAC."
     });
   });
 
@@ -593,9 +593,9 @@ describe("autoresponder service", () => {
     expect(createLeadAutomationAttempt).toHaveBeenCalledWith(
       expect.objectContaining({
         status: "PENDING",
-        renderedSubject: "[Automated message] Hi Jane Doe",
+        renderedSubject: "[Irbishvac automated message] Hi Jane Doe",
         renderedBody:
-          "Automated message from Northwind HVAC via Yelp - a team member may follow up with more details.\n\nThanks for contacting Northwind HVAC about HVAC Repair."
+          "Irbishvac automated message from Northwind HVAC via Yelp - a team member may follow up with more details.\n\nThanks for contacting Northwind HVAC about HVAC Repair."
       })
     );
     expect(deliverLeadAutomationMessage).toHaveBeenCalledWith(
@@ -604,9 +604,9 @@ describe("autoresponder service", () => {
         leadId: "lead_local_1",
         automationAttemptId: "attempt_1",
         channel: "EMAIL",
-        renderedSubject: "[Automated message] Hi Jane Doe",
+        renderedSubject: "[Irbishvac automated message] Hi Jane Doe",
         renderedBody:
-          "Automated message from Northwind HVAC via Yelp - a team member may follow up with more details.\n\nThanks for contacting Northwind HVAC about HVAC Repair."
+          "Irbishvac automated message from Northwind HVAC via Yelp - a team member may follow up with more details.\n\nThanks for contacting Northwind HVAC about HVAC Repair."
       })
     );
     expect(updateLeadAutomationAttempt).toHaveBeenCalledWith(
@@ -695,14 +695,14 @@ describe("autoresponder service", () => {
     expect(createLeadAutomationAttempt).toHaveBeenCalledWith(
       expect.objectContaining({
         renderedBody:
-          "Automated message from Northwind HVAC via Yelp - a team member may follow up with more details.\n\nHi Jane, thanks for reaching out. Please reply here with a photo and the address so we can review the next step."
+          "Irbishvac automated message from Northwind HVAC via Yelp - a team member may follow up with more details.\n\nHi Jane, thanks for reaching out. Please reply here with a photo and the address so we can review the next step."
       })
     );
     expect(deliverLeadAutomationMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         channel: "YELP_THREAD",
         renderedBody:
-          "Automated message from Northwind HVAC via Yelp - a team member may follow up with more details.\n\nHi Jane, thanks for reaching out. Please reply here with a photo and the address so we can review the next step."
+          "Irbishvac automated message from Northwind HVAC via Yelp - a team member may follow up with more details.\n\nHi Jane, thanks for reaching out. Please reply here with a photo and the address so we can review the next step."
       })
     );
     expect(updateLeadAutomationAttempt).toHaveBeenCalledWith(
@@ -786,7 +786,7 @@ describe("autoresponder service", () => {
     expect(createLeadAutomationAttempt).toHaveBeenCalledWith(
       expect.objectContaining({
         renderedBody:
-          "Automated message from Northwind HVAC via Yelp - a team member may follow up with more details.\n\nThanks for contacting Northwind HVAC about HVAC Repair."
+          "Irbishvac automated message from Northwind HVAC via Yelp - a team member may follow up with more details.\n\nThanks for contacting Northwind HVAC about HVAC Repair."
       })
     );
     expect(updateLeadAutomationAttempt).toHaveBeenCalledWith(
@@ -1451,7 +1451,7 @@ describe("autoresponder service", () => {
         recipient: null,
         renderedSubject: null,
         renderedBody:
-          "Automated message from Northwind HVAC via Yelp - a team member may follow up with more details.\n\nThanks for contacting Northwind HVAC.",
+          "Irbishvac automated message from Northwind HVAC via Yelp - a team member may follow up with more details.\n\nThanks for contacting Northwind HVAC.",
         providerMessageId: "provider_1",
         providerStatus: "sent",
         providerMetadataJson: {

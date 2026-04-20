@@ -126,13 +126,16 @@ export function stripAutomationDisclosure(value: string | null | undefined) {
   }
 
   return value
-    .replace(/^\s*\[automated(?: message| reply)?\]\s*/i, "")
-    .replace(/^\s*automated message from .*?(?:\n\n|\n)/i, "")
+    .replace(/^\s*\[(?:irbishvac\s+)?automated(?: message| reply)?\]\s*/i, "")
+    .replace(/^\s*(?:irbishvac\s+)?automated (?:message|reply) from .*?(?:\n\n|\n|$)/i, "")
     .trim();
 }
 
-export function isCustomerConversationEvent(event: Pick<LeadConversationEvent, "actorType" | "isReply">) {
+export function isCustomerConversationEvent(
+  event: Pick<LeadConversationEvent, "actorType" | "eventType" | "isReply" | "payloadJson">
+) {
   const normalized = event.actorType?.trim().toUpperCase() ?? "";
+  const eventType = event.eventType?.trim().toUpperCase() ?? "";
 
   if (normalized.includes("CONSUMER") || normalized.includes("CUSTOMER") || normalized === "USER") {
     return true;
@@ -140,6 +143,23 @@ export function isCustomerConversationEvent(event: Pick<LeadConversationEvent, "
 
   if (normalized.includes("BUSINESS") || normalized.includes("PARTNER") || normalized.includes("OWNER")) {
     return false;
+  }
+
+  if (
+    eventType.includes("BUSINESS") ||
+    eventType.includes("OWNER") ||
+    eventType.includes("PARTNER") ||
+    eventType.includes("OUTBOUND")
+  ) {
+    return false;
+  }
+
+  if (eventType.includes("CONSUMER") || eventType.includes("CUSTOMER") || eventType.includes("INBOUND")) {
+    return true;
+  }
+
+  if (extractLeadConversationMessage(event.payloadJson)) {
+    return true;
   }
 
   return event.isReply !== true;

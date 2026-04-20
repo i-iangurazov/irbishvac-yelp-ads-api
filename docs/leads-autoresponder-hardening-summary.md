@@ -76,7 +76,7 @@
 ## Autoresponder quality improvements
 
 - Automated disclosure now follows the Yelp-safe pattern near the top of the message:
-  - `Automated message from [Business Name] via Yelp - a team member may follow up with more details.`
+  - `Irbishvac automated message from [Business Name] via Yelp - a team member may follow up with more details.`
 - Starter template types now cover:
   - acknowledgment
   - request for missing details
@@ -118,4 +118,3 @@
 11. Create or edit a rule scoped to the same test Yelp business and confirm business scope is visible.
 12. Verify a mismatched business-scoped template cannot be saved onto a different business rule.
 13. Open a lead from the test business and verify AI assist state reflects the scoped business configuration.
-

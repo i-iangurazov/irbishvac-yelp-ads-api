@@ -170,8 +170,8 @@ function stripAutomationDisclosure(value: string | null | undefined) {
   }
 
   const normalized = value
-    .replace(/^\s*\[automated(?: reply)?\]\s*/i, "")
-    .replace(/^\s*automated reply from .*?(?:\n\n|\n)/i, "")
+    .replace(/^\s*\[(?:irbishvac\s+)?automated(?: message| reply)?\]\s*/i, "")
+    .replace(/^\s*(?:irbishvac\s+)?automated (?:message|reply) from .*?(?:\n\n|\n|$)/i, "")
     .trim();
 
   return normalized.length > 0 ? normalized : null;

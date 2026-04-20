@@ -161,8 +161,15 @@ export function humanizeLeadAutomationCadence(cadence: LeadAutomationCadence | n
   }
 }
 
-function startsWithAutomatedDisclosure(value: string) {
-  return /^\s*(?:\[automated(?: message| reply)?\]|automated message|automated reply|automated response)/i.test(value);
+const leadAutomationDisclosurePattern =
+  /^\s*(?:(?:irbishvac\s+)?automated (?:message|reply) from .*?(?:\n\n|\n|$)|\[(?:irbishvac\s+)?automated(?: message| reply)?\]\s*|(?:irbishvac\s+)?automated(?: message| reply| response)\s*:?\s*)/i;
+
+function stripLeadAutomationDisclosure(value: string) {
+  return value.replace(leadAutomationDisclosurePattern, "").trim();
+}
+
+function hasLeadAutomationDisclosure(value: string) {
+  return leadAutomationDisclosurePattern.test(value);
 }
 
 export function applyLeadAutomationDisclosure(params: {
@@ -172,10 +179,11 @@ export function applyLeadAutomationDisclosure(params: {
   businessName?: string | null;
 }) {
   const businessLabel = params.businessName?.trim() || "our team";
-  const bodyDisclosure = `Automated message from ${businessLabel} via Yelp - a team member may follow up with more details.`;
-  const nextBody = startsWithAutomatedDisclosure(params.body)
-    ? params.body
-    : `${bodyDisclosure}\n\n${params.body}`;
+  const bodyDisclosure = `Irbishvac automated message from ${businessLabel} via Yelp - a team member may follow up with more details.`;
+  const trimmedBody = params.body.trim();
+  const bodyWithoutOldDisclosure = stripLeadAutomationDisclosure(params.body);
+  const bodyContent = bodyWithoutOldDisclosure || (hasLeadAutomationDisclosure(trimmedBody) ? "" : trimmedBody);
+  const nextBody = bodyContent ? `${bodyDisclosure}\n\n${bodyContent}` : bodyDisclosure;
 
   if (params.channel !== "EMAIL") {
     return {
@@ -184,9 +192,13 @@ export function applyLeadAutomationDisclosure(params: {
     };
   }
 
-  const nextSubject = startsWithAutomatedDisclosure(params.subject)
-    ? params.subject
-    : `[Automated message] ${params.subject}`;
+  const trimmedSubject = params.subject.trim();
+  const subjectWithoutOldDisclosure = stripLeadAutomationDisclosure(params.subject);
+  const subjectContent =
+    subjectWithoutOldDisclosure || (hasLeadAutomationDisclosure(trimmedSubject) ? "" : trimmedSubject);
+  const nextSubject = subjectContent
+    ? `[Irbishvac automated message] ${subjectContent}`
+    : "[Irbishvac automated message]";
 
   return {
     subject: nextSubject,

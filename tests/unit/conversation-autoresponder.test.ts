@@ -107,6 +107,31 @@ describe("conversation autoresponder classification", () => {
     expect(event?.eventKey).toBe("evt_2");
   });
 
+  it("treats Yelp message payloads with unknown actor and is_reply as customer conversation turns", () => {
+    const event = findNextInboundConversationEvent(
+      {
+        events: [
+          {
+            eventKey: "evt_reply",
+            externalEventId: "evt_reply",
+            eventType: "MESSAGE",
+            actorType: null,
+            isReply: true,
+            occurredAt: new Date("2026-04-14T08:10:00.000Z"),
+            payloadJson: { message: "I uploaded photos and the address is 123 Main St." }
+          }
+        ],
+        conversationAutomationState: null
+      },
+      null,
+      {
+        after: new Date("2026-04-14T08:05:00.000Z")
+      }
+    );
+
+    expect(event?.eventKey).toBe("evt_reply");
+  });
+
   it("ignores customer events that happened before the latest automated reply", () => {
     const event = findNextInboundConversationEvent(
       {

@@ -427,6 +427,8 @@ async function processLeadIdsBatch(params: {
   let failedCount = 0;
   let initialAutomationProcessedCount = 0;
   let conversationAutomationProcessedCount = 0;
+  let conversationAutomationSkippedCount = 0;
+  const conversationAutomationSkipReasons: Record<string, number> = {};
 
   for (let index = 0; index < params.leadIds.length; index += YELP_LEAD_IMPORT_CONCURRENCY) {
     const chunk = params.leadIds.slice(index, index + YELP_LEAD_IMPORT_CONCURRENCY);
@@ -458,7 +460,11 @@ async function processLeadIdsBatch(params: {
               automation?.initial &&
                 automation.initial.status !== "DUPLICATE"
             ),
-            conversationAutomationProcessed: Boolean(automation?.conversation?.processed)
+            conversationAutomationProcessed: Boolean(automation?.conversation?.processed),
+            conversationAutomationSkipReason:
+              automation?.conversation && !automation.conversation.processed
+                ? automation.conversation.reason
+                : null
           } as const;
         } catch (error) {
           const normalized = normalizeUnknownError(error);
@@ -475,7 +481,10 @@ async function processLeadIdsBatch(params: {
 
           return {
             existingLead: false,
-            failed: true
+            failed: true,
+            initialAutomationProcessed: false,
+            conversationAutomationProcessed: false,
+            conversationAutomationSkipReason: null
           } as const;
         }
       })
@@ -497,6 +506,12 @@ async function processLeadIdsBatch(params: {
       if (!result.failed && result.conversationAutomationProcessed) {
         conversationAutomationProcessedCount += 1;
       }
+
+      if (!result.failed && result.conversationAutomationSkipReason) {
+        conversationAutomationSkippedCount += 1;
+        conversationAutomationSkipReasons[result.conversationAutomationSkipReason] =
+          (conversationAutomationSkipReasons[result.conversationAutomationSkipReason] ?? 0) + 1;
+      }
     }
   }
 
@@ -505,7 +520,9 @@ async function processLeadIdsBatch(params: {
     updatedCount,
     failedCount,
     initialAutomationProcessedCount,
-    conversationAutomationProcessedCount
+    conversationAutomationProcessedCount,
+    conversationAutomationSkippedCount,
+    conversationAutomationSkipReasons
   };
 }
 
@@ -610,6 +627,8 @@ async function syncRecentBusinessLeadsForAutomation(params: {
   let returnedLeadIds = 0;
   let initialAutomationProcessedCount = 0;
   let conversationAutomationProcessedCount = 0;
+  let conversationAutomationSkippedCount = 0;
+  const conversationAutomationSkipReasons: Record<string, number> = {};
   let hasMore = false;
   let pagesFetched = 0;
   let offset = 0;
@@ -664,6 +683,10 @@ async function syncRecentBusinessLeadsForAutomation(params: {
     failedCount += pageResults.failedCount;
     initialAutomationProcessedCount += pageResults.initialAutomationProcessedCount;
     conversationAutomationProcessedCount += pageResults.conversationAutomationProcessedCount;
+    conversationAutomationSkippedCount += pageResults.conversationAutomationSkippedCount;
+    for (const [reason, count] of Object.entries(pageResults.conversationAutomationSkipReasons)) {
+      conversationAutomationSkipReasons[reason] = (conversationAutomationSkipReasons[reason] ?? 0) + count;
+    }
 
     await updateLeadSyncRun(syncRun.id, {
       status: "PROCESSING",
@@ -680,6 +703,8 @@ async function syncRecentBusinessLeadsForAutomation(params: {
         }),
         initialAutomationProcessedCount,
         conversationAutomationProcessedCount,
+        conversationAutomationSkippedCount,
+        conversationAutomationSkipReasons,
         source: "scheduled_recent_poll"
       },
       responseJson: {
@@ -690,6 +715,8 @@ async function syncRecentBusinessLeadsForAutomation(params: {
         pagesFetched,
         initialAutomationProcessedCount,
         conversationAutomationProcessedCount,
+        conversationAutomationSkippedCount,
+        conversationAutomationSkipReasons,
         source: "scheduled_recent_poll"
       }
     });
@@ -772,6 +799,8 @@ async function syncRecentBusinessLeadsForAutomation(params: {
       pagesFetched,
       initialAutomationProcessedCount,
       conversationAutomationProcessedCount,
+      conversationAutomationSkippedCount,
+      conversationAutomationSkipReasons,
       status: finalStatus
     }
   });
@@ -786,6 +815,8 @@ async function syncRecentBusinessLeadsForAutomation(params: {
     failedCount,
     initialAutomationProcessedCount,
     conversationAutomationProcessedCount,
+    conversationAutomationSkippedCount,
+    conversationAutomationSkipReasons,
     pagesFetched,
     processingMs: Date.now() - startedAt
   });
@@ -802,7 +833,9 @@ async function syncRecentBusinessLeadsForAutomation(params: {
     hasMore,
     pagesFetched,
     initialAutomationProcessedCount,
-    conversationAutomationProcessedCount
+    conversationAutomationProcessedCount,
+    conversationAutomationSkippedCount,
+    conversationAutomationSkipReasons
   };
 }
 
@@ -1290,6 +1323,8 @@ export async function reconcileRecentYelpLeadsForAutomation(limit = 40) {
       failedCount: 0,
       initialAutomationProcessedCount: 0,
       conversationAutomationProcessedCount: 0,
+      conversationAutomationSkippedCount: 0,
+      conversationAutomationSkipReasons: {},
       results: []
     };
   }
@@ -1369,6 +1404,17 @@ export async function reconcileRecentYelpLeadsForAutomation(limit = 40) {
       (total, result) => total + result.conversationAutomationProcessedCount,
       0
     ),
+    conversationAutomationSkippedCount: results.reduce(
+      (total, result) => total + result.conversationAutomationSkippedCount,
+      0
+    ),
+    conversationAutomationSkipReasons: results.reduce<Record<string, number>>((totals, result) => {
+      for (const [reason, count] of Object.entries(result.conversationAutomationSkipReasons)) {
+        totals[reason] = (totals[reason] ?? 0) + count;
+      }
+
+      return totals;
+    }, {}),
     results
   };
 }

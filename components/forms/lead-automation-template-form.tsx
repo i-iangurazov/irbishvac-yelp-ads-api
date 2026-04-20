@@ -255,7 +255,7 @@ export function LeadAutomationTemplateForm({
               <Label htmlFor="automation-template-subject">
                 {renderMode === "AI_ASSISTED" ? "Fallback email subject" : "Email subject"}
               </Label>
-              <Input id="automation-template-subject" placeholder="Automated message from {{business_name}} via Yelp" {...register("subjectTemplate")} />
+              <Input id="automation-template-subject" placeholder="Irbishvac automated message from {{business_name}} via Yelp" {...register("subjectTemplate")} />
               {errors.subjectTemplate ? (
                 <p className="text-sm text-destructive">{errors.subjectTemplate.message}</p>
               ) : (
@@ -282,7 +282,7 @@ export function LeadAutomationTemplateForm({
             </Label>
             <Textarea
               id="automation-template-body"
-              placeholder={"Automated message from {{business_name}} via Yelp - a team member may follow up with more details.\n\nHi {{customer_name}}, thanks for reaching out about {{service_type}}. Please reply here with any photos, the address, and a short description so we can review the next step."}
+              placeholder={"Irbishvac automated message from {{business_name}} via Yelp - a team member may follow up with more details.\n\nHi {{customer_name}}, thanks for reaching out about {{service_type}}. Please reply here with any photos, the address, and a short description so we can review the next step."}
               rows={8}
               {...register("bodyTemplate")}
             />

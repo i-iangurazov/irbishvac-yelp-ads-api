@@ -179,65 +179,65 @@ export const leadAutomationTemplateKinds = [
 export const leadAutomationStarterTemplates = {
   ACKNOWLEDGMENT: {
     name: "Acknowledgment",
-    subject: "Automated message from {{business_name}} via Yelp",
+    subject: "Irbishvac automated message from {{business_name}} via Yelp",
     body:
-      "Automated message from {{business_name}} via Yelp - a team member may follow up with more details.\n\nHi {{customer_name}}, thanks for reaching out about {{service_type}}. We received your Yelp message and will review it shortly. If you can share a photo, address, or a few more details here in Yelp, that will help us respond faster.",
+      "Irbishvac automated message from {{business_name}} via Yelp - a team member may follow up with more details.\n\nHi {{customer_name}}, thanks for reaching out about {{service_type}}. We received your Yelp message and will review it shortly. If you can share a photo, address, or a few more details here in Yelp, that will help us respond faster.",
     aiPrompt:
       "Write a short first-response Yelp thread message. Acknowledge the request, mention the service if supported by context, ask for one concrete next detail such as photos, address, or issue description, and keep the tone helpful but restrained."
   },
   REQUEST_DETAILS: {
     name: "Request missing details",
-    subject: "Automated message from {{business_name}} via Yelp",
+    subject: "Irbishvac automated message from {{business_name}} via Yelp",
     body:
-      "Automated message from {{business_name}} via Yelp - a team member may follow up with more details.\n\nHi {{customer_name}}, thanks for your Yelp message about {{service_type}}. To help us review it, please reply here with any photos, the property type, and a short description of what is happening.",
+      "Irbishvac automated message from {{business_name}} via Yelp - a team member may follow up with more details.\n\nHi {{customer_name}}, thanks for your Yelp message about {{service_type}}. To help us review it, please reply here with any photos, the property type, and a short description of what is happening.",
     aiPrompt:
       "Write a short Yelp thread reply that asks for missing details. Be explicit that more information is needed before giving a useful answer. Ask for photos, address, property type, and a short description, but do not overload the message."
   },
   RECEIVED_UPDATE: {
     name: "Received customer update",
-    subject: "Automated message from {{business_name}} via Yelp",
+    subject: "Irbishvac automated message from {{business_name}} via Yelp",
     body:
-      "Automated message from {{business_name}} via Yelp - a team member may follow up with more details.\n\nHi {{customer_name}}, thanks for the update about {{service_type}}. We received the new details in Yelp and will review the next step. If there is anything else that may help, feel free to add it here in the thread.",
+      "Irbishvac automated message from {{business_name}} via Yelp - a team member may follow up with more details.\n\nHi {{customer_name}}, thanks for the update about {{service_type}}. We received the new details in Yelp and will review the next step. If there is anything else that may help, feel free to add it here in the thread.",
     aiPrompt:
       "Write a short Yelp thread reply confirming that the customer's update was received. Stay concise, thank them for the added detail, avoid promises, and invite one more helpful detail only if it is clearly useful."
   },
   BOOKING_NEXT_STEP: {
     name: "Booking next step",
-    subject: "Automated message from {{business_name}} via Yelp",
+    subject: "Irbishvac automated message from {{business_name}} via Yelp",
     body:
-      "Automated message from {{business_name}} via Yelp - a team member may follow up with more details.\n\nHi {{customer_name}}, thanks for the update about {{service_type}}. We received your message in Yelp. Please reply here with any preferred timing or anything else that may help our team review the next step.",
+      "Irbishvac automated message from {{business_name}} via Yelp - a team member may follow up with more details.\n\nHi {{customer_name}}, thanks for the update about {{service_type}}. We received your message in Yelp. Please reply here with any preferred timing or anything else that may help our team review the next step.",
     aiPrompt:
       "Write a short Yelp thread reply for a booking-intent message. Acknowledge that the customer wants to move forward, ask for one safe next detail such as preferred timing, and avoid promising availability or arrival windows."
   },
   AFTER_HOURS: {
     name: "After-hours acknowledgment",
-    subject: "Automated message from {{business_name}} via Yelp",
+    subject: "Irbishvac automated message from {{business_name}} via Yelp",
     body:
-      "Automated message from {{business_name}} via Yelp - a team member may follow up with more details.\n\nHi {{customer_name}}, thanks for contacting {{business_name}} about {{service_type}}. We received your Yelp message after hours. Please reply here with any photos or details that may help, and our team will follow up during the next business window.",
+      "Irbishvac automated message from {{business_name}} via Yelp - a team member may follow up with more details.\n\nHi {{customer_name}}, thanks for contacting {{business_name}} about {{service_type}}. We received your Yelp message after hours. Please reply here with any photos or details that may help, and our team will follow up during the next business window.",
     aiPrompt:
       "Write a short after-hours Yelp thread acknowledgment. Make it clear the team will follow up in the next business window, ask for useful details in-thread, and avoid sounding like a live agent is present right now."
   },
   CANNOT_ESTIMATE: {
     name: "Cannot estimate yet",
-    subject: "Automated message from {{business_name}} via Yelp",
+    subject: "Irbishvac automated message from {{business_name}} via Yelp",
     body:
-      "Automated message from {{business_name}} via Yelp - a team member may follow up with more details.\n\nHi {{customer_name}}, thanks for reaching out about {{service_type}}. We cannot give an exact quote yet from the current details alone. Please reply here with photos, the address, and a short description of the issue so we can review the next step.",
+      "Irbishvac automated message from {{business_name}} via Yelp - a team member may follow up with more details.\n\nHi {{customer_name}}, thanks for reaching out about {{service_type}}. We cannot give an exact quote yet from the current details alone. Please reply here with photos, the address, and a short description of the issue so we can review the next step.",
     aiPrompt:
       "Write a short Yelp thread message for a no-estimate-yet case. Clearly say an exact quote is not available yet, explain what information is still needed, and ask for the next specific step in the Yelp thread."
   },
   FOLLOW_UP_24H: {
     name: "24-hour follow-up",
-    subject: "Automated message from {{business_name}} via Yelp",
+    subject: "Irbishvac automated message from {{business_name}} via Yelp",
     body:
-      "Automated message from {{business_name}} via Yelp - a team member may follow up with more details.\n\nHi {{customer_name}}, following up on your Yelp request about {{service_type}}. If you still need help, please reply here with any photos, the address, and a short description of what is happening so we can review the next step in this thread.",
+      "Irbishvac automated message from {{business_name}} via Yelp - a team member may follow up with more details.\n\nHi {{customer_name}}, following up on your Yelp request about {{service_type}}. If you still need help, please reply here with any photos, the address, and a short description of what is happening so we can review the next step in this thread.",
     aiPrompt:
       "Write a short 24-hour Yelp thread follow-up for a customer who has not replied yet. Be polite, not pushy, and ask for one clear next step or missing detail in the same thread."
   },
   FOLLOW_UP_7D: {
     name: "Following-week follow-up",
-    subject: "Automated message from {{business_name}} via Yelp",
+    subject: "Irbishvac automated message from {{business_name}} via Yelp",
     body:
-      "Automated message from {{business_name}} via Yelp - a team member may follow up with more details.\n\nHi {{customer_name}}, checking back on your Yelp request for {{service_type}}. If you still need help, reply here in this thread with any updated details or photos and our team can review the next step.",
+      "Irbishvac automated message from {{business_name}} via Yelp - a team member may follow up with more details.\n\nHi {{customer_name}}, checking back on your Yelp request for {{service_type}}. If you still need help, reply here in this thread with any updated details or photos and our team can review the next step.",
     aiPrompt:
       "Write a short following-week Yelp thread follow-up for a customer who still has not replied. Keep it calm, brief, and easy to ignore if they no longer need help. Ask for updated details only if they still want assistance."
   }
