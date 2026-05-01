@@ -95,28 +95,74 @@ function getStringAtPath(value: unknown, path: readonly string[]) {
 export function extractLeadConversationMessage(payload: unknown) {
   const candidates = [
     ["message"],
+    ["message", "text"],
+    ["message", "body"],
+    ["message", "content"],
     ["text"],
     ["request_content"],
     ["content"],
     ["body"],
     ["event_content"],
     ["event_content", "text"],
+    ["event_content", "body"],
+    ["event_content", "message"],
+    ["event_content", "message", "text"],
+    ["event_content", "message", "body"],
+    ["event_content", "message", "content"],
+    ["event_content", "content"],
+    ["event_content", "plain_text"],
     ["event_content", "fallback_text"],
     ["data", "message"],
+    ["data", "message", "text"],
+    ["data", "message", "body"],
     ["data", "text"],
     ["data", "event_content", "text"],
+    ["data", "event_content", "body"],
+    ["data", "event_content", "message"],
+    ["data", "event_content", "message", "text"],
+    ["data", "event_content", "message", "body"],
+    ["data", "event_content", "message", "content"],
+    ["data", "event_content", "content"],
+    ["data", "event_content", "plain_text"],
     ["data", "event_content", "fallback_text"],
     ["event", "message"],
+    ["event", "message", "text"],
+    ["event", "message", "body"],
     ["event", "text"],
     ["event", "event_content", "text"],
+    ["event", "event_content", "body"],
+    ["event", "event_content", "message"],
+    ["event", "event_content", "message", "text"],
+    ["event", "event_content", "message", "body"],
+    ["event", "event_content", "message", "content"],
+    ["event", "event_content", "content"],
+    ["event", "event_content", "plain_text"],
     ["event", "event_content", "fallback_text"],
     ["payload", "message"],
+    ["payload", "message", "text"],
+    ["payload", "message", "body"],
     ["payload", "text"],
     ["payload", "event_content", "text"],
+    ["payload", "event_content", "body"],
+    ["payload", "event_content", "message"],
+    ["payload", "event_content", "message", "text"],
+    ["payload", "event_content", "message", "body"],
+    ["payload", "event_content", "message", "content"],
+    ["payload", "event_content", "content"],
+    ["payload", "event_content", "plain_text"],
     ["payload", "event_content", "fallback_text"],
     ["details", "message"],
+    ["details", "message", "text"],
+    ["details", "message", "body"],
     ["details", "text"],
     ["details", "event_content", "text"],
+    ["details", "event_content", "body"],
+    ["details", "event_content", "message"],
+    ["details", "event_content", "message", "text"],
+    ["details", "event_content", "message", "body"],
+    ["details", "event_content", "message", "content"],
+    ["details", "event_content", "content"],
+    ["details", "event_content", "plain_text"],
     ["details", "event_content", "fallback_text"]
   ] as const;
 
@@ -147,6 +193,7 @@ export function isCustomerConversationEvent(
 ) {
   const normalized = event.actorType?.trim().toUpperCase() ?? "";
   const eventType = event.eventType?.trim().toUpperCase() ?? "";
+  const messageText = extractLeadConversationMessage(event.payloadJson);
 
   if (normalized.includes("CONSUMER") || normalized.includes("CUSTOMER") || normalized === "USER") {
     return true;
@@ -174,7 +221,11 @@ export function isCustomerConversationEvent(
     return true;
   }
 
-  if (extractLeadConversationMessage(event.payloadJson)) {
+  if (/^\s*(?:\[?\s*)?(?:irbishvac\s+)?automated (?:message|reply)\b/i.test(messageText ?? "")) {
+    return false;
+  }
+
+  if (messageText) {
     return true;
   }
 
@@ -225,7 +276,7 @@ export function findNextInboundConversationEvent(
         isCustomerConversationEvent(event)
     );
 
-    if (exact && isEventNewerThanBoundary(exact, lead.conversationAutomationState, options?.after ?? null)) {
+    if (exact && isEventNewerThanBoundary(exact, lead.conversationAutomationState, null)) {
       return exact;
     }
   }

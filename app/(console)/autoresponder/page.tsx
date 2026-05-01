@@ -104,7 +104,7 @@ export default async function AutoresponderPage({
                 {overview.moduleSummary.isEnabled ? "Live" : "Disabled"}
               </Badge>
               <Badge variant="outline">{channelLabel(overview.moduleSummary.defaultChannel)}</Badge>
-              <Badge variant="outline">{overview.moduleSummary.conversationPilotLabel}</Badge>
+              <Badge variant="outline">{overview.moduleSummary.conversationRolloutLabel}</Badge>
               <Badge variant="secondary">
                 {activeFollowUpCount === 0 ? "Follow-ups off" : `${activeFollowUpCount} follow-up cadence${activeFollowUpCount === 1 ? "" : "s"} active`}
               </Badge>
@@ -235,7 +235,7 @@ export default async function AutoresponderPage({
         <Card>
           <CardHeader className="pb-3">
             <CardTitle>Business delivery status</CardTitle>
-            <CardDescription>Check which businesses are off, ready, live, or blocked.</CardDescription>
+            <CardDescription>Check which businesses are off, live, syncing, or blocked.</CardDescription>
           </CardHeader>
           <CardContent className="p-0">
             {overview.businessHealth.length === 0 ? (
@@ -247,11 +247,11 @@ export default async function AutoresponderPage({
                 <TableHeader>
                   <TableRow>
                     <TableHead>Business</TableHead>
-                    <TableHead>Yelp connection</TableHead>
+                    <TableHead>Yelp + sync</TableHead>
                     <TableHead>Automation</TableHead>
                     <TableHead>Conversation</TableHead>
                     <TableHead>Latest proof</TableHead>
-                    <TableHead>Notes</TableHead>
+                    <TableHead>Action needed</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -260,17 +260,21 @@ export default async function AutoresponderPage({
                       <TableCell>
                         <div className="font-medium">{business.businessName}</div>
                         <div className="text-xs text-muted-foreground">{business.yelpBusinessId ?? "Yelp business ID missing"}</div>
+                        <div className="mt-2">
+                          <Badge variant={business.isEnabled ? "secondary" : "outline"}>{business.coverageLabel}</Badge>
+                        </div>
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <StatusChip status={business.yelpConnectionStatus} />
-                          <span className="text-sm text-muted-foreground">{business.yelpConnectionLabel}</span>
+                          <StatusChip status={business.syncStatus} />
+                        </div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          {business.yelpConnectionLabel} • {business.syncLabel}
                         </div>
                         <div className="mt-1 text-xs text-muted-foreground">
                           {business.leadCount} lead{business.leadCount === 1 ? "" : "s"}
-                          {business.pendingSyncCount > 0
-                            ? ` • ${business.pendingSyncCount} ${business.hasStaleSyncBacklog ? "stale sync" : "sync pending"}`
-                            : ""}
+                          {business.pendingSyncCount > 0 ? ` • ${business.pendingSyncCount} pending` : ""}
                         </div>
                       </TableCell>
                       <TableCell>
@@ -279,27 +283,18 @@ export default async function AutoresponderPage({
                           <span className="text-sm text-muted-foreground">{business.healthLabel}</span>
                         </div>
                         <div className="mt-1 text-xs text-muted-foreground">
-                          {business.hasOverride ? "Business override" : business.defaultsApply ? "Tenant default" : "Not covered"}
+                          {business.automationPostureLabel}
                         </div>
                         <div className="mt-1 text-xs text-muted-foreground">
-                          {business.automationPostureLabel} • {business.followUpLabel} • AI {business.aiAssistEnabled ? "on" : "off"}
+                          {business.followUpLabel} • AI {business.aiAssistEnabled ? "on" : "off"}
                         </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap items-center gap-2">
-                          <Badge
-                            variant={
-                              business.conversationRolloutLabel === "Paused"
-                                ? "warning"
-                                : business.conversationEnabled
-                                  ? "secondary"
-                                  : "outline"
-                            }
-                          >
-                            {business.conversationPilotLabel}
-                          </Badge>
+                          <StatusChip status={business.conversationStatus} />
+                          <span className="text-sm text-muted-foreground">{business.conversationLabel}</span>
                         </div>
-                        <div className="mt-1 text-xs text-muted-foreground">{business.conversationRolloutDescription}</div>
+                        <div className="mt-1 text-xs text-muted-foreground">{business.conversationDetail}</div>
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         <div>
@@ -314,7 +309,10 @@ export default async function AutoresponderPage({
                       </TableCell>
                       <TableCell className="max-w-[18rem] text-sm text-muted-foreground">
                         <div>{business.detail}</div>
-                        <div className="mt-1 text-xs">{business.yelpConnectionDetail}</div>
+                        <div className="mt-1 text-xs">{business.syncDetail}</div>
+                        {business.healthStatus === "FAILED" || business.healthStatus === "UNRESOLVED" ? (
+                          <div className="mt-1 text-xs">{business.yelpConnectionDetail}</div>
+                        ) : null}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -603,7 +601,7 @@ export default async function AutoresponderPage({
           <CardContent className="space-y-6">
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant={overview.moduleSummary.conversationGlobalPauseEnabled ? "warning" : "secondary"}>
-                {overview.moduleSummary.conversationPilotLabel}
+                {overview.moduleSummary.conversationRolloutLabel}
               </Badge>
               <Badge variant="outline">{overview.moduleSummary.conversationAllowedIntentLabels}</Badge>
             </div>

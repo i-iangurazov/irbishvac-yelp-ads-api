@@ -4,6 +4,8 @@ import type { Prisma, SyncRunType } from "@prisma/client";
 
 import { prisma } from "@/lib/db/prisma";
 
+const leadReconcileSyncTypes: SyncRunType[] = ["YELP_LEADS_WEBHOOK", "YELP_LEADS_BACKFILL"];
+
 export async function getOperationsCounts(tenantId: string) {
   const [
     totalLeads,
@@ -93,11 +95,29 @@ function buildWebhookAttentionWhere(tenantId: string, staleBefore: Date): Prisma
 export async function getWebhookReconcileDrilldown(tenantId: string, now = new Date()) {
   const staleBefore = new Date(now.getTime() - 10 * 60 * 1000);
   const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  const [statusCounts, oldestPending, attentionEvents, recentEvents] = await Promise.all([
+  const [
+    statusCounts,
+    acceptedLast24h,
+    oldestPending,
+    reconcileStatusCounts,
+    oldestPendingReconcile,
+    reconcileCompletedLast24h,
+    reconcileFailedLast24h,
+    attentionEvents,
+    recentEvents
+  ] = await Promise.all([
     prisma.yelpWebhookEvent.groupBy({
       by: ["status"],
       where: { tenantId },
       _count: { _all: true }
+    }),
+    prisma.yelpWebhookEvent.count({
+      where: {
+        tenantId,
+        receivedAt: {
+          gte: last24h
+        }
+      }
     }),
     prisma.yelpWebhookEvent.findFirst({
       where: {
@@ -111,6 +131,62 @@ export async function getWebhookReconcileDrilldown(tenantId: string, now = new D
         id: true,
         receivedAt: true,
         status: true
+      }
+    }),
+    prisma.syncRun.groupBy({
+      by: ["status"],
+      where: {
+        tenantId,
+        type: {
+          in: leadReconcileSyncTypes
+        }
+      },
+      _count: { _all: true }
+    }),
+    prisma.syncRun.findFirst({
+      where: {
+        tenantId,
+        type: {
+          in: leadReconcileSyncTypes
+        },
+        status: {
+          in: ["QUEUED", "PROCESSING"]
+        }
+      },
+      select: {
+        id: true,
+        type: true,
+        status: true,
+        startedAt: true,
+        createdAt: true,
+        errorSummary: true
+      },
+      orderBy: [{ startedAt: "asc" }, { createdAt: "asc" }]
+    }),
+    prisma.syncRun.count({
+      where: {
+        tenantId,
+        type: {
+          in: leadReconcileSyncTypes
+        },
+        status: "COMPLETED",
+        startedAt: {
+          gte: last24h
+        }
+      }
+    }),
+    prisma.syncRun.count({
+      where: {
+        tenantId,
+        type: {
+          in: leadReconcileSyncTypes
+        },
+        status: {
+          in: ["PARTIAL", "FAILED"]
+        },
+        startedAt: {
+          gte: last24h
+        }
       }
     }),
     prisma.yelpWebhookEvent.findMany({
@@ -187,6 +263,7 @@ export async function getWebhookReconcileDrilldown(tenantId: string, now = new D
     })
   ]);
   const statusCountMap = new Map(statusCounts.map((entry) => [entry.status, entry._count._all]));
+  const reconcileStatusCountMap = new Map(reconcileStatusCounts.map((entry) => [entry.status, entry._count._all]));
   const failedLast24h = await prisma.yelpWebhookEvent.count({
     where: {
       tenantId,
@@ -201,6 +278,7 @@ export async function getWebhookReconcileDrilldown(tenantId: string, now = new D
 
   return {
     counts: {
+      acceptedLast24h,
       queued: statusCountMap.get("QUEUED") ?? 0,
       processing: statusCountMap.get("PROCESSING") ?? 0,
       completed: statusCountMap.get("COMPLETED") ?? 0,
@@ -209,7 +287,18 @@ export async function getWebhookReconcileDrilldown(tenantId: string, now = new D
       skipped: statusCountMap.get("SKIPPED") ?? 0,
       failedLast24h
     },
+    reconcileCounts: {
+      queued: reconcileStatusCountMap.get("QUEUED") ?? 0,
+      processing: reconcileStatusCountMap.get("PROCESSING") ?? 0,
+      completed: reconcileStatusCountMap.get("COMPLETED") ?? 0,
+      partial: reconcileStatusCountMap.get("PARTIAL") ?? 0,
+      failed: reconcileStatusCountMap.get("FAILED") ?? 0,
+      skipped: reconcileStatusCountMap.get("SKIPPED") ?? 0,
+      completedLast24h: reconcileCompletedLast24h,
+      failedLast24h: reconcileFailedLast24h
+    },
     oldestPending,
+    oldestPendingReconcile,
     attentionEvents,
     recentEvents,
     staleThresholdMs: 10 * 60 * 1000

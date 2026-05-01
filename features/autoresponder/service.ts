@@ -883,6 +883,60 @@ export async function getLeadAutomationModuleState(tenantId: string) {
       lastFailedSyncStatus: latestFailedSync?.status ?? null,
       lastFailedSyncErrorSummary: latestFailedSync?.errorSummary ?? null
     });
+    const lastSyncAt = latestSuccessfulSync?.syncedAt ?? latestLeadActivity?.lastSyncedAt ?? null;
+    const latestFailedAfterSuccess =
+      latestFailedSync?.failedAt && (!lastSyncAt || latestFailedSync.failedAt.getTime() > lastSyncAt.getTime());
+    const syncStatus = latestFailedAfterSuccess
+      ? "FAILED"
+      : hasStaleSyncBacklog
+        ? "STALE"
+        : pendingSyncCount > 0
+          ? "PROCESSING"
+          : lastSyncAt
+            ? "CURRENT"
+            : "UNKNOWN";
+    const syncLabel =
+      syncStatus === "FAILED"
+        ? "Sync failed"
+        : syncStatus === "STALE"
+          ? "Sync delayed"
+          : syncStatus === "PROCESSING"
+            ? "Sync pending"
+            : syncStatus === "CURRENT"
+              ? "Up to date"
+              : "No sync proof";
+    const syncDetail =
+      syncStatus === "FAILED"
+        ? latestFailedSync?.errorSummary ?? "The latest reconcile attempt failed."
+        : pendingSyncCount > 0
+          ? `${pendingSyncCount} Yelp intake job${pendingSyncCount === 1 ? "" : "s"} queued or processing.`
+          : lastSyncAt
+            ? "No queued Yelp intake work."
+            : "No completed Yelp lead sync is recorded for this business.";
+    const coverageLabel = override
+      ? override.isEnabled
+        ? "Business override"
+        : "Override off"
+      : defaultsApply && adminState.settings.isEnabled
+        ? "Selected business"
+        : "Off";
+    const conversationStatus = !isEnabled || !conversationEnabled
+      ? "INACTIVE"
+      : adminState.settings.conversationGlobalPauseEnabled
+        ? "SKIPPED"
+        : conversationMode === "BOUNDED_AUTO_REPLY"
+          ? "AUTO_REPLY"
+          : conversationMode;
+    const conversationLabel = !isEnabled || !conversationEnabled
+      ? "Off"
+      : adminState.settings.conversationGlobalPauseEnabled
+        ? "Paused"
+        : humanizeLeadConversationMode(conversationMode);
+    const conversationDetail = !isEnabled
+      ? "Automation is off for this business."
+      : !conversationEnabled
+        ? "Initial replies can run, but follow-up customer messages stay with operators."
+        : conversationRollout.description;
     let healthStatus = "INACTIVE";
     let healthLabel = "Off";
     let detail = "Tenant defaults do not cover this business yet.";
@@ -935,6 +989,7 @@ export async function getLeadAutomationModuleState(tenantId: string) {
       isEnabled,
       defaultsApply,
       hasOverride: Boolean(override),
+      coverageLabel,
       effectiveChannel,
       automationPostureLabel: isEnabled
         ? `${effectiveChannel === "EMAIL" ? "Masked email" : "Yelp thread"} • ${globalInitialRuleCount + conditionalInitialRuleCount} initial rule${globalInitialRuleCount + conditionalInitialRuleCount === 1 ? "" : "s"}`
@@ -943,6 +998,9 @@ export async function getLeadAutomationModuleState(tenantId: string) {
       aiAssistEnabled,
       conversationEnabled,
       conversationMode,
+      conversationStatus,
+      conversationLabel,
+      conversationDetail,
       conversationRolloutLabel: conversationRollout.label,
       conversationPilotLabel: conversationRollout.pilotLabel,
       conversationRolloutDescription: conversationRollout.description,
@@ -962,11 +1020,14 @@ export async function getLeadAutomationModuleState(tenantId: string) {
       pendingSyncCount,
       pendingSyncOldestAt,
       hasStaleSyncBacklog,
+      syncStatus,
+      syncLabel,
+      syncDetail,
       latestLeadExternalId: latestLeadActivity?.externalLeadId ?? latestWebhook?.externalLeadId ?? null,
       lastLeadActivityAt: latestLeadActivity?.lastActivityAt ?? null,
       lastWebhookReceivedAt: latestWebhook?.receivedAt ?? null,
       lastWebhookStatus: latestWebhook?.status ?? null,
-      lastSyncAt: latestSuccessfulSync?.syncedAt ?? latestLeadActivity?.lastSyncedAt ?? null,
+      lastSyncAt,
       lastSyncStatus: latestSuccessfulSync?.status ?? null,
       lastSyncErrorSummary: latestFailedSync?.errorSummary ?? null
     };

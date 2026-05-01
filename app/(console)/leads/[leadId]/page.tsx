@@ -196,6 +196,20 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
             <div className="grid gap-3 md:grid-cols-2">
               <SummaryFact label="Mapped business" value={detail.lead.business ? <Link className="hover:underline" href={`/businesses/${detail.lead.business.id}`}>{detail.lead.business.name}</Link> : "Not mapped"} />
               <SummaryFact label="Customer" value={detail.lead.customerName ?? "Not provided"} />
+              <SummaryFact
+                label="Phone"
+                value={
+                  <span className="inline-flex flex-wrap items-center gap-2">
+                    <span>{detail.contact.phone ?? "Not provided yet"}</span>
+                    {detail.contact.phoneVerifiedDirect ? <Badge variant="success">Yelp verified</Badge> : null}
+                    {detail.contact.phoneBecameAvailable || detail.contact.phoneAvailabilityEvent ? (
+                      <Badge variant="outline">Follow-up update</Badge>
+                    ) : null}
+                    <span className="text-muted-foreground">{detail.contact.phoneSourceLabel}</span>
+                  </span>
+                }
+                subtle={!detail.contact.phone}
+              />
               <SummaryFact label="Latest activity" value={detail.lead.latestInteractionAt ? formatDateTime(detail.lead.latestInteractionAt) : "No activity timestamp yet"} />
               <SummaryFact
                 label="Yelp connection"
@@ -364,6 +378,72 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
                 </TabsContent>
 
                 <TabsContent className="mt-4 space-y-4" value="automation">
+                  <div className="rounded-2xl border border-border/80 bg-muted/10 p-4">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <div className="text-sm font-semibold">AI conversation proof</div>
+                        <div className="mt-1 text-sm text-muted-foreground">
+                          Shows the latest Yelp customer event, the processed boundary, and the last automation decision.
+                        </div>
+                      </div>
+                      <Badge variant={detail.conversationProof.diagnosticTone}>
+                        {detail.conversationProof.diagnosticLabel}
+                      </Badge>
+                    </div>
+                    <div className="mt-3 text-sm text-muted-foreground">
+                      {detail.conversationProof.diagnosticDetail}
+                    </div>
+                    <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                      <SummaryFact
+                        label="Latest customer event"
+                        value={
+                          detail.conversationProof.latestInboundEvent
+                            ? detail.conversationProof.latestInboundEvent.occurredAt
+                              ? formatDateTime(detail.conversationProof.latestInboundEvent.occurredAt)
+                              : formatDateTime(detail.conversationProof.latestInboundEvent.createdAt)
+                            : "None captured"
+                        }
+                        subtle={!detail.conversationProof.latestInboundEvent}
+                      />
+                      <SummaryFact
+                        label="Event id"
+                        value={
+                          detail.conversationProof.latestInboundEvent
+                            ? detail.conversationProof.latestInboundEvent.externalEventId ??
+                              detail.conversationProof.latestInboundEvent.eventKey
+                            : "Not available"
+                        }
+                        subtle
+                      />
+                      <SummaryFact
+                        label="Last processed"
+                        value={
+                          detail.conversationProof.lastProcessedEventKey
+                            ? detail.conversationProof.lastProcessedEventKey
+                            : detail.conversationProof.lastInboundAt
+                              ? formatDateTime(detail.conversationProof.lastInboundAt)
+                              : "No boundary yet"
+                        }
+                        subtle
+                      />
+                      <SummaryFact
+                        label="Latest decision"
+                        value={detail.conversationProof.latestDecision?.decisionLabel ?? "No AI decision yet"}
+                        subtle={!detail.conversationProof.latestDecision}
+                      />
+                    </div>
+                    {detail.conversationProof.latestInboundEvent?.messageExcerpt ? (
+                      <div className="mt-4 rounded-xl border border-border/60 bg-background/80 px-4 py-3 text-sm">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                          Latest customer text
+                        </div>
+                        <div className="mt-2 text-muted-foreground">
+                          {detail.conversationProof.latestInboundEvent.messageExcerpt}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+
                   <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-5">
                     <SummaryFact label="Current status" value={<StatusChip status={detail.automationSummary.status} />} />
                     <SummaryFact label="Scope" value={detail.automationScope.scopeLabel} subtle />
@@ -444,7 +524,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
                       </div>
                       {detail.conversationHistory.length === 0 ? (
                         <div className="mt-4 rounded-2xl border border-dashed border-border/80 bg-muted/10 px-4 py-4 text-sm text-muted-foreground">
-                          No inbound conversation turn has been processed yet.
+                          No AI conversation decision has been recorded yet. Check the proof panel above to see whether Yelp has delivered a usable customer message event.
                         </div>
                       ) : (
                         <div className="mt-4 space-y-3">
@@ -456,7 +536,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
                                 <Badge variant="outline">{turn.modeLabel}</Badge>
                               </div>
                               <div className="mt-2 text-xs text-muted-foreground">
-                                {formatDateTime(turn.createdAt)} • Confidence {turn.confidence.toLowerCase()}
+                                {formatDateTime(turn.createdAt)} • Event {turn.sourceExternalEventId ?? turn.sourceEventKey} • Confidence {turn.confidence.toLowerCase()}
                               </div>
                               {turn.stopReasonLabel ? (
                                 <div className="mt-2 text-sm text-muted-foreground">{turn.stopReasonLabel}</div>

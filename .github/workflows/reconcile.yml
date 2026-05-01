@@ -2,7 +2,8 @@ name: Reconcile Yelp Async Workflows
 
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    # Offset from minute 0 to reduce GitHub Actions schedule delays/drops at the top of the hour.
+    - cron: "2-59/5 * * * *"
   workflow_dispatch:
 
 concurrency:

@@ -97,10 +97,119 @@ describe("lead normalization helpers", () => {
     expect(normalized.lead.customerName).toBe("Jane Doe");
     expect(normalized.lead.customerEmail).toBe("jane@example.com");
     expect(normalized.lead.customerPhone).toBe("+15555550100");
+    expect(normalized.lead.metadataJson).toMatchObject({
+      customerPhoneSource: "NESTED_DIRECT",
+      customerPhoneVerifiedDirect: true
+    });
     expect(normalized.lead.createdAtYelp.toISOString()).toBe("2026-04-01T09:00:00.000Z");
     expect(normalized.lead.latestInteractionAt?.toISOString()).toBe("2026-04-01T09:10:00.000Z");
     expect(normalized.lead.replyState).toBe("REPLIED");
     expect(normalized.events).toHaveLength(2);
+  });
+
+  it("prefers Yelp's verified direct phone number over temporary and masked phone fields", () => {
+    const normalized = normalizeLeadSnapshot({
+      leadId: "lead_phone_1",
+      externalBusinessId: "biz_1",
+      mappedBusinessId: "business_local_1",
+      webhookReceivedAt: new Date("2026-04-20T12:10:00.000Z"),
+      webhookUpdate: {
+        eventType: "PHONE_AVAILABILITY",
+        eventId: "phone_evt_1",
+        leadId: "lead_phone_1",
+        interactionTime: new Date("2026-04-20T12:09:00.000Z"),
+        raw: {
+          event_type: "PHONE_AVAILABILITY",
+          lead_id: "lead_phone_1"
+        }
+      },
+      leadPayload: {
+        id: "lead_phone_1",
+        business_id: "biz_1",
+        conversation_id: "conv_phone_1",
+        time_created: "2026-04-20T12:00:00.000Z",
+        phone_number: "+15555550199",
+        temporary_phone_number: "+15555550999",
+        masked_phone_number: "+15555550888"
+      },
+      leadEventsPayload: {
+        events: []
+      }
+    });
+
+    expect(normalized.lead.customerPhone).toBe("+15555550199");
+    expect(normalized.lead.metadataJson).toMatchObject({
+      customerPhoneSource: "UNMASKED",
+      customerPhoneSourcePath: "phone_number",
+      customerPhoneVerifiedDirect: true,
+      phoneAvailabilityEvent: true
+    });
+  });
+
+  it("supports a delayed phone availability lead refresh after the initial lead had no phone", () => {
+    const initial = normalizeLeadSnapshot({
+      leadId: "lead_phone_2",
+      externalBusinessId: "biz_1",
+      mappedBusinessId: "business_local_1",
+      webhookReceivedAt: new Date("2026-04-20T12:00:00.000Z"),
+      webhookUpdate: {
+        eventType: "NEW_EVENT",
+        eventId: "new_evt_1",
+        leadId: "lead_phone_2",
+        interactionTime: new Date("2026-04-20T12:00:00.000Z"),
+        raw: {
+          event_type: "NEW_EVENT",
+          lead_id: "lead_phone_2"
+        }
+      },
+      leadPayload: {
+        id: "lead_phone_2",
+        business_id: "biz_1",
+        conversation_id: "conv_phone_2",
+        time_created: "2026-04-20T12:00:00.000Z"
+      },
+      leadEventsPayload: {
+        events: []
+      }
+    });
+    const followUp = normalizeLeadSnapshot({
+      leadId: "lead_phone_2",
+      externalBusinessId: "biz_1",
+      mappedBusinessId: "business_local_1",
+      webhookReceivedAt: new Date("2026-04-20T12:03:00.000Z"),
+      webhookUpdate: {
+        eventType: "PHONE_AVAILABILITY",
+        eventId: "phone_evt_2",
+        leadId: "lead_phone_2",
+        interactionTime: new Date("2026-04-20T12:02:00.000Z"),
+        raw: {
+          event_type: "PHONE_AVAILABILITY",
+          lead_id: "lead_phone_2"
+        }
+      },
+      leadPayload: {
+        id: "lead_phone_2",
+        business_id: "biz_1",
+        conversation_id: "conv_phone_2",
+        time_created: "2026-04-20T12:00:00.000Z",
+        phone_number: "+15555550222"
+      },
+      leadEventsPayload: {
+        events: []
+      }
+    });
+
+    expect(initial.lead.customerPhone).toBeNull();
+    expect(initial.lead.metadataJson).toMatchObject({
+      customerPhoneSource: "NONE",
+      customerPhoneVerifiedDirect: false
+    });
+    expect(followUp.lead.customerPhone).toBe("+15555550222");
+    expect(followUp.lead.metadataJson).toMatchObject({
+      customerPhoneSource: "UNMASKED",
+      customerPhoneVerifiedDirect: true,
+      phoneAvailabilityEvent: true
+    });
   });
 
   it("deduplicates repeated Yelp events by deterministic event key", () => {
@@ -210,5 +319,25 @@ describe("lead normalization helpers", () => {
     ]);
 
     expect(timeline.map((item) => item.eventType)).toEqual(["NEW_EVENT", "BUSINESS_REPLIED"]);
+  });
+
+  it("uses Yelp event cursors as stable event identifiers", () => {
+    const events = normalizeLeadEvents("lead_1", [
+      {
+        cursor: "cursor_customer_1",
+        event_content: {
+          text: "The address is 123 Main St."
+        },
+        time_created: "2026-04-01T09:00:00.000Z"
+      }
+    ]);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      eventKey: "lead_1:cursor_customer_1",
+      externalEventId: "cursor_customer_1",
+      eventType: "UNKNOWN_EVENT",
+      occurredAt: new Date("2026-04-01T09:00:00.000Z")
+    });
   });
 });

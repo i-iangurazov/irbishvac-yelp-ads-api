@@ -54,6 +54,16 @@ export type NormalizedLeadRecord = {
   lastSyncedAt: Date;
 };
 
+type LeadPhoneSource = "UNMASKED" | "TEMPORARY" | "MASKED" | "LEGACY_DIRECT" | "NESTED_DIRECT" | "NONE";
+
+type NormalizedLeadPhone = {
+  value: string | null;
+  source: LeadPhoneSource;
+  sourcePath: string | null;
+  isVerifiedDirect: boolean;
+  expiresAt: Date | null;
+};
+
 export type LeadListEntry = {
   id: string;
   externalLeadId: string;
@@ -253,6 +263,75 @@ function getDate(record: UnknownRecord | null, paths: string[][]) {
   return null;
 }
 
+function resolveLeadPhone(record: UnknownRecord | null): NormalizedLeadPhone {
+  const candidates: Array<{
+    source: LeadPhoneSource;
+    paths: string[][];
+    verified: boolean;
+  }> = [
+    {
+      source: "UNMASKED",
+      verified: true,
+      paths: [["phone_number"], ["customer", "phone_number"], ["consumer", "phone_number"], ["user", "phone_number"]]
+    },
+    {
+      source: "LEGACY_DIRECT",
+      verified: true,
+      paths: [["customer_phone"]]
+    },
+    {
+      source: "NESTED_DIRECT",
+      verified: true,
+      paths: [["customer", "phone"], ["consumer", "phone"], ["user", "phone"]]
+    },
+    {
+      source: "TEMPORARY",
+      verified: false,
+      paths: [["temporary_phone_number"], ["customer", "temporary_phone_number"], ["consumer", "temporary_phone_number"], ["user", "temporary_phone_number"]]
+    },
+    {
+      source: "MASKED",
+      verified: false,
+      paths: [["masked_phone_number"], ["customer", "masked_phone_number"], ["consumer", "masked_phone_number"], ["user", "masked_phone_number"]]
+    }
+  ];
+
+  for (const candidate of candidates) {
+    for (const path of candidate.paths) {
+      const value = getString(record, [path]);
+
+      if (value) {
+        return {
+          value,
+          source: candidate.source,
+          sourcePath: path.join("."),
+          isVerifiedDirect: candidate.verified,
+          expiresAt: getDate(record, [
+            ["phone_number_expires_at"],
+            ["phone_number_expiry"],
+            ["temporary_phone_number_expires_at"],
+            ["temporary_phone_number_expiry"],
+            ["temporary_phone_number_expiration"],
+            ["phone", "expires_at"],
+            ["customer", "phone_number_expires_at"],
+            ["consumer", "phone_number_expires_at"],
+            ["customer", "temporary_phone_number_expires_at"],
+            ["consumer", "temporary_phone_number_expires_at"]
+          ])
+        };
+      }
+    }
+  }
+
+  return {
+    value: null,
+    source: "NONE",
+    sourcePath: null,
+    isVerifiedDirect: false,
+    expiresAt: null
+  };
+}
+
 function unwrapLeadRecord(payload: unknown) {
   const record = asRecord(payload);
 
@@ -337,7 +416,7 @@ export function buildWebhookEventKey(businessId: string, update: ParsedLeadWebho
 
 export function buildLeadEventKey(leadId: string, rawEvent: unknown, index = 0) {
   const record = asRecord(rawEvent);
-  const externalEventId = getString(record, [["event_id"], ["id"], ["interaction_id"]]);
+  const externalEventId = getString(record, [["event_id"], ["id"], ["interaction_id"], ["cursor"]]);
   const eventType = getString(record, [["event_type"], ["type"]]) ?? "UNKNOWN_EVENT";
   const occurredAt =
     getDate(record, [["interaction_time"], ["time_created"], ["created_at"], ["time"], ["occurred_at"]])?.toISOString() ?? null;
@@ -353,9 +432,9 @@ export function normalizeLeadEvents(leadId: string, payload: unknown) {
   extractEventsArray(payload).forEach((entry, index) => {
     const record = asRecord(entry);
     const eventType = getString(record, [["event_type"], ["type"]]) ?? "UNKNOWN_EVENT";
-    const externalEventId = getString(record, [["event_id"], ["id"], ["interaction_id"]]);
-    const actorType = getString(record, [["actor_type"], ["sender_type"], ["user_type"], ["source"]]);
-    const occurredAt = getDate(record, [["interaction_time"], ["time_created"], ["created_at"], ["time"], ["occurred_at"]]);
+    const externalEventId = getString(record, [["event_id"], ["id"], ["interaction_id"], ["cursor"]]);
+    const actorType = getString(record, [["actor_type"], ["sender_type"], ["user_type"], ["source"], ["sender", "type"], ["author", "type"]]);
+    const occurredAt = getDate(record, [["interaction_time"], ["time_created"], ["created_at"], ["time"], ["occurred_at"], ["timestamp"]]);
     const upperEventType = eventType.toUpperCase();
     const isRead = getBoolean(record, [["is_read"], ["read"], ["flags", "is_read"]]) ?? upperEventType.includes("READ");
     const isReply =
@@ -398,11 +477,7 @@ export function normalizeLeadSnapshot(params: NormalizedLeadSnapshotParams) {
   const customerEmail =
     getString(leadRecord, [["customer_email"], ["temporary_email_address"], ["customer", "email"], ["consumer", "email"], ["user", "email"]]) ??
     null;
-  const customerPhone =
-    getString(
-      leadRecord,
-      [["customer_phone"], ["masked_phone_number"], ["customer", "phone"], ["consumer", "phone"], ["user", "phone"], ["consumer", "masked_phone_number"]]
-    ) ?? null;
+  const customerPhone = resolveLeadPhone(leadRecord);
   const readAt =
     getDate(leadRecord, [["read_at"], ["last_read_at"]]) ??
     [...events].reverse().find((event) => event.isRead)?.occurredAt ??
@@ -431,7 +506,7 @@ export function normalizeLeadSnapshot(params: NormalizedLeadSnapshotParams) {
     sourceSystem: "YELP",
     customerName,
     customerEmail,
-    customerPhone,
+    customerPhone: customerPhone.value,
     createdAtYelp,
     latestInteractionAt,
     replyState,
@@ -443,7 +518,14 @@ export function normalizeLeadSnapshot(params: NormalizedLeadSnapshotParams) {
       webhookEventType: params.webhookUpdate.eventType,
       webhookEventId: params.webhookUpdate.eventId ?? null,
       webhookInteractionTime: params.webhookUpdate.interactionTime?.toISOString() ?? null,
-      normalizedEventCount: events.length
+      normalizedEventCount: events.length,
+      customerPhoneSource: customerPhone.source,
+      customerPhoneSourcePath: customerPhone.sourcePath,
+      customerPhoneVerifiedDirect: customerPhone.isVerifiedDirect,
+      customerPhoneExpiresAt: customerPhone.expiresAt?.toISOString() ?? null,
+      phoneAvailabilityEvent: customerPhone.value
+        ? params.webhookUpdate.eventType.toUpperCase().includes("PHONE")
+        : false
     },
     rawSnapshotJson: params.leadPayload,
     lastSyncedAt: params.webhookReceivedAt

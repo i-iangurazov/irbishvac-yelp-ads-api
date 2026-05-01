@@ -7,16 +7,28 @@ import {
   getBusinessById,
   getBusinessDeleteImpact,
   listBusinesses,
+  updateBusinessRecord,
   upsertBusiness
 } from "@/lib/db/businesses-repository";
-import { ensureYelpAccess, getCapabilityFlags } from "@/lib/yelp/runtime";
+import { ensureYelpAccess, ensureYelpBusinessSubscriptionsAccess, ensureYelpLeadsAccess, getCapabilityFlags } from "@/lib/yelp/runtime";
 import { normalizeYelpCategories } from "@/lib/yelp/categories";
 import { YelpAdsClient } from "@/lib/yelp/ads-client";
 import { YelpBusinessMatchClient } from "@/lib/yelp/business-match-client";
 import { YelpDataIngestionClient } from "@/lib/yelp/data-ingestion-client";
+import { YelpLeadsClient } from "@/lib/yelp/leads-client";
 import { yelpBusinessMatchResponseSchema, type YelpUpstreamProgramDto } from "@/lib/yelp/schemas";
-import { businessSearchSchema, deleteBusinessFormSchema, readinessPatchSchema } from "@/features/businesses/schemas";
+import {
+  businessSearchSchema,
+  deleteBusinessFormSchema,
+  readinessPatchSchema,
+  yelpBusinessSubscriptionActionSchema
+} from "@/features/businesses/schemas";
+import { getLeadAutomationScopeConfig } from "@/features/autoresponder/config";
+import { buildYelpForwarderAllowlistState, parseYelpAllowedBusinessIds } from "@/features/businesses/yelp-forwarder-allowlist";
+import { buildYelpLeadOnboardingState } from "@/features/businesses/yelp-lead-onboarding";
+import { extractLeadIdsResponse } from "@/features/leads/yelp-sync";
 import { recordAuditEvent } from "@/features/audit/service";
+import { getServerEnv } from "@/lib/utils/env";
 import { normalizeUnknownError, YelpValidationError } from "@/lib/yelp/errors";
 
 type ReadinessState = {
@@ -56,7 +68,17 @@ type OperationalWarning = {
   href?: string;
 };
 
+type YelpConnectionProof = {
+  id: string;
+  label: string;
+  status: string;
+  value: string;
+  detail: string;
+  occurredAt: Date | null;
+};
+
 const LIVE_PROGRAM_DISPLAY_LIMIT = 10;
+const YELP_WEBHOOK_SUBSCRIPTION_TYPE = "WEBHOOK" as const;
 const liveProgramStatusOrder = new Map([
   ["ACTIVE", 0],
   ["SCHEDULED", 1],
@@ -92,6 +114,38 @@ function countJsonArray(value: unknown) {
   return Array.isArray(value) ? value.length : 0;
 }
 
+function asReadinessRecord(value: unknown) {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function readDateValue(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return null;
+  }
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function readStringValue(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function readNumberValue(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function readBooleanValue(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  return typeof value === "boolean" ? value : null;
+}
+
 function summarizeReportRecipients(schedule: Awaited<ReturnType<typeof getBusinessById>>["reportSchedules"][number]) {
   const accountRecipients = countJsonArray(schedule.recipientEmailsJson);
   const locationOverrides = countJsonArray(schedule.locationRecipientOverridesJson);
@@ -103,13 +157,15 @@ function summarizeReportRecipients(schedule: Awaited<ReturnType<typeof getBusine
 function buildBusinessOperationalSummary(params: {
   business: Awaited<ReturnType<typeof getBusinessById>>;
   capabilities: Awaited<ReturnType<typeof getCapabilityFlags>>;
+  automationScope: Awaited<ReturnType<typeof getLeadAutomationScopeConfig>>;
   currentPrograms: Awaited<ReturnType<typeof getBusinessById>>["programs"];
   readiness: ReadinessState;
   liveProgramInventory: LiveProgramInventoryState;
 }) {
-  const { business, capabilities, currentPrograms, readiness, liveProgramInventory } = params;
+  const { business, capabilities, automationScope, currentPrograms, readiness, liveProgramInventory } = params;
   const latestLead = business.yelpLeads[0] ?? null;
-  const override = business.leadAutomationOverrides[0] ?? null;
+  const override = automationScope.override ?? business.leadAutomationOverrides[0] ?? null;
+  const effectiveAutomation = automationScope.effectiveSettings;
   const activeReportSchedules = business.reportSchedules.filter((schedule) => schedule.isEnabled);
   const openIssues = business.operatorIssues;
   const activePrograms = currentPrograms.filter((program) => program.status === "ACTIVE" || program.status === "SCHEDULED");
@@ -135,13 +191,17 @@ function buildBusinessOperationalSummary(params: {
           ? "Yelp lead proof is missing or failed."
           : "Yelp Leads access is not enabled for this tenant."
         : "Configured, but no lead traffic proof yet.";
-  const automationStatus = override ? (override.isEnabled ? "READY" : "INACTIVE") : "UNKNOWN";
+  const automationStatus = effectiveAutomation.isEnabled ? "READY" : "INACTIVE";
   const automationDetail = override
     ? override.isEnabled
       ? `${override.defaultChannel}; ${override.followUp24hEnabled || override.followUp7dEnabled ? "follow-ups enabled" : "follow-ups off"}; AI ${override.aiAssistEnabled ? "on" : "off"}.`
       : "Business override exists and autoresponder is disabled."
-    : "No business override. Tenant fallback settings apply.";
-  const conversationStatus = override?.conversationAutomationEnabled ? override.conversationMode : "INACTIVE";
+    : effectiveAutomation.isEnabled
+      ? `${effectiveAutomation.defaultChannel}; tenant default covers this business; ${effectiveAutomation.followUp24hEnabled || effectiveAutomation.followUp7dEnabled ? "follow-ups enabled" : "follow-ups off"}; AI ${effectiveAutomation.aiAssistEnabled ? "on" : "off"}.`
+      : automationScope.defaults.isEnabled
+        ? "Tenant defaults are enabled, but this business is outside the selected scope."
+        : "Tenant default autoresponder is off.";
+  const conversationStatus = effectiveAutomation.conversationAutomationEnabled ? effectiveAutomation.conversationMode : "INACTIVE";
   const programStatus =
     failedPrograms.length > 0 ? "FAILED" : inFlightPrograms.length > 0 ? "PROCESSING" : activePrograms.length > 0 ? "ACTIVE" : "INACTIVE";
   const connectorStatus =
@@ -172,7 +232,13 @@ function buildBusinessOperationalSummary(params: {
       id: "automation",
       label: "Autoresponder",
       status: automationStatus,
-      value: override ? (override.isEnabled ? "Enabled here" : "Disabled here") : "Tenant fallback",
+      value: override
+        ? override.isEnabled
+          ? "Enabled here"
+          : "Disabled here"
+        : effectiveAutomation.isEnabled
+          ? "Tenant default"
+          : "Off",
       detail: automationDetail,
       href: "/autoresponder"
     },
@@ -180,9 +246,11 @@ function buildBusinessOperationalSummary(params: {
       id: "conversation",
       label: "Conversation mode",
       status: conversationStatus,
-      value: override?.conversationAutomationEnabled ? override.conversationMode.replaceAll("_", " ") : "Off",
-      detail: override?.conversationAutomationEnabled
-        ? `Max automation policy is controlled in the business override.`
+      value: effectiveAutomation.conversationAutomationEnabled ? effectiveAutomation.conversationMode.replaceAll("_", " ") : "Off",
+      detail: effectiveAutomation.conversationAutomationEnabled
+        ? override
+          ? "Conversation policy is controlled by the business override."
+          : "Conversation policy is controlled by tenant defaults for this business."
         : "Conversation automation is not enabled for this business.",
       href: "/autoresponder"
     },
@@ -230,17 +298,17 @@ function buildBusinessOperationalSummary(params: {
   ];
   const warnings: OperationalWarning[] = [];
 
-  if (business._count.yelpLeads > 0 && !override) {
+  if (business._count.yelpLeads > 0 && !override && !automationScope.defaultsApplyToBusiness) {
     warnings.push({
-      id: "missing-override",
+      id: "automation-outside-scope",
       status: "UNKNOWN",
-      title: "Leads exist without a business override",
-      detail: "Tenant fallback settings apply. Add a business override if this business should be explicitly controlled.",
+      title: "Leads exist outside autoresponder scope",
+      detail: "This business has Yelp leads, but effective autoresponder settings do not cover it.",
       href: "/autoresponder"
     });
   }
 
-  if (override?.isEnabled && yelpConnectionStatus !== "READY") {
+  if (effectiveAutomation.isEnabled && yelpConnectionStatus !== "READY") {
     warnings.push({
       id: "automation-without-yelp-proof",
       status: "FAILED",
@@ -302,6 +370,121 @@ function buildBusinessOperationalSummary(params: {
   };
 }
 
+function buildYelpConnectionProofTrail(params: {
+  business: Awaited<ReturnType<typeof getBusinessById>>;
+  forwarderAllowlist: ReturnType<typeof buildYelpForwarderAllowlistState>;
+  latestLeadSyncRun: Awaited<ReturnType<typeof getBusinessById>>["syncRuns"][number] | null;
+}): YelpConnectionProof[] {
+  const { business, forwarderAllowlist, latestLeadSyncRun } = params;
+  const readiness = asReadinessRecord(business.readinessJson);
+  const latestLead = business.yelpLeads[0] ?? null;
+  const latestSend = business.leadAutomationAttempts[0] ?? null;
+  const leadReadStatus = readStringValue(readiness, "yelpLeadReadinessCheckStatus");
+  const leadReadCheckedAt = readDateValue(readiness, "yelpLeadReadinessCheckedAt");
+  const leadReadCorrelationId = readStringValue(readiness, "yelpLeadReadinessCheckCorrelationId");
+  const leadReadReturnedLeadIds = readNumberValue(readiness, "yelpLeadReadinessReturnedLeadIds");
+  const leadReadHasMore = readBooleanValue(readiness, "yelpLeadReadinessHasMore");
+  const leadReadErrorMessage = readStringValue(readiness, "yelpLeadReadinessCheckErrorMessage");
+  const subscriptionRequestedAt = readDateValue(readiness, "yelpLeadSubscriptionRequestedAt");
+  const subscriptionVerifiedAt = readDateValue(readiness, "yelpLeadSubscriptionVerifiedAt");
+  const subscriptionStatus = readStringValue(readiness, "yelpLeadSubscriptionStatus");
+  const subscriptionRequestCorrelationId = readStringValue(readiness, "yelpLeadSubscriptionRequestCorrelationId");
+  const subscriptionVerificationCorrelationId = readStringValue(readiness, "yelpLeadSubscriptionVerificationCorrelationId");
+  const subscribedAt = readDateValue(readiness, "yelpLeadSubscriptionSubscribedAt");
+  const webhookProofAt = latestLead?.latestWebhookReceivedAt ?? null;
+  const reconcileProofAt = latestLeadSyncRun?.lastSuccessfulSyncAt ?? latestLeadSyncRun?.finishedAt ?? latestLead?.lastSyncedAt ?? null;
+  const sendProofAt = latestSend?.completedAt ?? latestSend?.triggeredAt ?? null;
+
+  return [
+    {
+      id: "forwarder-allowlist",
+      label: "Forwarder allowlist",
+      status: forwarderAllowlist.status,
+      value: forwarderAllowlist.label,
+      detail: forwarderAllowlist.detail,
+      occurredAt: null
+    },
+    {
+      id: "leads-api-read",
+      label: "Leads API read",
+      status: leadReadStatus === "READY" ? "READY" : leadReadStatus === "FAILED" ? "FAILED" : "UNKNOWN",
+      value:
+        leadReadStatus === "READY"
+          ? "Read verified"
+          : leadReadStatus === "FAILED"
+            ? "Read failed"
+            : "Not checked",
+      detail:
+        leadReadStatus === "READY"
+          ? `Yelp returned ${leadReadReturnedLeadIds ?? 0} recent lead ID${leadReadReturnedLeadIds === 1 ? "" : "s"}${leadReadHasMore ? " and more are available" : ""}${leadReadCorrelationId ? ` (${leadReadCorrelationId})` : ""}.`
+          : leadReadStatus === "FAILED"
+            ? leadReadErrorMessage ?? "The last Leads API read check failed."
+            : "Run Check Leads API to verify this business is readable by the configured Yelp token.",
+      occurredAt: leadReadCheckedAt
+    },
+    {
+      id: "subscription-request",
+      label: "Subscription request",
+      status: subscriptionRequestedAt ? "REQUESTED" : "UNKNOWN",
+      value: subscriptionRequestedAt ? "Requested" : "Not requested here",
+      detail: subscriptionRequestedAt
+        ? `Async Yelp WEBHOOK subscription request accepted${subscriptionRequestCorrelationId ? ` (${subscriptionRequestCorrelationId})` : ""}.`
+        : "No in-app Yelp webhook subscription request is recorded for this business.",
+      occurredAt: subscriptionRequestedAt
+    },
+    {
+      id: "subscription-verification",
+      label: "Subscription verification",
+      status: subscriptionStatus === "CONFIRMED" ? "READY" : subscriptionStatus === "NOT_FOUND" ? "UNKNOWN" : "UNKNOWN",
+      value:
+        subscriptionStatus === "CONFIRMED"
+          ? "Confirmed"
+          : subscriptionStatus === "NOT_FOUND"
+            ? "Not found"
+            : "Not checked",
+      detail:
+        subscriptionStatus === "CONFIRMED"
+          ? `Yelp returned this business in the WEBHOOK subscription list${subscriptionVerificationCorrelationId ? ` (${subscriptionVerificationCorrelationId})` : ""}.`
+          : subscriptionStatus === "NOT_FOUND"
+            ? "Yelp did not return this business in the WEBHOOK subscription list at the last check."
+            : "Run Check subscription after Yelp has had time to process the async request.",
+      occurredAt: subscriptionStatus === "CONFIRMED" ? subscribedAt ?? subscriptionVerifiedAt : subscriptionVerifiedAt
+    },
+    {
+      id: "webhook-proof",
+      label: "Webhook proof",
+      status: latestLead?.latestWebhookStatus ?? "UNKNOWN",
+      value: webhookProofAt ? "Webhook received" : "No webhook yet",
+      detail: webhookProofAt
+        ? `Latest recorded webhook status is ${latestLead?.latestWebhookStatus?.toLowerCase() ?? "unknown"}.`
+        : "No live webhook receipt is recorded for this business yet.",
+      occurredAt: webhookProofAt
+    },
+    {
+      id: "reconcile-proof",
+      label: "Reconcile proof",
+      status: latestLeadSyncRun?.status ?? (latestLead?.lastSyncedAt ? "READY" : "UNKNOWN"),
+      value: reconcileProofAt ? "Lead fetch completed" : "No reconcile proof",
+      detail: latestLeadSyncRun
+        ? `${latestLeadSyncRun.type.replaceAll("_", " ").toLowerCase()} ended with ${latestLeadSyncRun.status.toLowerCase()} status.`
+        : latestLead?.lastSyncedAt
+          ? "A local lead sync timestamp exists for this business."
+          : "Run reconcile after webhook/subscription setup and confirm leads update locally.",
+      occurredAt: reconcileProofAt
+    },
+    {
+      id: "thread-send-proof",
+      label: "Thread send proof",
+      status: latestSend ? "SENT" : "UNKNOWN",
+      value: latestSend ? "Send recorded" : "No send yet",
+      detail: latestSend
+        ? `${latestSend.cadence.replaceAll("_", " ").toLowerCase()} sent by ${latestSend.channel?.replaceAll("_", " ").toLowerCase() ?? "unknown channel"}${latestSend.providerMessageId ? ` (${latestSend.providerMessageId})` : ""}.`
+        : "No successful autoresponder/thread send is recorded for this business yet.",
+      occurredAt: sendProofAt
+    }
+  ];
+}
+
 export function buildCpcReadiness(readinessJson: unknown, categoriesJson: unknown): ReadinessState {
   const categories = normalizeYelpCategories(categoriesJson);
   const readiness = typeof readinessJson === "object" && readinessJson !== null ? readinessJson : {};
@@ -355,11 +538,37 @@ export async function getBusinessesIndex(tenantId: string, search?: string) {
 
 export async function getBusinessDetail(tenantId: string, businessId: string) {
   const [business, deleteImpact] = await Promise.all([getBusinessById(businessId, tenantId), getBusinessDeleteImpact(businessId, tenantId)]);
-  const capabilities = await getCapabilityFlags(tenantId);
+  const [capabilities, automationScope] = await Promise.all([
+    getCapabilityFlags(tenantId),
+    getLeadAutomationScopeConfig(tenantId, businessId)
+  ]);
   const currentPrograms = business.programs.filter(
     (program: (typeof business.programs)[number]) => isCurrentLocalProgramStatus(program.status)
   );
   const readiness = buildCpcReadiness(business.readinessJson, business.categoriesJson);
+  const latestLeadSyncRun =
+    business.syncRuns.find((run) => run.type === "YELP_LEADS_WEBHOOK" || run.type === "YELP_LEADS_BACKFILL") ?? null;
+  const forwarderAllowlist = buildYelpForwarderAllowlistState({
+    encryptedYelpBusinessId: business.encryptedYelpBusinessId,
+    allowedBusinessIds: parseYelpAllowedBusinessIds(getServerEnv().YELP_ALLOWED_BUSINESS_IDS)
+  });
+  const yelpConnectionProofTrail = buildYelpConnectionProofTrail({
+    business,
+    forwarderAllowlist,
+    latestLeadSyncRun
+  });
+  const yelpLeadOnboarding = buildYelpLeadOnboardingState({
+    encryptedYelpBusinessId: business.encryptedYelpBusinessId,
+    hasLeadsApi: capabilities.hasLeadsApi,
+    readinessJson: business.readinessJson,
+    latestLead: business.yelpLeads[0] ?? null,
+    latestLeadSyncRun,
+    leadCount: business._count.yelpLeads,
+    autoresponderEnabled: automationScope.effectiveSettings.isEnabled,
+    conversationAutomationEnabled: automationScope.effectiveSettings.conversationAutomationEnabled,
+    hasBusinessOverride: Boolean(automationScope.override),
+    forwarderAllowlist
+  });
   let liveProgramInventory: LiveProgramInventoryState = {
     enabled: capabilities.adsApiEnabled,
     message: capabilities.adsApiEnabled ? null : "Not enabled by Yelp / missing credentials.",
@@ -424,10 +633,13 @@ export async function getBusinessDetail(tenantId: string, businessId: string) {
     currentPrograms,
     categories: normalizeYelpCategories(business.categoriesJson),
     readiness,
+    yelpLeadOnboarding,
+    yelpConnectionProofTrail,
     liveProgramInventory,
     operationalSummary: buildBusinessOperationalSummary({
       business,
       capabilities,
+      automationScope,
       currentPrograms,
       readiness,
       liveProgramInventory
@@ -549,6 +761,277 @@ export async function patchBusinessReadinessFields(tenantId: string, actorId: st
     status: "SUCCESS",
     requestSummary: data as never
   });
+}
+
+async function findYelpWebhookSubscription(client: YelpLeadsClient, encryptedYelpBusinessId: string) {
+  const limit = 100;
+  let offset = 0;
+  let lastCorrelationId: string | null = null;
+
+  for (let page = 0; page < 50; page += 1) {
+    const response = await client.getBusinessSubscriptions(YELP_WEBHOOK_SUBSCRIPTION_TYPE, { limit, offset });
+    lastCorrelationId = response.correlationId;
+    const subscriptions: Array<{ business_id: string; subscribed_at?: string | null }> = response.data.subscriptions;
+    const match = subscriptions.find((subscription) => subscription.business_id === encryptedYelpBusinessId) ?? null;
+
+    if (match) {
+      return {
+        found: true,
+        subscription: match,
+        correlationId: response.correlationId
+      };
+    }
+
+    const nextOffset = offset + response.data.limit;
+
+    if (nextOffset >= response.data.total || response.data.subscriptions.length === 0) {
+      break;
+    }
+
+    offset = nextOffset;
+  }
+
+  return {
+    found: false,
+    subscription: null,
+    correlationId: lastCorrelationId
+  };
+}
+
+function mergeReadinessPatch(currentValue: unknown, patch: Record<string, unknown>) {
+  return {
+    ...asReadinessRecord(currentValue),
+    ...patch
+  };
+}
+
+export async function runBusinessYelpLeadsReadinessCheck(tenantId: string, actorId: string, businessId: string) {
+  const business = await getBusinessById(businessId, tenantId);
+
+  if (!business.encryptedYelpBusinessId) {
+    throw new YelpValidationError("Save the Yelp encrypted business ID before checking Leads API access.");
+  }
+
+  const now = new Date().toISOString();
+
+  try {
+    const { credential } = await ensureYelpLeadsAccess(tenantId);
+    const client = new YelpLeadsClient(credential);
+    const response = await client.getBusinessLeadIds(business.encryptedYelpBusinessId, { limit: 1, offset: 0 });
+    const parsed = extractLeadIdsResponse(response.data);
+    const readinessJson = mergeReadinessPatch(business.readinessJson, {
+      yelpLeadReadinessCheckStatus: "READY",
+      yelpLeadReadinessBusinessId: business.encryptedYelpBusinessId,
+      yelpLeadReadinessCheckedAt: now,
+      yelpLeadReadinessCheckCorrelationId: response.correlationId,
+      yelpLeadReadinessReturnedLeadIds: parsed.leadIds.length,
+      yelpLeadReadinessHasMore: parsed.hasMore,
+      yelpLeadReadinessCheckErrorCode: null,
+      yelpLeadReadinessCheckErrorMessage: null
+    });
+
+    await updateBusinessRecord(business.id, tenantId, { readinessJson });
+    await recordAuditEvent({
+      tenantId,
+      actorId,
+      businessId: business.id,
+      actionType: "business.yelp-leads-readiness.check",
+      status: "SUCCESS",
+      correlationId: response.correlationId,
+      requestSummary: {
+        businessId: business.encryptedYelpBusinessId,
+        limit: 1
+      },
+      responseSummary: {
+        status: "READY",
+        returnedLeadIds: parsed.leadIds.length,
+        hasMore: parsed.hasMore
+      } as never
+    });
+
+    return {
+      status: "READY",
+      message:
+        parsed.leadIds.length > 0
+          ? "Yelp Leads API can read this business."
+          : "Yelp Leads API accepted the business, but no recent lead ID was returned.",
+      returnedLeadIds: parsed.leadIds.length,
+      hasMore: parsed.hasMore,
+      correlationId: response.correlationId
+    };
+  } catch (error) {
+    const normalized = normalizeUnknownError(error);
+    const readinessJson = mergeReadinessPatch(business.readinessJson, {
+      yelpLeadReadinessCheckStatus: "FAILED",
+      yelpLeadReadinessBusinessId: business.encryptedYelpBusinessId,
+      yelpLeadReadinessCheckedAt: now,
+      yelpLeadReadinessCheckCorrelationId: null,
+      yelpLeadReadinessReturnedLeadIds: 0,
+      yelpLeadReadinessHasMore: false,
+      yelpLeadReadinessCheckErrorCode: normalized.code,
+      yelpLeadReadinessCheckErrorMessage: normalized.message
+    });
+
+    await updateBusinessRecord(business.id, tenantId, { readinessJson });
+    await recordAuditEvent({
+      tenantId,
+      actorId,
+      businessId: business.id,
+      actionType: "business.yelp-leads-readiness.check",
+      status: "FAILED",
+      requestSummary: {
+        businessId: business.encryptedYelpBusinessId,
+        limit: 1
+      },
+      responseSummary: {
+        code: normalized.code,
+        message: normalized.message
+      } as never,
+      rawPayloadSummary: normalized.details as never
+    });
+
+    throw normalized;
+  }
+}
+
+export async function runBusinessYelpWebhookSubscriptionAction(
+  tenantId: string,
+  actorId: string,
+  businessId: string,
+  input: unknown
+) {
+  const data = yelpBusinessSubscriptionActionSchema.parse(input);
+  const business = await getBusinessById(businessId, tenantId);
+
+  if (!business.encryptedYelpBusinessId) {
+    throw new YelpValidationError("Save the Yelp encrypted business ID before managing webhook subscriptions.");
+  }
+
+  const { credential } = await ensureYelpBusinessSubscriptionsAccess(tenantId);
+  const client = new YelpLeadsClient(credential);
+  const now = new Date().toISOString();
+
+  if (data.action === "REQUEST_WEBHOOK") {
+    try {
+      const response = await client.subscribeBusinesses({
+        subscriptionTypes: [YELP_WEBHOOK_SUBSCRIPTION_TYPE],
+        businessIds: [business.encryptedYelpBusinessId]
+      });
+      const readinessJson = mergeReadinessPatch(business.readinessJson, {
+        yelpLeadSubscriptionStatus: "REQUESTED",
+        yelpLeadSubscriptionType: YELP_WEBHOOK_SUBSCRIPTION_TYPE,
+        yelpLeadSubscriptionBusinessId: business.encryptedYelpBusinessId,
+        yelpLeadSubscriptionRequestedAt: now,
+        yelpLeadSubscriptionRequestCorrelationId: response.correlationId
+      });
+
+      await updateBusinessRecord(business.id, tenantId, { readinessJson });
+      await recordAuditEvent({
+        tenantId,
+        actorId,
+        businessId: business.id,
+        actionType: "business.yelp-webhook-subscription.request",
+        status: "SUCCESS",
+        correlationId: response.correlationId,
+        requestSummary: {
+          subscriptionTypes: [YELP_WEBHOOK_SUBSCRIPTION_TYPE],
+          businessIds: [business.encryptedYelpBusinessId]
+        },
+        responseSummary: {
+          status: "REQUESTED",
+          note: "Yelp accepted the async subscription request. Verification still requires a later subscription check or live webhook proof."
+        } as never
+      });
+
+      return {
+        action: data.action,
+        status: "REQUESTED",
+        message: "Yelp accepted the webhook subscription request. Check again after Yelp processes it.",
+        correlationId: response.correlationId
+      };
+    } catch (error) {
+      const normalized = normalizeUnknownError(error);
+
+      await recordAuditEvent({
+        tenantId,
+        actorId,
+        businessId: business.id,
+        actionType: "business.yelp-webhook-subscription.request",
+        status: "FAILED",
+        requestSummary: {
+          subscriptionTypes: [YELP_WEBHOOK_SUBSCRIPTION_TYPE],
+          businessIds: [business.encryptedYelpBusinessId]
+        },
+        responseSummary: {
+          message: normalized.message
+        } as never,
+        rawPayloadSummary: normalized.details as never
+      });
+
+      throw normalized;
+    }
+  }
+
+  try {
+    const result = await findYelpWebhookSubscription(client, business.encryptedYelpBusinessId);
+    const readinessJson = mergeReadinessPatch(business.readinessJson, {
+      yelpLeadSubscriptionStatus: result.found ? "CONFIRMED" : "NOT_FOUND",
+      yelpLeadSubscriptionType: YELP_WEBHOOK_SUBSCRIPTION_TYPE,
+      yelpLeadSubscriptionBusinessId: business.encryptedYelpBusinessId,
+      yelpLeadSubscriptionConfirmed: result.found,
+      yelpLeadSubscriptionVerifiedAt: now,
+      yelpLeadSubscriptionSubscribedAt: result.subscription?.subscribed_at ?? null,
+      yelpLeadSubscriptionVerificationCorrelationId: result.correlationId
+    });
+
+    await updateBusinessRecord(business.id, tenantId, { readinessJson });
+    await recordAuditEvent({
+      tenantId,
+      actorId,
+      businessId: business.id,
+      actionType: "business.yelp-webhook-subscription.verify",
+      status: "SUCCESS",
+      correlationId: result.correlationId,
+      requestSummary: {
+        subscriptionType: YELP_WEBHOOK_SUBSCRIPTION_TYPE,
+        businessId: business.encryptedYelpBusinessId
+      },
+      responseSummary: {
+        status: result.found ? "CONFIRMED" : "NOT_FOUND",
+        subscribedAt: result.subscription?.subscribed_at ?? null
+      } as never
+    });
+
+    return {
+      action: data.action,
+      status: result.found ? "CONFIRMED" : "NOT_FOUND",
+      message: result.found
+        ? "Yelp webhook subscription is confirmed for this business."
+        : "Yelp did not return this business in the webhook subscription list yet.",
+      correlationId: result.correlationId,
+      subscribedAt: result.subscription?.subscribed_at ?? null
+    };
+  } catch (error) {
+    const normalized = normalizeUnknownError(error);
+
+    await recordAuditEvent({
+      tenantId,
+      actorId,
+      businessId: business.id,
+      actionType: "business.yelp-webhook-subscription.verify",
+      status: "FAILED",
+      requestSummary: {
+        subscriptionType: YELP_WEBHOOK_SUBSCRIPTION_TYPE,
+        businessId: business.encryptedYelpBusinessId
+      },
+      responseSummary: {
+        message: normalized.message
+      } as never,
+      rawPayloadSummary: normalized.details as never
+    });
+
+    throw normalized;
+  }
 }
 
 const blockingBusinessDeletionStatuses = new Set(["ACTIVE", "SCHEDULED", "QUEUED", "PROCESSING"]);

@@ -101,3 +101,28 @@ export async function ensureYelpLeadsAccess(tenantId: string) {
     } satisfies YelpCredentialConfig
   };
 }
+
+export async function ensureYelpBusinessSubscriptionsAccess(tenantId: string) {
+  const reportingCredential = await getCredentialConfig(tenantId, "REPORTING_FUSION");
+  const env = getServerEnv();
+  const secret =
+    (reportingCredential?.isEnabled && reportingCredential.secret ? reportingCredential.secret : undefined) ||
+    env.YELP_API_KEY ||
+    env.YELP_ACCESS_TOKEN;
+
+  if (!secret) {
+    throw new YelpMissingAccessError(
+      "A Yelp Places API key is required for Business Subscriptions. Configure YELP_API_KEY or save a bearer token in Settings."
+    );
+  }
+
+  return {
+    credential: {
+      label: reportingCredential?.label ?? "Yelp Business Subscriptions bearer token",
+      baseUrl: reportingCredential?.baseUrl || env.YELP_REPORTING_BASE_URL,
+      isEnabled: true,
+      secret,
+      metadata: reportingCredential?.metadata ?? null
+    } satisfies YelpCredentialConfig
+  };
+}

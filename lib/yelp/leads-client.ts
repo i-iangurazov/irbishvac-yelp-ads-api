@@ -2,12 +2,16 @@ import "server-only";
 
 import { DEFAULT_YELP_ENDPOINTS, resolveEndpoint } from "@/lib/yelp/endpoints";
 import {
+  yelpBusinessSubscriptionRequestSchema,
+  yelpBusinessSubscriptionTypeSchema,
+  yelpBusinessSubscriptionsResponseSchema,
   yelpBusinessLeadIdsResponseSchema,
   yelpLeadDetailSchema,
   yelpLeadEventsResponseSchema,
   yelpMarkLeadAsRepliedRequestSchema,
   yelpMarkLeadEventAsReadRequestSchema,
-  yelpWriteLeadEventRequestSchema
+  yelpWriteLeadEventRequestSchema,
+  type YelpBusinessSubscriptionTypeDto
 } from "@/lib/yelp/schemas";
 import { requestYelp } from "@/lib/yelp/base-client";
 import type { YelpCredentialConfig } from "@/lib/yelp/runtime";
@@ -28,13 +32,25 @@ export class YelpLeadsClient {
     });
   }
 
-  async getLeadEvents(leadId: string) {
+  async getLeadEvents(
+    leadId: string,
+    options?: {
+      limit?: number;
+      olderThanCursor?: string;
+      newerThanCursor?: string;
+    }
+  ) {
     return requestYelp({
       credential: this.credential,
       authType: "bearer",
       path: resolveEndpoint(DEFAULT_YELP_ENDPOINTS.leads.getLeadEvents, {
         leadId
       }),
+      query: {
+        ...(options?.limit ? { limit: Math.max(1, Math.min(Math.trunc(options.limit), YELP_LEAD_IDS_MAX_LIMIT)) } : {}),
+        ...(options?.olderThanCursor ? { older_than_cursor: options.olderThanCursor } : {}),
+        ...(options?.newerThanCursor ? { newer_than_cursor: options.newerThanCursor } : {})
+      },
       schema: yelpLeadEventsResponseSchema
     });
   }
@@ -107,6 +123,59 @@ export class YelpLeadsClient {
         ...(options?.offset ? { offset: options.offset } : {})
       },
       schema: yelpBusinessLeadIdsResponseSchema
+    });
+  }
+
+  async subscribeBusinesses(input: {
+    subscriptionTypes: YelpBusinessSubscriptionTypeDto[];
+    businessIds: string[];
+  }) {
+    const body = yelpBusinessSubscriptionRequestSchema.parse({
+      subscription_types: input.subscriptionTypes,
+      business_ids: input.businessIds
+    });
+
+    return requestYelp({
+      credential: this.credential,
+      authType: "bearer",
+      method: "POST",
+      path: DEFAULT_YELP_ENDPOINTS.leads.businessSubscriptions,
+      body
+    });
+  }
+
+  async unsubscribeBusinesses(input: {
+    subscriptionTypes: YelpBusinessSubscriptionTypeDto[];
+    businessIds: string[];
+  }) {
+    const body = yelpBusinessSubscriptionRequestSchema.parse({
+      subscription_types: input.subscriptionTypes,
+      business_ids: input.businessIds
+    });
+
+    return requestYelp({
+      credential: this.credential,
+      authType: "bearer",
+      method: "DELETE",
+      path: DEFAULT_YELP_ENDPOINTS.leads.businessSubscriptions,
+      body
+    });
+  }
+
+  async getBusinessSubscriptions(
+    subscriptionType: YelpBusinessSubscriptionTypeDto,
+    options?: { limit?: number; offset?: number }
+  ) {
+    return requestYelp({
+      credential: this.credential,
+      authType: "bearer",
+      path: DEFAULT_YELP_ENDPOINTS.leads.businessSubscriptions,
+      query: {
+        subscription_type: yelpBusinessSubscriptionTypeSchema.parse(subscriptionType),
+        limit: options?.limit ?? 100,
+        offset: options?.offset ?? 0
+      },
+      schema: yelpBusinessSubscriptionsResponseSchema
     });
   }
 }

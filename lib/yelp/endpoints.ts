@@ -27,7 +27,8 @@ export const DEFAULT_YELP_ENDPOINTS = {
     writeLeadEvent: "/v3/leads/{leadId}/events",
     markLeadEventAsRead: "/v3/leads/{leadId}/events/mark_as_read",
     markLeadAsReplied: "/v3/leads/{leadId}/mark_as_replied",
-    getBusinessLeadIds: "/v3/businesses/{businessId}/lead_ids"
+    getBusinessLeadIds: "/v3/businesses/{businessId}/lead_ids",
+    businessSubscriptions: "/v3/businesses/subscriptions"
   },
   businessMatch: {
     matchBusiness: "/businesses/match",

@@ -83,4 +83,17 @@ describe("Yelp runtime", () => {
 
     expect(result.credential.secret).toBe("fusion-fallback");
   });
+
+  it("prefers YELP_API_KEY for Business Subscriptions because Yelp documents it as a Places API-key flow", async () => {
+    getServerEnv.mockReturnValue({
+      YELP_REPORTING_BASE_URL: "https://api.yelp.com",
+      YELP_ACCESS_TOKEN: "oauth-leads-token",
+      YELP_API_KEY: "places-api-key"
+    });
+
+    const { ensureYelpBusinessSubscriptionsAccess } = await import("@/lib/yelp/runtime");
+    const result = await ensureYelpBusinessSubscriptionsAccess("tenant_1");
+
+    expect(result.credential.secret).toBe("places-api-key");
+  });
 });

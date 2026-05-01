@@ -44,6 +44,10 @@ export const readinessPatchSchema = z.object({
   aboutThisBusiness: z.string().max(2_000).optional()
 });
 
+export const yelpBusinessSubscriptionActionSchema = z.object({
+  action: z.enum(["REQUEST_WEBHOOK", "VERIFY_WEBHOOK"])
+});
+
 export const deleteBusinessFormSchema = z.object({
   businessId: z.string().min(1),
   confirmationText: z.string().min(1).max(160)

@@ -357,6 +357,8 @@ const yelpLeadPersonSchema = z
     name: z.string().optional(),
     email: z.string().optional(),
     phone: z.string().optional(),
+    phone_number: z.string().optional(),
+    temporary_phone_number: z.string().optional(),
     masked_phone_number: z.string().optional(),
     temporary_email_address: z.string().optional()
   })
@@ -379,6 +381,13 @@ export const yelpLeadDetailSchema = z
     customer_name: z.string().optional(),
     customer_email: z.string().optional(),
     customer_phone: z.string().optional(),
+    phone_number: z.string().optional(),
+    temporary_phone_number: z.string().optional(),
+    phone_number_expires_at: z.string().optional(),
+    phone_number_expiry: z.string().optional(),
+    temporary_phone_number_expires_at: z.string().optional(),
+    temporary_phone_number_expiry: z.string().optional(),
+    temporary_phone_number_expiration: z.string().optional(),
     masked_phone_number: z.string().optional(),
     temporary_email_address: z.string().optional(),
     customer: yelpLeadPersonSchema.optional(),
@@ -392,12 +401,14 @@ export const yelpLeadDetailSchema = z
 export const yelpLeadEventSchema = z
   .object({
     id: z.string().optional(),
+    cursor: z.string().optional(),
     event_id: z.string().optional(),
     event_type: z.string().optional(),
     type: z.string().optional(),
     interaction_time: z.string().optional(),
     time_created: z.string().optional(),
     created_at: z.string().optional(),
+    timestamp: z.string().optional(),
     message: z.string().optional(),
     text: z.string().optional()
   })
@@ -421,6 +432,32 @@ export const yelpBusinessLeadIdsResponseSchema = z.union([
     .passthrough(),
   z.array(z.string())
 ]);
+
+export const yelpBusinessSubscriptionTypeSchema = z.enum(["WEBHOOK", "YELP_KNOWLEDGE", "LISTING_MANAGEMENT"]);
+
+export const yelpBusinessSubscriptionRequestSchema = z.object({
+  subscription_types: z.array(yelpBusinessSubscriptionTypeSchema).min(1),
+  business_ids: z.array(z.string().min(1)).min(1).max(1000)
+});
+
+export const yelpBusinessSubscriptionsResponseSchema = z
+  .object({
+    total: z.number().int().nonnegative().default(0),
+    offset: z.number().int().nonnegative().default(0),
+    limit: z.number().int().positive().default(100),
+    subscription_type: yelpBusinessSubscriptionTypeSchema,
+    subscriptions: z
+      .array(
+        z
+          .object({
+            business_id: z.string(),
+            subscribed_at: z.string().optional().nullable()
+          })
+          .passthrough()
+      )
+      .default([])
+  })
+  .passthrough();
 
 export const yelpWriteLeadEventRequestSchema = z.object({
   request_content: z.string().trim().min(1),
@@ -453,6 +490,9 @@ export type YelpLeadWebhookUpdateDto = z.infer<typeof yelpLeadWebhookUpdateSchem
 export type YelpLeadDetailDto = z.infer<typeof yelpLeadDetailSchema>;
 export type YelpLeadEventsResponseDto = z.infer<typeof yelpLeadEventsResponseSchema>;
 export type YelpBusinessLeadIdsResponseDto = z.infer<typeof yelpBusinessLeadIdsResponseSchema>;
+export type YelpBusinessSubscriptionTypeDto = z.infer<typeof yelpBusinessSubscriptionTypeSchema>;
+export type YelpBusinessSubscriptionRequestDto = z.infer<typeof yelpBusinessSubscriptionRequestSchema>;
+export type YelpBusinessSubscriptionsResponseDto = z.infer<typeof yelpBusinessSubscriptionsResponseSchema>;
 export type YelpWriteLeadEventRequestDto = z.infer<typeof yelpWriteLeadEventRequestSchema>;
 export type YelpMarkLeadEventAsReadRequestDto = z.infer<typeof yelpMarkLeadEventAsReadRequestSchema>;
 export type YelpMarkLeadAsRepliedRequestDto = z.infer<typeof yelpMarkLeadAsRepliedRequestSchema>;

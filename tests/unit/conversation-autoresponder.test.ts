@@ -56,6 +56,18 @@ describe("conversation autoresponder classification", () => {
     ).toBe("Can you help me?");
   });
 
+  it("extracts Yelp thread text from nested message objects", () => {
+    expect(
+      extractLeadConversationMessage({
+        event_content: {
+          message: {
+            text: "The unit is leaking again."
+          }
+        }
+      })
+    ).toBe("The unit is leaking again.");
+  });
+
   it("classifies pricing questions conservatively", () => {
     expect(
       classifyInboundConversationEvent({
@@ -261,6 +273,65 @@ describe("conversation autoresponder classification", () => {
     );
 
     expect(event?.eventKey).toBe("evt_followup");
+  });
+
+  it("trusts an exact webhook event id even when an initial reply was sent during the same sync", () => {
+    const event = findNextInboundConversationEvent(
+      {
+        events: [
+          {
+            eventKey: "lead_1:cursor_customer_2",
+            externalEventId: "cursor_customer_2",
+            eventType: "UNKNOWN_EVENT",
+            actorType: null,
+            isReply: false,
+            occurredAt: new Date("2026-04-14T08:04:00.000Z"),
+            payloadJson: {
+              cursor: "cursor_customer_2",
+              event_content: {
+                text: "The address is 123 Main St and the sink is leaking."
+              }
+            }
+          }
+        ],
+        conversationAutomationState: null
+      },
+      "cursor_customer_2",
+      {
+        after: new Date("2026-04-14T08:05:00.000Z")
+      }
+    );
+
+    expect(event?.eventKey).toBe("lead_1:cursor_customer_2");
+  });
+
+  it("does not treat disclosed automated Yelp messages with unknown actor as customer turns", () => {
+    const event = findNextInboundConversationEvent(
+      {
+        events: [
+          {
+            eventKey: "evt_auto",
+            externalEventId: "evt_auto",
+            eventType: "UNKNOWN_EVENT",
+            actorType: null,
+            isReply: false,
+            occurredAt: new Date("2026-04-14T08:10:00.000Z"),
+            payloadJson: {
+              event_content: {
+                text: "Irbishvac automated message from Plumbing Business Tester - Test\n\nThanks for reaching out."
+              }
+            }
+          }
+        ],
+        conversationAutomationState: null
+      },
+      null,
+      {
+        after: new Date("2026-04-14T08:05:00.000Z")
+      }
+    );
+
+    expect(event).toBeNull();
   });
 });
 

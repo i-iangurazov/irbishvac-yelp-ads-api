@@ -10,6 +10,30 @@ import {
 } from "@/lib/db/leads-repository";
 import type { YelpLeadsClient } from "@/lib/yelp/leads-client";
 
+const phoneSourceRank: Record<string, number> = {
+  NONE: 0,
+  MASKED: 1,
+  TEMPORARY: 2,
+  NESTED_DIRECT: 3,
+  LEGACY_DIRECT: 4,
+  UNMASKED: 5
+};
+
+function asRecord(value: unknown) {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function getMetadataString(value: unknown, key: string) {
+  const candidate = asRecord(value)[key];
+  return typeof candidate === "string" && candidate.trim().length > 0 ? candidate.trim() : null;
+}
+
+function getPhoneSourceRank(source: string | null) {
+  return source ? phoneSourceRank[source] ?? 0 : 0;
+}
+
 export function extractLeadIdsResponse(payload: YelpBusinessLeadIdsResponseDto) {
   if (Array.isArray(payload)) {
     return {
@@ -61,6 +85,31 @@ export async function syncLeadSnapshotFromYelp(params: {
     leadPayload: leadResponse.data,
     leadEventsPayload: leadEventsResponse.data
   });
+  const normalizedMetadata = asRecord(normalized.lead.metadataJson);
+  const existingMetadata = asRecord(existingLead?.metadataJson);
+  const incomingPhoneSource = getMetadataString(normalizedMetadata, "customerPhoneSource");
+  const existingPhoneSource = getMetadataString(existingMetadata, "customerPhoneSource");
+  const shouldKeepExistingPhone =
+    Boolean(existingLead?.customerPhone) &&
+    (!normalized.lead.customerPhone || getPhoneSourceRank(existingPhoneSource) > getPhoneSourceRank(incomingPhoneSource));
+  const persistedCustomerPhone = shouldKeepExistingPhone
+    ? existingLead?.customerPhone ?? null
+    : normalized.lead.customerPhone ?? null;
+  const phoneMetadata = shouldKeepExistingPhone
+    ? {
+        customerPhoneSource: existingPhoneSource ?? "UNKNOWN",
+        customerPhoneSourcePath: getMetadataString(existingMetadata, "customerPhoneSourcePath"),
+        customerPhoneVerifiedDirect: Boolean(asRecord(existingMetadata).customerPhoneVerifiedDirect),
+        customerPhoneExpiresAt: getMetadataString(existingMetadata, "customerPhoneExpiresAt"),
+        customerPhonePreservedFromPreviousSync: true
+      }
+    : {};
+  const phoneBecameAvailable = Boolean(persistedCustomerPhone && !existingLead?.customerPhone);
+  const phoneChanged = Boolean(
+    persistedCustomerPhone &&
+      existingLead?.customerPhone &&
+      persistedCustomerPhone !== existingLead.customerPhone
+  );
   const lead = await upsertLeadRecord(params.tenantId, params.leadId, {
     businessId: normalized.lead.businessId ?? params.business.id ?? null,
     locationId: existingLead?.locationId ?? params.business.locationId ?? null,
@@ -70,7 +119,7 @@ export async function syncLeadSnapshotFromYelp(params: {
     sourceSystem: "YELP",
     customerName: normalized.lead.customerName ?? null,
     customerEmail: normalized.lead.customerEmail ?? null,
-    customerPhone: normalized.lead.customerPhone ?? null,
+    customerPhone: persistedCustomerPhone,
     createdAtYelp: normalized.lead.createdAtYelp,
     latestInteractionAt: normalized.lead.latestInteractionAt ?? null,
     replyState: normalized.lead.replyState,
@@ -78,7 +127,14 @@ export async function syncLeadSnapshotFromYelp(params: {
     repliedAt: normalized.lead.repliedAt ?? null,
     internalStatus: existingLead?.internalStatus ?? "UNMAPPED",
     mappedServiceLabel: existingLead?.mappedServiceLabel ?? null,
-    metadataJson: normalized.lead.metadataJson as never,
+    metadataJson: {
+      ...existingMetadata,
+      ...normalizedMetadata,
+      ...phoneMetadata,
+      customerPhoneBecameAvailable: phoneBecameAvailable,
+      customerPhoneChanged: phoneChanged,
+      customerPhoneLastObservedAt: persistedCustomerPhone ? params.receivedAt.toISOString() : null
+    } as never,
     rawSnapshotJson: normalized.lead.rawSnapshotJson as never,
     firstSeenAt: existingLead?.firstSeenAt ?? params.receivedAt,
     lastSyncedAt: params.receivedAt
@@ -101,6 +157,8 @@ export async function syncLeadSnapshotFromYelp(params: {
   return {
     existingLead,
     lead,
-    normalizedEventCount: normalizedEvents.length
+    normalizedEventCount: normalizedEvents.length,
+    phoneBecameAvailable,
+    phoneChanged
   };
 }

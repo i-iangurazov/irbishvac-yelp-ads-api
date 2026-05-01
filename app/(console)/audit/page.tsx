@@ -110,6 +110,9 @@ export default async function AuditPage({
   const oldestPendingAgeMs = webhookOverview.oldestPending
     ? Date.now() - webhookOverview.oldestPending.receivedAt.getTime()
     : 0;
+  const oldestPendingReconcileAt =
+    webhookOverview.oldestPendingReconcile?.startedAt ?? webhookOverview.oldestPendingReconcile?.createdAt ?? null;
+  const oldestPendingReconcileAgeMs = oldestPendingReconcileAt ? Date.now() - oldestPendingReconcileAt.getTime() : 0;
 
   return (
     <div>
@@ -306,9 +309,14 @@ export default async function AuditPage({
           <CardDescription>Event-level intake status, backlog age, linked lead, and recovery context.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
             <MetricCard
-              title="Queued"
+              title="Accepted 24h"
+              value={webhookOverview.counts.acceptedLast24h}
+              description="Webhook deliveries accepted by the platform."
+            />
+            <MetricCard
+              title="Webhook backlog"
               value={webhookOverview.counts.queued}
               description={`${webhookOverview.counts.processing} currently processing`}
             />
@@ -323,9 +331,36 @@ export default async function AuditPage({
               description={`${webhookOverview.counts.failed} failed total, ${webhookOverview.counts.partial} partial total`}
             />
             <MetricCard
-              title="Completed"
+              title="Webhook completed"
               value={webhookOverview.counts.completed}
               description={`${webhookOverview.counts.skipped} skipped webhook events`}
+            />
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <MetricCard
+              title="Reconcile backlog"
+              value={webhookOverview.reconcileCounts.queued}
+              description={`${webhookOverview.reconcileCounts.processing} lead reconcile runs processing`}
+            />
+            <MetricCard
+              title="Oldest reconcile"
+              value={formatLagMinutes(oldestPendingReconcileAgeMs)}
+              description={
+                webhookOverview.oldestPendingReconcile
+                  ? `${webhookOverview.oldestPendingReconcile.type} is ${webhookOverview.oldestPendingReconcile.status.toLowerCase()}`
+                  : "No pending lead reconcile runs"
+              }
+            />
+            <MetricCard
+              title="Reconcile completed 24h"
+              value={webhookOverview.reconcileCounts.completedLast24h}
+              description={`${webhookOverview.reconcileCounts.completed} completed lead reconcile runs total`}
+            />
+            <MetricCard
+              title="Reconcile failed 24h"
+              value={webhookOverview.reconcileCounts.failedLast24h}
+              description={`${webhookOverview.reconcileCounts.failed} failed, ${webhookOverview.reconcileCounts.partial} partial total`}
             />
           </div>
 

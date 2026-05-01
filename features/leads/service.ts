@@ -8,11 +8,13 @@ import {
   getConversationRecommendedNextAction
 } from "@/features/autoresponder/conversation-service";
 import {
+  extractLeadConversationMessage,
   getLeadConversationRolloutState,
   humanizeLeadConversationDecision,
   humanizeLeadConversationIntent,
   humanizeLeadConversationMode,
-  humanizeLeadConversationStopReason
+  humanizeLeadConversationStopReason,
+  isCustomerConversationEvent
 } from "@/features/autoresponder/conversation";
 import { buildLeadAutomationHistory, buildLeadAutomationSummary } from "@/features/autoresponder/normalize";
 import { processLeadConversationAutomationForInboundMessage } from "@/features/autoresponder/conversation-service";
@@ -239,6 +241,56 @@ function getStringArrayMetadata(value: unknown, key: string) {
     : [];
 }
 
+function getDateMetadata(value: unknown, key: string) {
+  const candidate = getStringMetadata(value, key);
+  const parsed = candidate ? new Date(candidate) : null;
+  return parsed && !Number.isNaN(parsed.getTime()) ? parsed : null;
+}
+
+function humanizeLeadPhoneSource(value: string | null) {
+  switch (value) {
+    case "UNMASKED":
+      return "Yelp verified direct phone";
+    case "LEGACY_DIRECT":
+    case "NESTED_DIRECT":
+      return "Yelp direct phone";
+    case "TEMPORARY":
+      return "Yelp temporary phone";
+    case "MASKED":
+      return "Yelp masked phone";
+    case "NONE":
+    case null:
+      return "No phone from Yelp yet";
+    default:
+      return "Yelp phone";
+  }
+}
+
+function buildLeadContactSummary(lead: {
+  customerName: string | null;
+  customerEmail: string | null;
+  customerPhone: string | null;
+  metadataJson: unknown;
+}) {
+  const phoneSource = getStringMetadata(lead.metadataJson, "customerPhoneSource");
+  const phoneExpiresAt = getDateMetadata(lead.metadataJson, "customerPhoneExpiresAt");
+  const phoneBecameAvailable = getBooleanMetadata(lead.metadataJson, "customerPhoneBecameAvailable") ?? false;
+  const phoneChanged = getBooleanMetadata(lead.metadataJson, "customerPhoneChanged") ?? false;
+
+  return {
+    name: lead.customerName,
+    email: lead.customerEmail,
+    phone: lead.customerPhone,
+    phoneSource,
+    phoneSourceLabel: humanizeLeadPhoneSource(phoneSource),
+    phoneVerifiedDirect: getBooleanMetadata(lead.metadataJson, "customerPhoneVerifiedDirect") ?? false,
+    phoneExpiresAt,
+    phoneBecameAvailable,
+    phoneChanged,
+    phoneAvailabilityEvent: getBooleanMetadata(lead.metadataJson, "phoneAvailabilityEvent") ?? false
+  };
+}
+
 function humanizeConversationContentSource(value: string | null) {
   switch (value) {
     case "AI":
@@ -304,6 +356,158 @@ function buildConversationDecisionTrace(metadataJson: unknown, fallbackTemplateN
     operatorReviewRequired: getBooleanMetadata(reviewState, "operatorReviewRequired"),
     operatorEditStatus: getStringMetadata(reviewState, "operatorEditStatus"),
     decisionErrorSummary: getStringMetadata(decisionSummary, "errorSummary")
+  };
+}
+
+function excerptText(value: string | null | undefined, maxLength = 220) {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value.replace(/\s+/g, " ").trim();
+
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxLength - 3).trimEnd()}...`;
+}
+
+function buildLatestInboundConversationEventProof(lead: {
+  events: Array<{
+    eventKey: string;
+    externalEventId: string | null;
+    eventType: string;
+    actorType: string | null;
+    occurredAt: Date | null;
+    createdAt: Date;
+    isReply: boolean;
+    payloadJson: unknown;
+  }>;
+  conversationAutomationState: {
+    lastProcessedEventKey: string | null;
+    lastInboundAt: Date | null;
+  } | null;
+}) {
+  const latest = lead.events
+    .filter((event) => isCustomerConversationEvent(event))
+    .map((event) => ({
+      event,
+      messageText: extractLeadConversationMessage(event.payloadJson)
+    }))
+    .sort((left, right) => {
+      const leftTime = left.event.occurredAt?.getTime() ?? left.event.createdAt.getTime();
+      const rightTime = right.event.occurredAt?.getTime() ?? right.event.createdAt.getTime();
+      return rightTime - leftTime;
+    })[0];
+
+  if (!latest) {
+    return null;
+  }
+
+  const lastProcessedEventKey = lead.conversationAutomationState?.lastProcessedEventKey ?? null;
+  const lastInboundAt = lead.conversationAutomationState?.lastInboundAt ?? null;
+  const processedByKey = Boolean(lastProcessedEventKey && latest.event.eventKey === lastProcessedEventKey);
+  const processedByTime = Boolean(
+    !processedByKey &&
+      lastInboundAt &&
+      latest.event.occurredAt &&
+      latest.event.occurredAt.getTime() <= lastInboundAt.getTime()
+  );
+  const processedByAutomation = processedByKey || processedByTime;
+
+  return {
+    eventKey: latest.event.eventKey,
+    externalEventId: latest.event.externalEventId,
+    eventType: latest.event.eventType,
+    actorType: latest.event.actorType,
+    occurredAt: latest.event.occurredAt,
+    createdAt: latest.event.createdAt,
+    messageExcerpt: excerptText(latest.messageText),
+    hasMessageText: Boolean(latest.messageText),
+    processedByAutomation,
+    processingLabel: processedByAutomation ? "Already processed" : "Waiting for automation",
+    processingDetail: processedByKey
+      ? "This Yelp event key matches the last processed conversation event."
+      : processedByTime
+        ? "This Yelp event is not newer than the last processed inbound timestamp."
+        : "This looks newer than the last processed conversation event. The next reconcile should evaluate it."
+  };
+}
+
+function buildConversationProof(params: {
+  enabled: boolean;
+  paused: boolean;
+  latestInboundEvent: ReturnType<typeof buildLatestInboundConversationEventProof>;
+  latestTurn: {
+    sourceEventKey: string;
+    sourceExternalEventId: string | null;
+    decisionLabel: string;
+    stopReasonLabel: string | null;
+    createdAt: Date;
+    completedAt: Date | null;
+    renderedBody: string | null;
+    errorSummary: string | null;
+  } | null;
+  lastProcessedEventKey: string | null;
+  lastInboundAt: Date | null;
+}) {
+  if (params.paused) {
+    return {
+      diagnosticLabel: "Conversation automation paused",
+      diagnosticDetail: "New inbound customer messages stay with operators until the pause is removed.",
+      diagnosticTone: "warning" as const
+    };
+  }
+
+  if (!params.enabled) {
+    return {
+      diagnosticLabel: "Conversation automation off",
+      diagnosticDetail: "This lead scope is not configured to process follow-up customer messages automatically.",
+      diagnosticTone: "outline" as const
+    };
+  }
+
+  if (!params.latestInboundEvent) {
+    return {
+      diagnosticLabel: "No customer message event captured",
+      diagnosticDetail:
+        "Yelp intake is syncing leads, but no inbound customer thread message is stored for conversation automation yet.",
+      diagnosticTone: "warning" as const
+    };
+  }
+
+  if (!params.latestInboundEvent.hasMessageText) {
+    return {
+      diagnosticLabel: "Latest customer event has no message text",
+      diagnosticDetail:
+        "Yelp delivered a customer-side event, but the payload does not contain readable message text for AI classification.",
+      diagnosticTone: "warning" as const
+    };
+  }
+
+  if (!params.latestInboundEvent.processedByAutomation) {
+    return {
+      diagnosticLabel: "Latest customer message is unprocessed",
+      diagnosticDetail:
+        "The newest captured customer message has not been matched to a conversation automation decision yet.",
+      diagnosticTone: "warning" as const
+    };
+  }
+
+  if (params.latestTurn?.sourceEventKey === params.latestInboundEvent.eventKey) {
+    return {
+      diagnosticLabel: "Latest customer message processed",
+      diagnosticDetail: `Conversation automation handled this event as ${params.latestTurn.decisionLabel.toLowerCase()}.`,
+      diagnosticTone: params.latestTurn.errorSummary ? ("destructive" as const) : ("success" as const)
+    };
+  }
+
+  return {
+    diagnosticLabel: "No newer inbound message",
+    diagnosticDetail:
+      "The latest captured customer message is at or before the last processed inbound boundary.",
+    diagnosticTone: "outline" as const
   };
 }
 
@@ -560,6 +764,16 @@ async function processAutomationForSyncedLead(params: {
       leadId: params.lead.id,
       message: normalizedAutomationError.message
     });
+  }
+
+  if (initial?.status === "SENT") {
+    return {
+      initial,
+      conversation: {
+        processed: false,
+        reason: "INITIAL_RESPONSE_SENT"
+      }
+    };
   }
 
   try {
@@ -900,7 +1114,7 @@ async function processQueuedYelpLeadWebhookSyncRun(tenantId: string, syncRunId: 
       throw new YelpValidationError("The Yelp business is not saved in this console yet.");
     }
 
-    const { existingLead, lead, normalizedEventCount } = await syncLeadSnapshotFromYelp({
+    const { existingLead, lead, normalizedEventCount, phoneBecameAvailable, phoneChanged } = await syncLeadSnapshotFromYelp({
       tenantId: tenantContext.tenantId,
       business: {
         id: tenantContext.business.id,
@@ -943,12 +1157,16 @@ async function processQueuedYelpLeadWebhookSyncRun(tenantId: string, syncRunId: 
         ...existingStats,
         retryCount,
         normalizedEventCount,
+        phoneBecameAvailable,
+        phoneChanged,
         processingMs: Date.now() - processingStartedAt
       },
       responseJson: {
         leadId: update.leadId,
         localLeadId: lead.id,
-        normalizedEventCount
+        normalizedEventCount,
+        phoneBecameAvailable,
+        phoneChanged
       },
       errorSummary: null
     });
@@ -966,7 +1184,9 @@ async function processQueuedYelpLeadWebhookSyncRun(tenantId: string, syncRunId: 
       },
       responseSummary: {
         localLeadId: lead.id,
-        normalizedEventCount
+        normalizedEventCount,
+        phoneBecameAvailable,
+        phoneChanged
       },
       rawPayloadSummary: toJsonValue(update.raw)
     });
@@ -977,6 +1197,8 @@ async function processQueuedYelpLeadWebhookSyncRun(tenantId: string, syncRunId: 
       eventKey: webhookEvent.eventKey,
       localLeadId: lead.id,
       normalizedEventCount,
+      phoneBecameAvailable,
+      phoneChanged,
       processingMs: Date.now() - processingStartedAt
     });
     await recordWebhookReconcileMetric({
@@ -1910,6 +2132,7 @@ export async function getLeadsIndex(tenantId: string, rawFilters?: LeadFiltersIn
 
 export async function getLeadDetail(tenantId: string, leadId: string) {
   const lead = await getLeadRecordById(tenantId, leadId);
+  const contact = buildLeadContactSummary(lead);
   const timeline = buildLeadTimeline(lead.events);
   const processingIssues = lead.webhookEvents.filter((event) => event.status === "FAILED" || event.status === "PARTIAL");
   const latestWebhook = lead.webhookEvents[0] ?? null;
@@ -1989,6 +2212,7 @@ export async function getLeadDetail(tenantId: string, leadId: string) {
         modeLabel: humanizeLeadConversationMode(lead.conversationAutomationState.mode),
         automatedTurnCount: lead.conversationAutomationState.automatedTurnCount,
         lastAutomatedReplyAt: lead.conversationAutomationState.lastAutomatedReplyAt,
+        lastProcessedEventKey: lead.conversationAutomationState.lastProcessedEventKey,
         lastInboundAt: lead.conversationAutomationState.lastInboundAt,
         lastIntent: lead.conversationAutomationState.lastIntent,
         lastIntentLabel: lead.conversationAutomationState.lastIntent
@@ -2014,6 +2238,7 @@ export async function getLeadDetail(tenantId: string, leadId: string) {
         latestOperatorConversationActionAt.getTime() <= latestConversationTurn.createdAt.getTime())
   );
   const latestConversationIssue = linkedIssues.find((issue) => issue.issueType === "AUTORESPONDER_FAILURE") ?? null;
+  const latestInboundEventProof = buildLatestInboundConversationEventProof(lead);
   const conversationHistory = conversationTurns.map((turn) => {
     const decisionTrace = buildConversationDecisionTrace(turn.metadataJson, turn.template?.name ?? null);
 
@@ -2028,6 +2253,8 @@ export async function getLeadDetail(tenantId: string, leadId: string) {
       decision: turn.decision,
       decisionLabel: humanizeLeadConversationDecision(turn.decision),
       confidence: turn.confidence,
+      sourceEventKey: turn.sourceEventKey,
+      sourceExternalEventId: turn.sourceExternalEventId,
       stopReason: turn.stopReason,
       stopReasonLabel: turn.stopReason ? humanizeLeadConversationStopReason(turn.stopReason) : null,
       renderedSubject: turn.renderedSubject,
@@ -2042,9 +2269,38 @@ export async function getLeadDetail(tenantId: string, leadId: string) {
     conversationNeedsReview && latestConversationTurn?.decision === "REVIEW_ONLY" && latestConversationTurn.renderedBody
       ? conversationHistory.find((turn) => turn.id === latestConversationTurn.id) ?? null
       : null;
+  const latestConversationDecisionProof = latestConversationTurn
+    ? {
+        sourceEventKey: latestConversationTurn.sourceEventKey,
+        sourceExternalEventId: latestConversationTurn.sourceExternalEventId,
+        decisionLabel: humanizeLeadConversationDecision(latestConversationTurn.decision),
+        stopReasonLabel: latestConversationTurn.stopReason
+          ? humanizeLeadConversationStopReason(latestConversationTurn.stopReason)
+          : null,
+        createdAt: latestConversationTurn.createdAt,
+        completedAt: latestConversationTurn.completedAt,
+        renderedBody: latestConversationTurn.renderedBody,
+        errorSummary: latestConversationTurn.errorSummary
+      }
+    : null;
+  const conversationProof = {
+    ...buildConversationProof({
+      enabled: conversationPolicy.enabled,
+      paused: conversationPolicy.paused,
+      latestInboundEvent: latestInboundEventProof,
+      latestTurn: latestConversationDecisionProof,
+      lastProcessedEventKey: lead.conversationAutomationState?.lastProcessedEventKey ?? null,
+      lastInboundAt: lead.conversationAutomationState?.lastInboundAt ?? null
+    }),
+    latestInboundEvent: latestInboundEventProof,
+    latestDecision: latestConversationDecisionProof,
+    lastProcessedEventKey: lead.conversationAutomationState?.lastProcessedEventKey ?? null,
+    lastInboundAt: lead.conversationAutomationState?.lastInboundAt ?? null
+  };
 
   return {
     lead,
+    contact,
     timeline,
     crm,
     automationHistory,
@@ -2080,6 +2336,7 @@ export async function getLeadDetail(tenantId: string, leadId: string) {
           }
         : null
     },
+    conversationProof,
     conversationHistory,
     conversationSuggestion: conversationSuggestionTurn
       ? {

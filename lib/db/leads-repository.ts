@@ -166,7 +166,9 @@ export async function findLeadRecordByExternalLeadId(tenantId: string, externalL
       firstSeenAt: true,
       locationId: true,
       serviceCategoryId: true,
-      mappedServiceLabel: true
+      mappedServiceLabel: true,
+      customerPhone: true,
+      metadataJson: true
     }
   });
 }

@@ -65,6 +65,21 @@ export async function getBusinessById(id: string, tenantId: string) {
           conversationMode: true
         }
       },
+      leadAutomationAttempts: {
+        where: {
+          status: "SENT"
+        },
+        orderBy: [{ completedAt: "desc" }, { triggeredAt: "desc" }],
+        take: 1,
+        select: {
+          id: true,
+          cadence: true,
+          channel: true,
+          completedAt: true,
+          triggeredAt: true,
+          providerMessageId: true
+        }
+      },
       reportSchedules: {
         orderBy: { updatedAt: "desc" },
         take: 5,

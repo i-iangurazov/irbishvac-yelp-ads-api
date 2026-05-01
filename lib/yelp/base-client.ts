@@ -71,6 +71,10 @@ function resolveApiFamily(pathname: string) {
     return "leads.api_requests";
   }
 
+  if (pathname === "/v3/businesses/subscriptions" || /^\/v3\/businesses\/subscriptions\/[^/]+\/quota$/.test(pathname)) {
+    return "business_subscriptions.api_requests";
+  }
+
   if (pathname.startsWith("/v1/reporting") || pathname.startsWith("/v1/reports")) {
     return "reporting.api_requests";
   }

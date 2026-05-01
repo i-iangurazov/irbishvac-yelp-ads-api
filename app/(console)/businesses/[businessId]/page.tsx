@@ -2,6 +2,8 @@ import Link from "next/link";
 import type { Route } from "next";
 
 import { BusinessDeleteForm } from "@/components/forms/business-delete-form";
+import { BusinessYelpLeadsCheckButton } from "@/components/forms/business-yelp-leads-check-button";
+import { BusinessYelpSubscriptionActions } from "@/components/forms/business-yelp-subscription-actions";
 import { YelpSyncButton } from "@/components/forms/yelp-sync-button";
 import { AuditTimeline } from "@/components/shared/audit-timeline";
 import { PageHeader } from "@/components/shared/page-header";
@@ -12,7 +14,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getBusinessDetail } from "@/features/businesses/service";
 import { requireUser } from "@/lib/auth/service";
-import { formatCurrency, titleCase } from "@/lib/utils/format";
+import { hasPermission } from "@/lib/permissions";
+import { formatCurrency, formatDateTime, titleCase } from "@/lib/utils/format";
 import { formatYelpCategory } from "@/lib/yelp/categories";
 
 const eligibilityVariantMap = {
@@ -31,6 +34,7 @@ export default async function BusinessDetailPage({ params }: { params: Promise<{
   const user = await requireUser();
   const { businessId } = await params;
   const business = await getBusinessDetail(user.tenantId, businessId);
+  const canManageBusinesses = hasPermission(user.role.code, "businesses:write");
   const hasBlockingPrograms = business.programs.some((program) =>
     ["ACTIVE", "SCHEDULED", "QUEUED", "PROCESSING"].includes(program.status)
   );
@@ -121,6 +125,79 @@ export default async function BusinessDetailPage({ params }: { params: Promise<{
 
       <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
         <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <CardTitle>Yelp Leads onboarding</CardTitle>
+                  <CardDescription>Use this before adding the business to live lead intake or autoresponder scope.</CardDescription>
+                </div>
+                <StatusChip status={business.yelpLeadOnboarding.status} />
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm">
+                <div className="font-medium">{business.yelpLeadOnboarding.label}</div>
+                <div className="mt-1 text-muted-foreground">{business.yelpLeadOnboarding.detail}</div>
+                <div className="mt-2 text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Next action</div>
+                <div className="mt-1">{business.yelpLeadOnboarding.nextAction}</div>
+              </div>
+              {canManageBusinesses ? (
+                <div className="flex flex-wrap gap-2">
+                  <BusinessYelpLeadsCheckButton businessId={business.id} disabled={!business.encryptedYelpBusinessId} />
+                  <BusinessYelpSubscriptionActions
+                    businessId={business.id}
+                    disabled={!business.encryptedYelpBusinessId}
+                  />
+                </div>
+              ) : null}
+              <div className="grid gap-3 md:grid-cols-2">
+                {business.yelpLeadOnboarding.steps.map((step) => (
+                  <div className="rounded-lg border border-border/80 bg-background p-3" key={step.id}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-medium">{step.label}</div>
+                        <div className="mt-1 text-sm text-muted-foreground">{step.value}</div>
+                      </div>
+                      <StatusChip status={step.status} />
+                    </div>
+                    <div className="mt-2 text-xs leading-5 text-muted-foreground">{step.detail}</div>
+                    {step.href ? (
+                      <Link className="mt-2 inline-flex text-xs font-medium hover:underline" href={step.href as Route}>
+                        Open
+                      </Link>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+              <div className="rounded-lg border border-border/80 bg-background">
+                <div className="border-b border-border px-4 py-3">
+                  <div className="text-sm font-semibold">Connection proof</div>
+                  <div className="text-xs text-muted-foreground">Last recorded evidence for intake, sync, and thread delivery.</div>
+                </div>
+                <div className="divide-y divide-border">
+                  {business.yelpConnectionProofTrail.map((proof) => (
+                    <div className="grid gap-3 px-4 py-3 text-sm md:grid-cols-[180px_1fr_auto]" key={proof.id}>
+                      <div>
+                        <div className="font-medium">{proof.label}</div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          {proof.occurredAt ? formatDateTime(proof.occurredAt) : "No timestamp"}
+                        </div>
+                      </div>
+                      <div>
+                        <div>{proof.value}</div>
+                        <div className="mt-1 text-xs leading-5 text-muted-foreground">{proof.detail}</div>
+                      </div>
+                      <div className="md:justify-self-end">
+                        <StatusChip status={proof.status} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle>Launch readiness</CardTitle>
