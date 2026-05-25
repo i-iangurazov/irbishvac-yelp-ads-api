@@ -27,6 +27,9 @@ const variantMap: Record<string, Parameters<typeof Badge>[0]["variant"]> = {
   MANUAL_OVERRIDE: "warning",
   CONFLICT: "destructive",
   ERROR: "destructive",
+  MIGRATED: "warning",
+  NOT_FOUND: "destructive",
+  NO_ACCESS: "warning",
   OPEN: "warning",
   RESOLVED: "success",
   IGNORED: "outline",
@@ -51,7 +54,7 @@ const variantMap: Record<string, Parameters<typeof Badge>[0]["variant"]> = {
   UNKNOWN: "outline",
   UNREAD: "warning",
   READ: "secondary",
-  REPLIED: "success"
+  REPLIED: "success",
 };
 
 const labelMap: Record<string, string> = {
@@ -79,6 +82,9 @@ const labelMap: Record<string, string> = {
   MANUAL_OVERRIDE: "Manual override",
   CONFLICT: "Conflict",
   ERROR: "Error",
+  MIGRATED: "Migrated",
+  NOT_FOUND: "Not found",
+  NO_ACCESS: "No access",
   OPEN: "Open",
   RESOLVED: "Resolved",
   IGNORED: "Ignored",
@@ -103,9 +109,16 @@ const labelMap: Record<string, string> = {
   UNKNOWN: "Unknown",
   UNREAD: "Unread",
   READ: "Read",
-  REPLIED: "Replied"
+  REPLIED: "Replied",
 };
 
 export function StatusChip({ status }: { status: string }) {
-  return <Badge className="whitespace-nowrap" variant={variantMap[status] ?? "outline"}>{labelMap[status] ?? titleCase(status)}</Badge>;
+  return (
+    <Badge
+      className="whitespace-nowrap"
+      variant={variantMap[status] ?? "outline"}
+    >
+      {labelMap[status] ?? titleCase(status)}
+    </Badge>
+  );
 }

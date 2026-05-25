@@ -1,12 +1,18 @@
 import type { ReactNode } from "react";
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 
 export function MetricCard({
   title,
   value,
   description,
-  icon
+  icon,
 }: {
   title: string;
   value: ReactNode;
@@ -20,11 +26,19 @@ export function MetricCard({
           <CardDescription className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground/90">
             {title}
           </CardDescription>
-          <CardTitle className="mt-2 text-2xl font-semibold tracking-tight">{value}</CardTitle>
+          <CardTitle className="mt-2 text-2xl font-semibold tracking-tight">
+            {value}
+          </CardTitle>
         </div>
-        {icon ? <div className="rounded-lg bg-background/80 p-2">{icon}</div> : null}
+        {icon ? (
+          <div className="rounded-lg bg-background/80 p-2">{icon}</div>
+        ) : null}
       </CardHeader>
-      {description ? <CardContent className="px-4 pb-4 pt-0 text-xs leading-4 text-muted-foreground">{description}</CardContent> : null}
+      {description ? (
+        <CardContent className="px-4 pb-4 pt-0 text-xs leading-4 text-muted-foreground">
+          {description}
+        </CardContent>
+      ) : null}
     </Card>
   );
 }

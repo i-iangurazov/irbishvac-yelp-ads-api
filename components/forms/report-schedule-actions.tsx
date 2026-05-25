@@ -6,7 +6,11 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/lib/utils/client-api";
 
-export function ReportScheduleGenerateButton({ scheduleId }: { scheduleId: string }) {
+export function ReportScheduleGenerateButton({
+  scheduleId,
+}: {
+  scheduleId: string;
+}) {
   const router = useRouter();
 
   return (
@@ -16,12 +20,16 @@ export function ReportScheduleGenerateButton({ scheduleId }: { scheduleId: strin
       onClick={async () => {
         try {
           await apiFetch(`/api/reports/schedules/${scheduleId}/generate`, {
-            method: "POST"
+            method: "POST",
           });
           toast.success("Schedule run queued.");
           router.refresh();
         } catch (error) {
-          toast.error(error instanceof Error ? error.message : "Unable to queue the schedule.");
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : "Unable to queue the schedule.",
+          );
         }
       }}
     >
@@ -40,12 +48,16 @@ export function ReportScheduleResendButton({ runId }: { runId: string }) {
       onClick={async () => {
         try {
           await apiFetch(`/api/reports/runs/${runId}/resend`, {
-            method: "POST"
+            method: "POST",
           });
           toast.success("Report delivery retried.");
           router.refresh();
         } catch (error) {
-          toast.error(error instanceof Error ? error.message : "Unable to resend this run.");
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : "Unable to resend this run.",
+          );
         }
       }}
     >

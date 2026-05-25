@@ -5,14 +5,25 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
-import { getBulkActionAvailability, formatBulkActionSummary, type BulkIssueAction } from "@/features/issues/bulk";
+import {
+  getBulkActionAvailability,
+  formatBulkActionSummary,
+  type BulkIssueAction,
+} from "@/features/issues/bulk";
 import { apiFetch } from "@/lib/utils/client-api";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { StatusChip } from "@/components/shared/status-chip";
 
 type OperatorQueueIssueRow = {
@@ -45,13 +56,15 @@ type BulkActionResponse = {
 };
 
 export function OperatorIssuesTable({
-  issues
+  issues,
 }: {
   issues: OperatorQueueIssueRow[];
 }) {
   const router = useRouter();
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [activeAction, setActiveAction] = useState<BulkIssueAction | null>(null);
+  const [activeAction, setActiveAction] = useState<BulkIssueAction | null>(
+    null,
+  );
   const [reason, setReason] = useState("");
   const [note, setNote] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -60,7 +73,7 @@ export function OperatorIssuesTable({
   const issueIdsKey = useMemo(() => issueIds.join(","), [issueIds]);
   const selectedIssues = useMemo(
     () => issues.filter((issue) => selectedIds.includes(issue.id)),
-    [issues, selectedIds]
+    [issues, selectedIds],
   );
   const availability = useMemo(
     () =>
@@ -69,10 +82,10 @@ export function OperatorIssuesTable({
           id: issue.id,
           status: issue.status as "OPEN" | "RESOLVED" | "IGNORED",
           retryable: issue.retryable,
-          actionable: issue.actionable
-        }))
+          actionable: issue.actionable,
+        })),
       ),
-    [selectedIssues]
+    [selectedIssues],
   );
 
   useEffect(() => {
@@ -83,7 +96,8 @@ export function OperatorIssuesTable({
   }, [issueIdsKey]);
 
   const allSelected = issues.length > 0 && selectedIds.length === issues.length;
-  const someSelected = selectedIds.length > 0 && selectedIds.length < issues.length;
+  const someSelected =
+    selectedIds.length > 0 && selectedIds.length < issues.length;
 
   function toggleAll(checked: boolean | "indeterminate") {
     setSelectedIds(checked === true ? issueIds : []);
@@ -110,7 +124,10 @@ export function OperatorIssuesTable({
       return;
     }
 
-    if ((action === "resolve" || action === "ignore") && reason.trim().length < 2) {
+    if (
+      (action === "resolve" || action === "ignore") &&
+      reason.trim().length < 2
+    ) {
       toast.error("Add a reason before applying the bulk action.");
       return;
     }
@@ -131,21 +148,21 @@ export function OperatorIssuesTable({
           ...(action === "resolve" || action === "ignore"
             ? {
                 reason,
-                note
+                note,
               }
             : action === "note"
               ? {
-                  note
+                  note,
                 }
-              : {})
-        })
+              : {}),
+        }),
       });
 
       const summary = formatBulkActionSummary({
         action: result.action,
         succeeded: result.succeeded,
         failed: result.failed,
-        skipped: result.skipped
+        skipped: result.skipped,
       });
 
       if (result.failed > 0) {
@@ -158,7 +175,11 @@ export function OperatorIssuesTable({
       resetActionState();
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to apply the bulk action.");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to apply the bulk action.",
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -167,11 +188,16 @@ export function OperatorIssuesTable({
   return (
     <div className="space-y-4">
       {availability.selectedCount > 0 ? (
-        <div className="space-y-4 rounded-2xl border border-border/80 bg-muted/10 p-4">
+        <div className="space-y-4 rounded-lg border border-border/80 bg-muted/10 p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="text-sm">
-              <span className="font-medium">{availability.selectedCount} selected</span>
-              <span className="text-muted-foreground"> from the current filtered queue</span>
+              <span className="font-medium">
+                {availability.selectedCount} selected
+              </span>
+              <span className="text-muted-foreground">
+                {" "}
+                from the current filtered queue
+              </span>
             </div>
             <button
               className="text-sm font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
@@ -222,7 +248,7 @@ export function OperatorIssuesTable({
           </div>
 
           {activeAction ? (
-            <div className="grid gap-3 rounded-2xl border border-border/80 bg-background p-4 md:grid-cols-[1fr_auto] md:items-end">
+            <div className="grid gap-3 rounded-lg border border-border/80 bg-background p-4 md:grid-cols-[1fr_auto] md:items-end">
               <div className="space-y-3">
                 <div className="text-sm font-medium">
                   {activeAction === "retry"
@@ -236,18 +262,25 @@ export function OperatorIssuesTable({
 
                 {activeAction === "retry" ? (
                   <div className="text-sm text-muted-foreground">
-                    Retry will run only for retryable open issues in this selection. Other rows will be skipped automatically.
+                    Retry will run only for retryable open issues in this
+                    selection. Other rows will be skipped automatically.
                   </div>
                 ) : null}
 
-                {(activeAction === "resolve" || activeAction === "ignore") ? (
+                {activeAction === "resolve" || activeAction === "ignore" ? (
                   <div className="grid gap-3 md:grid-cols-2">
                     <div className="space-y-1">
-                      <Label htmlFor={`bulk-${activeAction}-reason`}>Reason</Label>
+                      <Label htmlFor={`bulk-${activeAction}-reason`}>
+                        Reason
+                      </Label>
                       <Input
                         id={`bulk-${activeAction}-reason`}
                         onChange={(event) => setReason(event.target.value)}
-                        placeholder={activeAction === "resolve" ? "Handled in connector workspace" : "Known low-priority issue"}
+                        placeholder={
+                          activeAction === "resolve"
+                            ? "Handled in connector workspace"
+                            : "Known low-priority issue"
+                        }
                         value={reason}
                       />
                     </div>
@@ -279,10 +312,19 @@ export function OperatorIssuesTable({
               </div>
 
               <div className="flex flex-wrap gap-2">
-                <Button disabled={isSubmitting} onClick={() => submitBulkAction(activeAction)} type="button">
+                <Button
+                  disabled={isSubmitting}
+                  onClick={() => submitBulkAction(activeAction)}
+                  type="button"
+                >
                   {isSubmitting ? "Applying..." : "Apply"}
                 </Button>
-                <Button disabled={isSubmitting} onClick={resetActionState} type="button" variant="ghost">
+                <Button
+                  disabled={isSubmitting}
+                  onClick={resetActionState}
+                  type="button"
+                  variant="ghost"
+                >
                   Cancel
                 </Button>
               </div>
@@ -297,7 +339,9 @@ export function OperatorIssuesTable({
             <TableHead className="w-12">
               <Checkbox
                 aria-label="Select all filtered issues"
-                checked={allSelected ? true : someSelected ? "indeterminate" : false}
+                checked={
+                  allSelected ? true : someSelected ? "indeterminate" : false
+                }
                 onCheckedChange={toggleAll}
               />
             </TableHead>
@@ -314,43 +358,64 @@ export function OperatorIssuesTable({
             const selected = selectedIds.includes(issue.id);
 
             return (
-              <TableRow className={selected ? "bg-muted/20" : undefined} key={issue.id}>
+              <TableRow
+                className={selected ? "bg-muted/20" : undefined}
+                key={issue.id}
+              >
                 <TableCell className="w-12">
                   <Checkbox
                     aria-label={`Select ${issue.typeLabel}`}
                     checked={selected}
-                    onCheckedChange={(checked) => toggleIssue(issue.id, checked)}
+                    onCheckedChange={(checked) =>
+                      toggleIssue(issue.id, checked)
+                    }
                   />
                 </TableCell>
                 <TableCell>
-                  <Link className="font-medium hover:underline" href={`/audit/issues/${issue.id}`}>
+                  <Link
+                    className="font-medium hover:underline"
+                    href={`/audit/issues/${issue.id}`}
+                  >
                     {issue.typeLabel}
                   </Link>
-                  <div className="max-w-[24rem] text-xs text-muted-foreground">{issue.summary}</div>
+                  <div className="max-w-[24rem] text-xs text-muted-foreground">
+                    {issue.summary}
+                  </div>
                 </TableCell>
                 <TableCell>
                   <div>{issue.businessName}</div>
-                  <div className="text-xs text-muted-foreground">{issue.targetLabel}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {issue.targetLabel}
+                  </div>
                 </TableCell>
                 <TableCell>
                   <StatusChip status={issue.severity} />
                 </TableCell>
                 <TableCell>
                   <div>{issue.firstDetectedLabel}</div>
-                  <div className="text-xs text-muted-foreground">Last seen {issue.lastDetectedLabel}</div>
+                  <div className="text-xs text-muted-foreground">
+                    Last seen {issue.lastDetectedLabel}
+                  </div>
                 </TableCell>
                 <TableCell>
                   <StatusChip status={issue.status} />
                 </TableCell>
                 <TableCell>
                   {issue.retryable && issue.actionable ? (
-                    <span className="text-xs text-muted-foreground">{issue.retryLabel}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {issue.retryLabel}
+                    </span>
                   ) : issue.remapHref ? (
-                    <Link className="text-sm font-medium hover:underline" href={issue.remapHref as `/leads/${string}`}>
+                    <Link
+                      className="text-sm font-medium hover:underline"
+                      href={issue.remapHref as `/leads/${string}`}
+                    >
                       Remap in lead workspace
                     </Link>
                   ) : (
-                    <span className="text-xs text-muted-foreground">Review detail</span>
+                    <span className="text-xs text-muted-foreground">
+                      Review detail
+                    </span>
                   )}
                 </TableCell>
               </TableRow>

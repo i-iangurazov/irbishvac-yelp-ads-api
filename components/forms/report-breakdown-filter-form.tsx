@@ -6,7 +6,7 @@ export function ReportBreakdownFilterForm({
   reportId,
   values,
   locations,
-  serviceCategories
+  serviceCategories,
 }: {
   reportId: string;
   values: {
@@ -24,12 +24,15 @@ export function ReportBreakdownFilterForm({
   return (
     <form
       action={`/reporting/${reportId}`}
-      className="grid gap-4 rounded-[1.6rem] border border-border/80 bg-muted/10 p-5 md:grid-cols-2 2xl:grid-cols-[0.9fr_0.9fr_0.9fr_0.9fr_0.8fr_0.8fr_auto_auto]"
+      className="grid gap-4 rounded-lg border border-border/80 bg-muted/10 p-5 md:grid-cols-2 2xl:grid-cols-[0.9fr_0.9fr_0.9fr_0.9fr_0.8fr_0.8fr_auto_auto]"
     >
       <input name="view" type="hidden" value={values.view} />
 
       <div className="space-y-1">
-        <label className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground" htmlFor="locationId">
+        <label
+          className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground"
+          htmlFor="locationId"
+        >
           Location
         </label>
         <select
@@ -49,7 +52,10 @@ export function ReportBreakdownFilterForm({
       </div>
 
       <div className="space-y-1">
-        <label className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground" htmlFor="serviceCategoryId">
+        <label
+          className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground"
+          htmlFor="serviceCategoryId"
+        >
           Service
         </label>
         <select
@@ -69,14 +75,20 @@ export function ReportBreakdownFilterForm({
       </div>
 
       <div className="space-y-1">
-        <label className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground" htmlFor="from">
+        <label
+          className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground"
+          htmlFor="from"
+        >
           From
         </label>
         <Input defaultValue={values.from} id="from" name="from" type="date" />
       </div>
 
       <div className="space-y-1">
-        <label className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground" htmlFor="to">
+        <label
+          className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground"
+          htmlFor="to"
+        >
           To
         </label>
         <Input defaultValue={values.to} id="to" name="to" type="date" />

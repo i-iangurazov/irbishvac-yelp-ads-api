@@ -4,13 +4,19 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { apiFetch } from "@/lib/utils/client-api";
 
 export function ConnectorLocationReferenceForm({
   locationId,
   defaultReferenceId,
-  options
+  options,
 }: {
   locationId: string;
   defaultReferenceId: string | null;
@@ -26,12 +32,16 @@ export function ConnectorLocationReferenceForm({
         method: "POST",
         body: JSON.stringify({
           locationId,
-          externalCrmLocationId: value === "unassigned" ? "" : value
-        })
+          externalCrmLocationId: value === "unassigned" ? "" : value,
+        }),
       });
       toast.success("Location reference saved.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to save ServiceTitan location reference.");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to save ServiceTitan location reference.",
+      );
     } finally {
       setIsSaving(false);
     }
@@ -52,10 +62,15 @@ export function ConnectorLocationReferenceForm({
           ))}
         </SelectContent>
       </Select>
-      <Button type="button" variant="outline" size="sm" onClick={save} disabled={isSaving}>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={save}
+        disabled={isSaving}
+      >
         {isSaving ? "Saving..." : "Save"}
       </Button>
     </div>
   );
 }
-

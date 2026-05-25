@@ -6,11 +6,21 @@ import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { featureCatalog, featureFormSchema, type FeatureFormValues } from "@/features/program-features/schemas";
+import {
+  featureCatalog,
+  featureFormSchema,
+  type FeatureFormValues,
+} from "@/features/program-features/schemas";
 import { apiFetch } from "@/lib/utils/client-api";
 
 function parseList(input: string) {
@@ -24,7 +34,11 @@ function parseBoolean(input: unknown) {
   return String(input).toLowerCase() === "true";
 }
 
-function buildFeaturePayload(featureType: keyof typeof featureCatalog, values: FeatureFormValues, state: { keywords: string; highlights: string; itemIds: string }) {
+function buildFeaturePayload(
+  featureType: keyof typeof featureCatalog,
+  values: FeatureFormValues,
+  state: { keywords: string; highlights: string; itemIds: string },
+) {
   switch (featureType) {
     case "NEGATIVE_KEYWORD_TARGETING":
       return { type: featureType, keywords: parseList(state.keywords) };
@@ -32,20 +46,29 @@ function buildFeaturePayload(featureType: keyof typeof featureCatalog, values: F
       return {
         type: featureType,
         enabled: parseBoolean((values as Record<string, unknown>).enabled),
-        categories: parseList(String((values as Record<string, unknown>).categories ?? ""))
+        categories: parseList(
+          String((values as Record<string, unknown>).categories ?? ""),
+        ),
       };
     case "AD_SCHEDULING":
       return {
         type: featureType,
-        schedule: JSON.parse(String((values as Record<string, unknown>).schedule ?? "[]"))
+        schedule: JSON.parse(
+          String((values as Record<string, unknown>).schedule ?? "[]"),
+        ),
       };
     case "CUSTOM_LOCATION_TARGETING":
       return {
         type: featureType,
-        neighborhoods: parseList(String((values as Record<string, unknown>).neighborhoods ?? ""))
+        neighborhoods: parseList(
+          String((values as Record<string, unknown>).neighborhoods ?? ""),
+        ),
       };
     case "CALL_TRACKING":
-      return { type: featureType, enabled: parseBoolean((values as Record<string, unknown>).enabled) };
+      return {
+        type: featureType,
+        enabled: parseBoolean((values as Record<string, unknown>).enabled),
+      };
     case "BUSINESS_HIGHLIGHTS":
       return { type: featureType, highlights: parseList(state.highlights) };
     case "YELP_PORTFOLIO":
@@ -58,7 +81,7 @@ function buildFeaturePayload(featureType: keyof typeof featureCatalog, values: F
 export function FeatureFormCard({
   programId,
   featureType,
-  initialValue
+  initialValue,
 }: {
   programId: string;
   featureType: keyof typeof featureCatalog;
@@ -66,38 +89,52 @@ export function FeatureFormCard({
 }) {
   const router = useRouter();
   const [keywords, setKeywords] = useState(
-    Array.isArray(initialValue?.keywords) ? (initialValue?.keywords as string[]).join(", ") : ""
+    Array.isArray(initialValue?.keywords)
+      ? (initialValue?.keywords as string[]).join(", ")
+      : "",
   );
   const [highlights, setHighlights] = useState(
-    Array.isArray(initialValue?.highlights) ? (initialValue?.highlights as string[]).join(", ") : ""
+    Array.isArray(initialValue?.highlights)
+      ? (initialValue?.highlights as string[]).join(", ")
+      : "",
   );
   const [itemIds, setItemIds] = useState(
-    Array.isArray(initialValue?.itemIds) ? (initialValue?.itemIds as string[]).join(", ") : ""
+    Array.isArray(initialValue?.itemIds)
+      ? (initialValue?.itemIds as string[]).join(", ")
+      : "",
   );
-  const { register, handleSubmit, formState: { isSubmitting } } = useForm<Record<string, unknown>>({
+  const {
+    register,
+    handleSubmit,
+    formState: { isSubmitting },
+  } = useForm<Record<string, unknown>>({
     defaultValues: {
       type: featureType,
-      ...(initialValue ?? {})
-    }
+      ...(initialValue ?? {}),
+    },
   });
 
   const submit = handleSubmit(async (values) => {
     try {
-      const payload = featureFormSchema.parse(buildFeaturePayload(featureType, values as FeatureFormValues, {
-        keywords,
-        highlights,
-        itemIds
-      }));
+      const payload = featureFormSchema.parse(
+        buildFeaturePayload(featureType, values as FeatureFormValues, {
+          keywords,
+          highlights,
+          itemIds,
+        }),
+      );
 
       await apiFetch(`/api/programs/${programId}/features`, {
         method: "PUT",
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
       });
 
       toast.success(`${featureCatalog[featureType].label} updated.`);
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to update feature.");
+      toast.error(
+        error instanceof Error ? error.message : "Unable to update feature.",
+      );
     }
   });
 
@@ -105,12 +142,14 @@ export function FeatureFormCard({
     try {
       await apiFetch(`/api/programs/${programId}/features`, {
         method: "DELETE",
-        body: JSON.stringify({ featureType })
+        body: JSON.stringify({ featureType }),
       });
       toast.success(`${featureCatalog[featureType].label} deleted.`);
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to delete feature.");
+      toast.error(
+        error instanceof Error ? error.message : "Unable to delete feature.",
+      );
     }
   };
 
@@ -119,7 +158,8 @@ export function FeatureFormCard({
       <CardHeader>
         <CardTitle>{featureCatalog[featureType].label}</CardTitle>
         <CardDescription>
-          {featureCatalog[featureType].description} Example: {featureCatalog[featureType].example}
+          {featureCatalog[featureType].description} Example:{" "}
+          {featureCatalog[featureType].example}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -142,7 +182,10 @@ export function FeatureFormCard({
           {featureType === "NEGATIVE_KEYWORD_TARGETING" ? (
             <div className="space-y-2">
               <Label>Blocked keywords</Label>
-              <Textarea value={keywords} onChange={(event) => setKeywords(event.target.value)} />
+              <Textarea
+                value={keywords}
+                onChange={(event) => setKeywords(event.target.value)}
+              />
             </div>
           ) : null}
 
@@ -150,7 +193,10 @@ export function FeatureFormCard({
             <>
               <div className="space-y-2">
                 <Label>Enabled</Label>
-                <Input placeholder="true or false" {...register("enabled" as never)} />
+                <Input
+                  placeholder="true or false"
+                  {...register("enabled" as never)}
+                />
               </div>
               <div className="space-y-2">
                 <Label>Categories (comma separated)</Label>
@@ -162,14 +208,20 @@ export function FeatureFormCard({
           {featureType === "AD_SCHEDULING" ? (
             <div className="space-y-2">
               <Label>Schedule JSON</Label>
-              <Textarea {...register("schedule" as never)} placeholder='[{"dayOfWeek":"MON","startTime":"08:00","endTime":"18:00"}]' />
+              <Textarea
+                {...register("schedule" as never)}
+                placeholder='[{"dayOfWeek":"MON","startTime":"08:00","endTime":"18:00"}]'
+              />
             </div>
           ) : null}
 
           {featureType === "CUSTOM_LOCATION_TARGETING" ? (
             <div className="space-y-2">
               <Label>Neighborhoods</Label>
-              <Input {...register("neighborhoods" as never)} placeholder="SoMa, Mission, Pacific Heights" />
+              <Input
+                {...register("neighborhoods" as never)}
+                placeholder="SoMa, Mission, Pacific Heights"
+              />
             </div>
           ) : null}
 
@@ -183,14 +235,20 @@ export function FeatureFormCard({
           {featureType === "CALL_TRACKING" ? (
             <div className="space-y-2">
               <Label>Enabled</Label>
-              <Input {...register("enabled" as never)} placeholder="true or false" />
+              <Input
+                {...register("enabled" as never)}
+                placeholder="true or false"
+              />
             </div>
           ) : null}
 
           {featureType === "BUSINESS_HIGHLIGHTS" ? (
             <div className="space-y-2">
               <Label>Highlights</Label>
-              <Textarea value={highlights} onChange={(event) => setHighlights(event.target.value)} />
+              <Textarea
+                value={highlights}
+                onChange={(event) => setHighlights(event.target.value)}
+              />
             </div>
           ) : null}
 
@@ -210,7 +268,10 @@ export function FeatureFormCard({
           {featureType === "CUSTOM_RADIUS_TARGETING" ? (
             <div className="space-y-2">
               <Label>Radius miles</Label>
-              <Input type="number" {...register("radiusMiles" as never, { valueAsNumber: true })} />
+              <Input
+                type="number"
+                {...register("radiusMiles" as never, { valueAsNumber: true })}
+              />
             </div>
           ) : null}
 
@@ -254,7 +315,10 @@ export function FeatureFormCard({
           {featureType === "YELP_PORTFOLIO" ? (
             <div className="space-y-2">
               <Label>Portfolio item IDs</Label>
-              <Textarea value={itemIds} onChange={(event) => setItemIds(event.target.value)} />
+              <Textarea
+                value={itemIds}
+                onChange={(event) => setItemIds(event.target.value)}
+              />
             </div>
           ) : null}
 

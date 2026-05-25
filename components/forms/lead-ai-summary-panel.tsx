@@ -6,7 +6,13 @@ import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { apiFetch } from "@/lib/utils/client-api";
 
 type LeadAiSummaryResponse = {
@@ -31,7 +37,7 @@ type LeadAiSummaryResponse = {
 export function LeadAiSummaryPanel({
   leadId,
   canGenerate,
-  modelLabel
+  modelLabel,
 }: {
   leadId: string;
   canGenerate: boolean;
@@ -49,22 +55,31 @@ export function LeadAiSummaryPanel({
     setIsGenerating(true);
 
     try {
-      const result = await apiFetch<LeadAiSummaryResponse>(`/api/leads/${leadId}/summary`, {
-        method: "POST",
-        body: JSON.stringify({
-          refresh
-        })
-      });
+      const result = await apiFetch<LeadAiSummaryResponse>(
+        `/api/leads/${leadId}/summary`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            refresh,
+          }),
+        },
+      );
 
       setSummary(result);
 
       if (result.needsHumanReview || result.warnings.length > 0) {
         toast.warning("AI summary generated with review warnings.");
       } else {
-        toast.success(refresh ? "AI lead summary refreshed." : "AI lead summary generated.");
+        toast.success(
+          refresh ? "AI lead summary refreshed." : "AI lead summary generated.",
+        );
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to generate the AI lead summary.");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to generate the AI lead summary.",
+      );
     } finally {
       setIsGenerating(false);
     }
@@ -82,8 +97,8 @@ export function LeadAiSummaryPanel({
         method: "POST",
         body: JSON.stringify({
           requestId: summary.requestId,
-          action: "DISMISSED"
-        })
+          action: "DISMISSED",
+        }),
       });
     } catch {
       // Keep dismiss responsive even if usage audit logging fails.
@@ -97,7 +112,9 @@ export function LeadAiSummaryPanel({
     <Card className="shadow-none">
       <CardHeader>
         <CardTitle>AI summary</CardTitle>
-        <CardDescription>Review-only triage assist. It never changes Yelp or partner records.</CardDescription>
+        <CardDescription>
+          Review-only triage assist. It never changes Yelp or partner records.
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex flex-wrap items-center gap-2">
@@ -106,7 +123,7 @@ export function LeadAiSummaryPanel({
         </div>
 
         {!canGenerate ? (
-          <div className="rounded-xl border border-border/80 bg-muted/10 px-4 py-3 text-sm text-muted-foreground">
+          <div className="rounded-lg border border-border/80 bg-muted/10 px-4 py-3 text-sm text-muted-foreground">
             AI summary generation is not configured for this tenant.
           </div>
         ) : null}
@@ -114,7 +131,7 @@ export function LeadAiSummaryPanel({
         {summary ? (
           <>
             <div className="grid gap-3 text-sm">
-              <div className="rounded-xl border border-border/80 bg-muted/10 p-4">
+              <div className="rounded-lg border border-border/80 bg-muted/10 p-4">
                 <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                   Customer intent
                 </div>
@@ -122,13 +139,13 @@ export function LeadAiSummaryPanel({
               </div>
 
               <div className="grid gap-3 md:grid-cols-2">
-                <div className="rounded-xl border border-border/80 bg-muted/10 p-4">
+                <div className="rounded-lg border border-border/80 bg-muted/10 p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                     Service and context
                   </div>
                   <div className="mt-2">{summary.summary.serviceContext}</div>
                 </div>
-                <div className="rounded-xl border border-border/80 bg-muted/10 p-4">
+                <div className="rounded-lg border border-border/80 bg-muted/10 p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                     Thread status
                   </div>
@@ -136,18 +153,20 @@ export function LeadAiSummaryPanel({
                 </div>
               </div>
 
-              <div className="rounded-xl border border-border/80 bg-muted/10 p-4">
+              <div className="rounded-lg border border-border/80 bg-muted/10 p-4">
                 <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                   Partner lifecycle
                 </div>
                 <div className="mt-2">{summary.summary.partnerLifecycle}</div>
                 {summary.summary.issueNote ? (
-                  <div className="mt-3 text-xs text-muted-foreground">{summary.summary.issueNote}</div>
+                  <div className="mt-3 text-xs text-muted-foreground">
+                    {summary.summary.issueNote}
+                  </div>
                 ) : null}
               </div>
 
               {summary.summary.missingInfo.length > 0 ? (
-                <div className="rounded-xl border border-border/80 bg-muted/10 p-4">
+                <div className="rounded-lg border border-border/80 bg-muted/10 p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                     Missing information
                   </div>
@@ -160,7 +179,7 @@ export function LeadAiSummaryPanel({
               ) : null}
 
               {summary.summary.nextSteps.length > 0 ? (
-                <div className="rounded-xl border border-border/80 bg-muted/10 p-4">
+                <div className="rounded-lg border border-border/80 bg-muted/10 p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                     Suggested next steps
                   </div>
@@ -177,7 +196,7 @@ export function LeadAiSummaryPanel({
               <div className="space-y-2">
                 {summary.warnings.map((warning) => (
                   <div
-                    className="rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning"
+                    className="rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning"
                     key={warning.code}
                   >
                     {warning.message}
@@ -187,20 +206,35 @@ export function LeadAiSummaryPanel({
             ) : null}
 
             <div className="flex flex-wrap gap-2">
-              <Button disabled={isGenerating} onClick={() => generate(true)} type="button" variant="outline">
+              <Button
+                disabled={isGenerating}
+                onClick={() => generate(true)}
+                type="button"
+                variant="outline"
+              >
                 {isGenerating ? "Refreshing..." : "Regenerate"}
               </Button>
-              <Button disabled={isDismissing} onClick={dismiss} type="button" variant="ghost">
+              <Button
+                disabled={isDismissing}
+                onClick={dismiss}
+                type="button"
+                variant="ghost"
+              >
                 {isDismissing ? "Dismissing..." : "Dismiss"}
               </Button>
             </div>
           </>
         ) : (
           <div className="space-y-4">
-            <div className="rounded-xl border border-border/80 bg-muted/10 px-4 py-3 text-sm text-muted-foreground">
-              Generate a short operator summary for intent, thread state, missing info, and next steps.
+            <div className="rounded-lg border border-border/80 bg-muted/10 px-4 py-3 text-sm text-muted-foreground">
+              Generate a short operator summary for intent, thread state,
+              missing info, and next steps.
             </div>
-            <Button disabled={!canGenerate || isGenerating} onClick={() => generate(false)} type="button">
+            <Button
+              disabled={!canGenerate || isGenerating}
+              onClick={() => generate(false)}
+              type="button"
+            >
               {isGenerating ? "Generating..." : "Generate summary"}
             </Button>
           </div>

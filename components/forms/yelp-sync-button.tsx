@@ -9,7 +9,7 @@ import { apiFetch } from "@/lib/utils/client-api";
 
 export function YelpSyncButton({
   label = "Sync from Yelp now",
-  syncPath
+  syncPath,
 }: {
   label?: string;
   syncPath?: string;
@@ -24,7 +24,7 @@ export function YelpSyncButton({
       if (syncPath) {
         const result = await apiFetch<{ message?: string }>(syncPath, {
           method: "POST",
-          body: JSON.stringify({})
+          body: JSON.stringify({}),
         });
 
         toast.success(result.message ?? "Yelp sync completed.");
@@ -32,7 +32,9 @@ export function YelpSyncButton({
 
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to sync from Yelp.");
+      toast.error(
+        error instanceof Error ? error.message : "Unable to sync from Yelp.",
+      );
     } finally {
       setIsPending(false);
     }

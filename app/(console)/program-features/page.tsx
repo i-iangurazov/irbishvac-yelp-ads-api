@@ -5,8 +5,21 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusChip } from "@/components/shared/status-chip";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { getProgramsIndex } from "@/features/ads-programs/service";
 import { getSettingsOverview } from "@/features/settings/service";
 import { requirePermission } from "@/lib/auth/service";
@@ -16,7 +29,7 @@ export default async function ProgramFeaturesIndexPage() {
   const user = await requirePermission("features:read");
   const [programs, settings] = await Promise.all([
     getProgramsIndex(user.tenantId),
-    getSettingsOverview(user.tenantId)
+    getSettingsOverview(user.tenantId),
   ]);
 
   return (
@@ -39,7 +52,8 @@ export default async function ProgramFeaturesIndexPage() {
         <CardHeader>
           <CardTitle>Choose a program</CardTitle>
           <CardDescription>
-            Open a program to view current feature snapshots, compare values, and submit changes safely.
+            Open a program to view current feature snapshots, compare values,
+            and submit changes safely.
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
@@ -74,10 +88,14 @@ export default async function ProgramFeaturesIndexPage() {
                     <TableCell>
                       <StatusChip status={program.status} />
                     </TableCell>
-                    <TableCell>{formatCurrency(program.budgetCents, program.currency)}</TableCell>
+                    <TableCell>
+                      {formatCurrency(program.budgetCents, program.currency)}
+                    </TableCell>
                     <TableCell>
                       <Button asChild size="sm" variant="outline">
-                        <Link href={`/program-features/${program.id}`}>Manage features</Link>
+                        <Link href={`/program-features/${program.id}`}>
+                          Manage features
+                        </Link>
                       </Button>
                     </TableCell>
                   </TableRow>

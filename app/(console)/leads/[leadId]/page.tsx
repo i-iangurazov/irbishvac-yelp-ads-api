@@ -9,10 +9,21 @@ import { LeadReplyForm } from "@/components/forms/lead-reply-form";
 import { JsonViewer } from "@/components/shared/json-viewer";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusChip } from "@/components/shared/status-chip";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getLeadDetail } from "@/features/leads/service";
 import { requireUser } from "@/lib/auth/service";
@@ -63,11 +74,18 @@ function getLeadTitle(detail: LeadDetail) {
 function getLeadDescription(detail: LeadDetail) {
   const parts = [
     detail.lead.externalLeadId ? `Lead ${detail.lead.externalLeadId}` : null,
-    detail.lead.externalBusinessId ? `Yelp business ${detail.lead.externalBusinessId}` : null,
-    detail.lead.createdAtYelp ? `Opened ${formatDateTime(detail.lead.createdAtYelp)}` : null
+    detail.lead.externalBusinessId
+      ? `Yelp business ${detail.lead.externalBusinessId}`
+      : null,
+    detail.lead.createdAtYelp
+      ? `Opened ${formatDateTime(detail.lead.createdAtYelp)}`
+      : null,
   ].filter(Boolean);
 
-  return parts.join(" • ") || "Reply, review thread activity, and keep partner operations aligned.";
+  return (
+    parts.join(" • ") ||
+    "Reply, review thread activity, and keep partner operations aligned."
+  );
 }
 
 function getIntakeLabel(detail: LeadDetail) {
@@ -98,18 +116,28 @@ function getAttentionItems(detail: LeadDetail) {
   }
 
   if (detail.linkedIssues.length > 0) {
-    items.set("issues", `${detail.linkedIssues.length} open operator issue${detail.linkedIssues.length === 1 ? "" : "s"} linked to this lead.`);
+    items.set(
+      "issues",
+      `${detail.linkedIssues.length} open operator issue${detail.linkedIssues.length === 1 ? "" : "s"} linked to this lead.`,
+    );
   }
 
   if (detail.processingIssues.length > 0) {
-    items.set("processing", "Recent webhook processing had partial or failed intake.");
+    items.set(
+      "processing",
+      "Recent webhook processing had partial or failed intake.",
+    );
   }
 
-  if (["FAILED", "PARTIAL", "UNRESOLVED"].includes(detail.yelpConnection.status)) {
+  if (
+    ["FAILED", "PARTIAL", "UNRESOLVED"].includes(detail.yelpConnection.status)
+  ) {
     items.set("yelp-connection", detail.yelpConnection.detail);
   }
 
-  if (["FAILED", "CONFLICT", "ERROR", "STALE"].includes(detail.crm.health.status)) {
+  if (
+    ["FAILED", "CONFLICT", "ERROR", "STALE"].includes(detail.crm.health.status)
+  ) {
     items.set("crm-health", detail.crm.health.message);
   }
 
@@ -122,15 +150,27 @@ function getAttentionItems(detail: LeadDetail) {
   }
 
   if (detail.conversationReview?.needsReview) {
-    items.set("conversation-review", "Conversation automation is waiting on human review or handoff.");
+    items.set(
+      "conversation-review",
+      "Conversation automation is waiting on human review or handoff.",
+    );
   }
 
-  if (detail.conversationState?.lastDecision === "HUMAN_HANDOFF" && detail.conversationState.lastStopReasonLabel) {
+  if (
+    detail.conversationState?.lastDecision === "HUMAN_HANDOFF" &&
+    detail.conversationState.lastStopReasonLabel
+  ) {
     items.set("conversation", detail.conversationState.lastStopReasonLabel);
   }
 
-  if (detail.nextFollowUp && detail.nextFollowUp.dueAt.getTime() <= Date.now()) {
-    items.set("follow-up", `${detail.nextFollowUp.cadence === "FOLLOW_UP_24H" ? "24-hour" : "Following-week"} follow-up is due now.`);
+  if (
+    detail.nextFollowUp &&
+    detail.nextFollowUp.dueAt.getTime() <= Date.now()
+  ) {
+    items.set(
+      "follow-up",
+      `${detail.nextFollowUp.cadence === "FOLLOW_UP_24H" ? "24-hour" : "Following-week"} follow-up is due now.`,
+    );
   }
 
   return Array.from(items.values()).slice(0, 4);
@@ -139,21 +179,31 @@ function getAttentionItems(detail: LeadDetail) {
 function SummaryFact({
   label,
   value,
-  subtle
+  subtle,
 }: {
   label: string;
   value: string | ReactNode;
   subtle?: boolean;
 }) {
   return (
-    <div className="rounded-xl bg-muted/10 px-4 py-3">
-      <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{label}</div>
-      <div className={`mt-2 text-sm ${subtle ? "text-muted-foreground" : "font-medium text-foreground"}`}>{value}</div>
+    <div className="rounded-lg bg-muted/10 px-4 py-3">
+      <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+        {label}
+      </div>
+      <div
+        className={`mt-2 text-sm ${subtle ? "text-muted-foreground" : "font-medium text-foreground"}`}
+      >
+        {value}
+      </div>
     </div>
   );
 }
 
-export default async function LeadDetailPage({ params }: { params: Promise<{ leadId: string }> }) {
+export default async function LeadDetailPage({
+  params,
+}: {
+  params: Promise<{ leadId: string }>;
+}) {
   const user = await requireUser();
   const { leadId } = await params;
   const detail = await getLeadDetail(user.tenantId, leadId);
@@ -180,49 +230,103 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
               <StatusChip status={detail.lead.replyState} />
               <StatusChip status={detail.automationSummary.status} />
               <StatusChip status={detail.crm.currentInternalStatus} />
-              <Badge variant="outline">{detail.automationScope.conversationPolicy.pilotLabel}</Badge>
+              <Badge variant="outline">
+                {detail.automationScope.conversationPolicy.pilotLabel}
+              </Badge>
               <Badge variant="outline">{getIntakeLabel(detail)}</Badge>
-              <Badge variant="outline">{detail.automationScope.scopeLabel}</Badge>
-              <Badge variant="outline">{channelLabel(detail.replyComposer.latestOutboundChannel)}</Badge>
-              {latestIntake?.status ? <StatusChip status={latestIntake.status} /> : <StatusChip status={detail.latestWebhookStatus} />}
-              {detail.conversationReview?.needsReview ? <Badge variant="warning">Human review needed</Badge> : null}
+              <Badge variant="outline">
+                {detail.automationScope.scopeLabel}
+              </Badge>
+              <Badge variant="outline">
+                {channelLabel(detail.replyComposer.latestOutboundChannel)}
+              </Badge>
+              {latestIntake?.status ? (
+                <StatusChip status={latestIntake.status} />
+              ) : (
+                <StatusChip status={detail.latestWebhookStatus} />
+              )}
+              {detail.conversationReview?.needsReview ? (
+                <Badge variant="warning">Human review needed</Badge>
+              ) : null}
               {detail.linkedIssues.length > 0 ? (
                 <Badge variant="warning">
-                  {detail.linkedIssues.length} open issue{detail.linkedIssues.length === 1 ? "" : "s"}
+                  {detail.linkedIssues.length} open issue
+                  {detail.linkedIssues.length === 1 ? "" : "s"}
                 </Badge>
               ) : null}
             </div>
 
             <div className="grid gap-3 md:grid-cols-2">
-              <SummaryFact label="Mapped business" value={detail.lead.business ? <Link className="hover:underline" href={`/businesses/${detail.lead.business.id}`}>{detail.lead.business.name}</Link> : "Not mapped"} />
-              <SummaryFact label="Customer" value={detail.lead.customerName ?? "Not provided"} />
+              <SummaryFact
+                label="Mapped business"
+                value={
+                  detail.lead.business ? (
+                    <Link
+                      className="hover:underline"
+                      href={`/businesses/${detail.lead.business.id}`}
+                    >
+                      {detail.lead.business.name}
+                    </Link>
+                  ) : (
+                    "Not mapped"
+                  )
+                }
+              />
+              <SummaryFact
+                label="Customer"
+                value={detail.lead.customerName ?? "Not provided"}
+              />
               <SummaryFact
                 label="Phone"
                 value={
                   <span className="inline-flex flex-wrap items-center gap-2">
                     <span>{detail.contact.phone ?? "Not provided yet"}</span>
-                    {detail.contact.phoneVerifiedDirect ? <Badge variant="success">Yelp verified</Badge> : null}
-                    {detail.contact.phoneBecameAvailable || detail.contact.phoneAvailabilityEvent ? (
+                    {detail.contact.phoneVerifiedDirect ? (
+                      <Badge variant="success">Yelp verified</Badge>
+                    ) : null}
+                    {detail.contact.phoneBecameAvailable ||
+                    detail.contact.phoneAvailabilityEvent ? (
                       <Badge variant="outline">Follow-up update</Badge>
                     ) : null}
-                    <span className="text-muted-foreground">{detail.contact.phoneSourceLabel}</span>
+                    <span className="text-muted-foreground">
+                      {detail.contact.phoneSourceLabel}
+                    </span>
                   </span>
                 }
                 subtle={!detail.contact.phone}
               />
-              <SummaryFact label="Latest activity" value={detail.lead.latestInteractionAt ? formatDateTime(detail.lead.latestInteractionAt) : "No activity timestamp yet"} />
+              <SummaryFact
+                label="Latest activity"
+                value={
+                  detail.lead.latestInteractionAt
+                    ? formatDateTime(detail.lead.latestInteractionAt)
+                    : "No activity timestamp yet"
+                }
+              />
               <SummaryFact
                 label="Yelp connection"
                 value={
                   <span className="inline-flex flex-wrap items-center gap-2">
                     <StatusChip status={detail.yelpConnection.status} />
-                    <span className="text-muted-foreground">{detail.yelpConnection.label}</span>
+                    <span className="text-muted-foreground">
+                      {detail.yelpConnection.label}
+                    </span>
                   </span>
                 }
               />
-              <SummaryFact label="Current reply state" value={<StatusChip status={detail.lead.replyState} />} />
-              <SummaryFact label="Initial response" value={<StatusChip status={detail.automationSummary.status} />} />
-              <SummaryFact label="Next follow-up" value={getNextFollowUpLabel(detail)} subtle />
+              <SummaryFact
+                label="Current reply state"
+                value={<StatusChip status={detail.lead.replyState} />}
+              />
+              <SummaryFact
+                label="Initial response"
+                value={<StatusChip status={detail.automationSummary.status} />}
+              />
+              <SummaryFact
+                label="Next follow-up"
+                value={getNextFollowUpLabel(detail)}
+                subtle
+              />
               <SummaryFact
                 label="Last Yelp proof"
                 value={
@@ -237,11 +341,13 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
             </div>
           </div>
 
-          <div className="rounded-3xl border border-border/70 bg-muted/10 p-5">
+          <div className="rounded-lg border border-border/70 bg-muted/10 p-5">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="text-sm font-semibold">
-                  {attentionItems.length > 0 ? "Needs attention now" : "No active blockers"}
+                  {attentionItems.length > 0
+                    ? "Needs attention now"
+                    : "No active blockers"}
                 </div>
                 <div className="mt-1 text-sm text-muted-foreground">
                   {attentionItems.length > 0
@@ -249,22 +355,30 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
                     : "Reply, mapping, and recent intake look clear."}
                 </div>
               </div>
-              <Badge variant={attentionItems.length > 0 ? "warning" : "success"}>
-                {attentionItems.length > 0 ? `${attentionItems.length} items` : "Clear"}
+              <Badge
+                variant={attentionItems.length > 0 ? "warning" : "success"}
+              >
+                {attentionItems.length > 0
+                  ? `${attentionItems.length} items`
+                  : "Clear"}
               </Badge>
             </div>
 
             {attentionItems.length > 0 ? (
               <div className="mt-4 space-y-3">
                 {attentionItems.map((item) => (
-                  <div className="rounded-2xl border border-border/70 bg-background/70 px-4 py-3 text-sm" key={item}>
+                  <div
+                    className="rounded-lg border border-border/70 bg-background/70 px-4 py-3 text-sm"
+                    key={item}
+                  >
                     {item}
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="mt-4 rounded-2xl bg-background/70 px-4 py-3 text-sm text-muted-foreground">
-                Keep the reply moving in Yelp. Use partner operations only when mapping or lifecycle changes are needed.
+              <div className="mt-4 rounded-lg bg-background/70 px-4 py-3 text-sm text-muted-foreground">
+                Keep the reply moving in Yelp. Use partner operations only when
+                mapping or lifecycle changes are needed.
               </div>
             )}
           </div>
@@ -277,45 +391,71 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
             <CardHeader>
               <CardTitle>Conversation and activity</CardTitle>
               <CardDescription>
-                Keep the live thread first. Automation and partner history stay available, but secondary.
+                Keep the live thread first. Automation and partner history stay
+                available, but secondary.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <Tabs defaultValue="thread">
                 <TabsList className="h-auto flex-wrap justify-start gap-2 bg-transparent p-0">
-                  <TabsTrigger className="rounded-full border border-border/80 px-3 py-1.5 data-[state=active]:border-transparent" value="thread">
+                  <TabsTrigger
+                    className="rounded-full border border-border/80 px-3 py-1.5 data-[state=active]:border-transparent"
+                    value="thread"
+                  >
                     Yelp thread
                   </TabsTrigger>
-                  <TabsTrigger className="rounded-full border border-border/80 px-3 py-1.5 data-[state=active]:border-transparent" value="messages">
+                  <TabsTrigger
+                    className="rounded-full border border-border/80 px-3 py-1.5 data-[state=active]:border-transparent"
+                    value="messages"
+                  >
                     Replies and actions
                   </TabsTrigger>
-                  <TabsTrigger className="rounded-full border border-border/80 px-3 py-1.5 data-[state=active]:border-transparent" value="automation">
+                  <TabsTrigger
+                    className="rounded-full border border-border/80 px-3 py-1.5 data-[state=active]:border-transparent"
+                    value="automation"
+                  >
                     Automation
                   </TabsTrigger>
-                  <TabsTrigger className="rounded-full border border-border/80 px-3 py-1.5 data-[state=active]:border-transparent" value="partner">
+                  <TabsTrigger
+                    className="rounded-full border border-border/80 px-3 py-1.5 data-[state=active]:border-transparent"
+                    value="partner"
+                  >
                     Partner timeline
                   </TabsTrigger>
                 </TabsList>
 
                 <TabsContent className="mt-4 space-y-3" value="thread">
                   {detail.timeline.length === 0 ? (
-                    <div className="rounded-2xl border border-dashed border-border/80 bg-muted/10 px-4 py-5 text-sm text-muted-foreground">
+                    <div className="rounded-lg border border-dashed border-border/80 bg-muted/10 px-4 py-5 text-sm text-muted-foreground">
                       No normalized Yelp thread events have been stored yet.
                     </div>
                   ) : (
                     detail.timeline.map((event) => (
-                      <div className="rounded-2xl border border-border/80 p-4" key={event.id}>
+                      <div
+                        className="rounded-lg border border-border/80 p-4"
+                        key={event.id}
+                      >
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div className="space-y-1">
-                            <div className="font-medium">{titleCase(event.eventType)}</div>
+                            <div className="font-medium">
+                              {titleCase(event.eventType)}
+                            </div>
                             <div className="text-sm text-muted-foreground">
-                              {event.actorType ? `${titleCase(event.actorType)} • ` : ""}
-                              {event.occurredAt ? formatDateTime(event.occurredAt) : "Time unavailable"}
+                              {event.actorType
+                                ? `${titleCase(event.actorType)} • `
+                                : ""}
+                              {event.occurredAt
+                                ? formatDateTime(event.occurredAt)
+                                : "Time unavailable"}
                             </div>
                           </div>
                           <div className="flex flex-wrap gap-2">
-                            {event.isRead ? <Badge variant="outline">Read marker</Badge> : null}
-                            {event.isReply ? <Badge variant="secondary">Reply marker</Badge> : null}
+                            {event.isRead ? (
+                              <Badge variant="outline">Read marker</Badge>
+                            ) : null}
+                            {event.isReply ? (
+                              <Badge variant="secondary">Reply marker</Badge>
+                            ) : null}
                           </div>
                         </div>
                       </div>
@@ -325,47 +465,94 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
 
                 <TabsContent className="mt-4 space-y-3" value="messages">
                   {detail.messageHistory.length === 0 ? (
-                    <div className="rounded-2xl border border-dashed border-border/80 bg-muted/10 px-4 py-5 text-sm text-muted-foreground">
-                      No local reply or message actions are recorded for this lead yet.
+                    <div className="rounded-lg border border-dashed border-border/80 bg-muted/10 px-4 py-5 text-sm text-muted-foreground">
+                      No local reply or message actions are recorded for this
+                      lead yet.
                     </div>
                   ) : (
                     detail.messageHistory.map((action) => (
-                      <div className="rounded-2xl border border-border/80 p-4" key={action.id}>
+                      <div
+                        className="rounded-lg border border-border/80 p-4"
+                        key={action.id}
+                      >
                         <div className="flex flex-wrap items-start justify-between gap-4">
                           <div className="space-y-2">
                             <div className="flex flex-wrap items-center gap-2">
                               <StatusChip status={action.status} />
-                              <Badge variant="outline">{action.channelLabel}</Badge>
-                              <Badge variant={action.initiator === "AUTOMATION" ? "secondary" : "outline"}>
+                              <Badge variant="outline">
+                                {action.channelLabel}
+                              </Badge>
+                              <Badge
+                                variant={
+                                  action.initiator === "AUTOMATION"
+                                    ? "secondary"
+                                    : "outline"
+                                }
+                              >
                                 {action.initiatorLabel}
                               </Badge>
                             </div>
-                            <div className="font-medium">{action.actionLabel}</div>
-                            <div className="text-sm text-muted-foreground">
-                              Started {formatDateTime(action.startedAt ?? action.createdAt)}
-                              {action.completedAt ? ` • Completed ${formatDateTime(action.completedAt)}` : ""}
+                            <div className="font-medium">
+                              {action.actionLabel}
                             </div>
-                            {action.automationRuleName || action.automationTemplateName ? (
+                            <div className="text-sm text-muted-foreground">
+                              Started{" "}
+                              {formatDateTime(
+                                action.startedAt ?? action.createdAt,
+                              )}
+                              {action.completedAt
+                                ? ` • Completed ${formatDateTime(action.completedAt)}`
+                                : ""}
+                            </div>
+                            {action.automationRuleName ||
+                            action.automationTemplateName ? (
                               <div className="text-xs text-muted-foreground">
-                                Rule {action.automationRuleName ?? "Not selected"} • Template {action.automationTemplateName ?? "Not selected"}
+                                Rule{" "}
+                                {action.automationRuleName ?? "Not selected"} •
+                                Template{" "}
+                                {action.automationTemplateName ??
+                                  "Not selected"}
                               </div>
                             ) : null}
                           </div>
                         </div>
 
-                        {action.recipient ? <div className="mt-3 text-sm">Recipient: {action.recipient}</div> : null}
-                        {action.deliveryNote ? <div className="mt-2 text-sm text-muted-foreground">{action.deliveryNote}</div> : null}
-                        {action.renderedSubject ? <div className="mt-3 text-sm font-medium">{action.renderedSubject}</div> : null}
-                        {action.renderedBody ? <div className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{action.renderedBody}</div> : null}
-                        {action.errorSummary ? <div className="mt-3 text-sm text-destructive">{action.errorSummary}</div> : null}
+                        {action.recipient ? (
+                          <div className="mt-3 text-sm">
+                            Recipient: {action.recipient}
+                          </div>
+                        ) : null}
+                        {action.deliveryNote ? (
+                          <div className="mt-2 text-sm text-muted-foreground">
+                            {action.deliveryNote}
+                          </div>
+                        ) : null}
+                        {action.renderedSubject ? (
+                          <div className="mt-3 text-sm font-medium">
+                            {action.renderedSubject}
+                          </div>
+                        ) : null}
+                        {action.renderedBody ? (
+                          <div className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">
+                            {action.renderedBody}
+                          </div>
+                        ) : null}
+                        {action.errorSummary ? (
+                          <div className="mt-3 text-sm text-destructive">
+                            {action.errorSummary}
+                          </div>
+                        ) : null}
                         {action.providerMessageId || action.providerStatus ? (
                           <div className="mt-3 text-xs text-muted-foreground">
-                            Provider {action.providerStatus ?? "status unavailable"}
-                            {action.providerMessageId ? ` • Message ${action.providerMessageId}` : ""}
+                            Provider{" "}
+                            {action.providerStatus ?? "status unavailable"}
+                            {action.providerMessageId
+                              ? ` • Message ${action.providerMessageId}`
+                              : ""}
                           </div>
                         ) : null}
                         {action.providerMetadataJson ? (
-                          <div className="mt-3 rounded-2xl border border-dashed border-border/70 p-3">
+                          <div className="mt-3 rounded-lg border border-dashed border-border/70 p-3">
                             <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                               Provider metadata
                             </div>
@@ -378,12 +565,15 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
                 </TabsContent>
 
                 <TabsContent className="mt-4 space-y-4" value="automation">
-                  <div className="rounded-2xl border border-border/80 bg-muted/10 p-4">
+                  <div className="rounded-lg border border-border/80 bg-muted/10 p-4">
                     <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                       <div>
-                        <div className="text-sm font-semibold">AI conversation proof</div>
+                        <div className="text-sm font-semibold">
+                          AI conversation proof
+                        </div>
                         <div className="mt-1 text-sm text-muted-foreground">
-                          Shows the latest Yelp customer event, the processed boundary, and the last automation decision.
+                          Shows the latest Yelp customer event, the processed
+                          boundary, and the last automation decision.
                         </div>
                       </div>
                       <Badge variant={detail.conversationProof.diagnosticTone}>
@@ -398,9 +588,16 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
                         label="Latest customer event"
                         value={
                           detail.conversationProof.latestInboundEvent
-                            ? detail.conversationProof.latestInboundEvent.occurredAt
-                              ? formatDateTime(detail.conversationProof.latestInboundEvent.occurredAt)
-                              : formatDateTime(detail.conversationProof.latestInboundEvent.createdAt)
+                            ? detail.conversationProof.latestInboundEvent
+                                .occurredAt
+                              ? formatDateTime(
+                                  detail.conversationProof.latestInboundEvent
+                                    .occurredAt,
+                                )
+                              : formatDateTime(
+                                  detail.conversationProof.latestInboundEvent
+                                    .createdAt,
+                                )
                             : "None captured"
                         }
                         subtle={!detail.conversationProof.latestInboundEvent}
@@ -409,8 +606,10 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
                         label="Event id"
                         value={
                           detail.conversationProof.latestInboundEvent
-                            ? detail.conversationProof.latestInboundEvent.externalEventId ??
-                              detail.conversationProof.latestInboundEvent.eventKey
+                            ? (detail.conversationProof.latestInboundEvent
+                                .externalEventId ??
+                              detail.conversationProof.latestInboundEvent
+                                .eventKey)
                             : "Not available"
                         }
                         subtle
@@ -421,36 +620,60 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
                           detail.conversationProof.lastProcessedEventKey
                             ? detail.conversationProof.lastProcessedEventKey
                             : detail.conversationProof.lastInboundAt
-                              ? formatDateTime(detail.conversationProof.lastInboundAt)
+                              ? formatDateTime(
+                                  detail.conversationProof.lastInboundAt,
+                                )
                               : "No boundary yet"
                         }
                         subtle
                       />
                       <SummaryFact
                         label="Latest decision"
-                        value={detail.conversationProof.latestDecision?.decisionLabel ?? "No AI decision yet"}
+                        value={
+                          detail.conversationProof.latestDecision
+                            ?.decisionLabel ?? "No AI decision yet"
+                        }
                         subtle={!detail.conversationProof.latestDecision}
                       />
                     </div>
-                    {detail.conversationProof.latestInboundEvent?.messageExcerpt ? (
-                      <div className="mt-4 rounded-xl border border-border/60 bg-background/80 px-4 py-3 text-sm">
+                    {detail.conversationProof.latestInboundEvent
+                      ?.messageExcerpt ? (
+                      <div className="mt-4 rounded-lg border border-border/60 bg-background/80 px-4 py-3 text-sm">
                         <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                           Latest customer text
                         </div>
                         <div className="mt-2 text-muted-foreground">
-                          {detail.conversationProof.latestInboundEvent.messageExcerpt}
+                          {
+                            detail.conversationProof.latestInboundEvent
+                              .messageExcerpt
+                          }
                         </div>
                       </div>
                     ) : null}
                   </div>
 
                   <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-5">
-                    <SummaryFact label="Current status" value={<StatusChip status={detail.automationSummary.status} />} />
-                    <SummaryFact label="Scope" value={detail.automationScope.scopeLabel} subtle />
-                    <SummaryFact label="Next follow-up" value={getNextFollowUpLabel(detail)} subtle />
+                    <SummaryFact
+                      label="Current status"
+                      value={
+                        <StatusChip status={detail.automationSummary.status} />
+                      }
+                    />
+                    <SummaryFact
+                      label="Scope"
+                      value={detail.automationScope.scopeLabel}
+                      subtle
+                    />
+                    <SummaryFact
+                      label="Next follow-up"
+                      value={getNextFollowUpLabel(detail)}
+                      subtle
+                    />
                     <SummaryFact
                       label="Conversation rollout"
-                      value={detail.automationScope.conversationPolicy.rolloutLabel}
+                      value={
+                        detail.automationScope.conversationPolicy.rolloutLabel
+                      }
                       subtle
                     />
                     <SummaryFact
@@ -465,36 +688,60 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
                   </div>
 
                   <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                    <div className="rounded-2xl border border-border/80 p-4">
-                      <div className="text-sm font-semibold">Conversation automation</div>
+                    <div className="rounded-lg border border-border/80 p-4">
+                      <div className="text-sm font-semibold">
+                        Conversation automation
+                      </div>
                       <div className="mt-1 text-sm text-muted-foreground">
-                        {detail.automationScope.conversationPolicy.rolloutDescription}
+                        {
+                          detail.automationScope.conversationPolicy
+                            .rolloutDescription
+                        }
                       </div>
                       <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <Badge variant={detail.automationScope.conversationPolicy.paused ? "warning" : "outline"}>
+                        <Badge
+                          variant={
+                            detail.automationScope.conversationPolicy.paused
+                              ? "warning"
+                              : "outline"
+                          }
+                        >
                           {detail.automationScope.conversationPolicy.pilotLabel}
                         </Badge>
-                        {detail.conversationReview?.needsReview ? <Badge variant="warning">Human review needed</Badge> : null}
+                        {detail.conversationReview?.needsReview ? (
+                          <Badge variant="warning">Human review needed</Badge>
+                        ) : null}
                         {detail.conversationReview?.latestIssue ? (
-                          <Badge variant="outline">{detail.conversationReview.latestIssue.severity.toLowerCase()} linked issue</Badge>
+                          <Badge variant="outline">
+                            {detail.conversationReview.latestIssue.severity.toLowerCase()}{" "}
+                            linked issue
+                          </Badge>
                         ) : null}
                       </div>
                       <div className="mt-4 grid gap-3 md:grid-cols-2">
                         <SummaryFact
                           label="Last decision"
-                          value={detail.conversationState?.lastDecisionLabel ?? "No decision yet"}
+                          value={
+                            detail.conversationState?.lastDecisionLabel ??
+                            "No decision yet"
+                          }
                           subtle
                         />
                         <SummaryFact
                           label="Last intent"
-                          value={detail.conversationState?.lastIntentLabel ?? "No inbound turn processed"}
+                          value={
+                            detail.conversationState?.lastIntentLabel ??
+                            "No inbound turn processed"
+                          }
                           subtle
                         />
                         <SummaryFact
                           label="Last auto reply"
                           value={
                             detail.conversationState?.lastAutomatedReplyAt
-                              ? formatDateTime(detail.conversationState.lastAutomatedReplyAt)
+                              ? formatDateTime(
+                                  detail.conversationState.lastAutomatedReplyAt,
+                                )
                               : "No auto reply yet"
                           }
                           subtle
@@ -506,138 +753,227 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
                         />
                       </div>
                       {detail.conversationReview?.latestIssue ? (
-                        <div className="mt-3 rounded-2xl border border-border/70 bg-muted/10 px-4 py-3 text-sm text-muted-foreground">
+                        <div className="mt-3 rounded-lg border border-border/70 bg-muted/10 px-4 py-3 text-sm text-muted-foreground">
                           {detail.conversationReview.latestIssue.summary}
                         </div>
                       ) : null}
                       {detail.conversationState?.lastStopReasonLabel ? (
-                        <div className="mt-3 rounded-2xl border border-border/70 bg-muted/10 px-4 py-3 text-sm text-muted-foreground">
+                        <div className="mt-3 rounded-lg border border-border/70 bg-muted/10 px-4 py-3 text-sm text-muted-foreground">
                           {detail.conversationState.lastStopReasonLabel}
                         </div>
                       ) : null}
                     </div>
 
-                    <div className="rounded-2xl border border-border/80 p-4">
-                      <div className="text-sm font-semibold">Latest conversation handling</div>
+                    <div className="rounded-lg border border-border/80 p-4">
+                      <div className="text-sm font-semibold">
+                        Latest conversation handling
+                      </div>
                       <div className="mt-1 text-sm text-muted-foreground">
-                        Review-only and human-handoff decisions stay visible here so operators can trust why automation did or did not reply.
+                        Review-only and human-handoff decisions stay visible
+                        here so operators can trust why automation did or did
+                        not reply.
                       </div>
                       {detail.conversationHistory.length === 0 ? (
-                        <div className="mt-4 rounded-2xl border border-dashed border-border/80 bg-muted/10 px-4 py-4 text-sm text-muted-foreground">
-                          No AI conversation decision has been recorded yet. Check the proof panel above to see whether Yelp has delivered a usable customer message event.
+                        <div className="mt-4 rounded-lg border border-dashed border-border/80 bg-muted/10 px-4 py-4 text-sm text-muted-foreground">
+                          No AI conversation decision has been recorded yet.
+                          Check the proof panel above to see whether Yelp has
+                          delivered a usable customer message event.
                         </div>
                       ) : (
                         <div className="mt-4 space-y-3">
-                          {detail.conversationHistory.slice(0, 3).map((turn) => (
-                            <div className="rounded-2xl border border-border/70 bg-muted/10 px-4 py-3" key={turn.id}>
-                              <div className="flex flex-wrap items-center gap-2">
-                                <StatusChip status={turn.decision} />
-                                <Badge variant="secondary">{turn.intentLabel}</Badge>
-                                <Badge variant="outline">{turn.modeLabel}</Badge>
-                              </div>
-                              <div className="mt-2 text-xs text-muted-foreground">
-                                {formatDateTime(turn.createdAt)} • Event {turn.sourceExternalEventId ?? turn.sourceEventKey} • Confidence {turn.confidence.toLowerCase()}
-                              </div>
-                              {turn.stopReasonLabel ? (
-                                <div className="mt-2 text-sm text-muted-foreground">{turn.stopReasonLabel}</div>
-                              ) : null}
-                              <div className="mt-3 grid gap-2 rounded-xl border border-border/60 bg-background/70 p-3 text-xs text-muted-foreground md:grid-cols-2">
-                                <div>
-                                  <span className="font-medium text-foreground">Source:</span>{" "}
-                                  {turn.decisionTrace.contentSourceLabel}
-                                  {turn.decisionTrace.aiModel ? ` • ${turn.decisionTrace.aiModel}` : ""}
+                          {detail.conversationHistory
+                            .slice(0, 3)
+                            .map((turn) => (
+                              <div
+                                className="rounded-lg border border-border/70 bg-muted/10 px-4 py-3"
+                                key={turn.id}
+                              >
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <StatusChip status={turn.decision} />
+                                  <Badge variant="secondary">
+                                    {turn.intentLabel}
+                                  </Badge>
+                                  <Badge variant="outline">
+                                    {turn.modeLabel}
+                                  </Badge>
                                 </div>
-                                <div>
-                                  <span className="font-medium text-foreground">Template:</span>{" "}
-                                  {turn.decisionTrace.templateName ?? turn.templateName ?? "Not recorded"}
-                                  {turn.decisionTrace.templateRenderMode ? ` • ${turn.decisionTrace.templateRenderMode}` : ""}
+                                <div className="mt-2 text-xs text-muted-foreground">
+                                  {formatDateTime(turn.createdAt)} • Event{" "}
+                                  {turn.sourceExternalEventId ??
+                                    turn.sourceEventKey}{" "}
+                                  • Confidence {turn.confidence.toLowerCase()}
                                 </div>
-                                <div>
-                                  <span className="font-medium text-foreground">Prompt:</span>{" "}
-                                  {turn.decisionTrace.promptSourceLabel}
-                                </div>
-                                <div>
-                                  <span className="font-medium text-foreground">Operator:</span>{" "}
-                                  {turn.decisionTrace.operatorReviewRequired
-                                    ? turn.decisionTrace.operatorEditStatus === "WAITING_FOR_OPERATOR"
-                                      ? "Review needed"
-                                      : "Human handling required"
-                                    : "No review required"}
-                                </div>
-                                {turn.decisionTrace.inboundMessageExcerpt ? (
-                                  <div className="md:col-span-2">
-                                    <span className="font-medium text-foreground">Customer:</span>{" "}
-                                    {turn.decisionTrace.inboundMessageExcerpt}
+                                {turn.stopReasonLabel ? (
+                                  <div className="mt-2 text-sm text-muted-foreground">
+                                    {turn.stopReasonLabel}
                                   </div>
                                 ) : null}
-                                {turn.decisionTrace.aiPromptPreview ? (
-                                  <div className="md:col-span-2">
-                                    <span className="font-medium text-foreground">Prompt preview:</span>{" "}
-                                    {turn.decisionTrace.aiPromptPreview}
-                                  </div>
-                                ) : null}
-                                {turn.decisionTrace.fallbackReason ? (
+                                <div className="mt-3 grid gap-2 rounded-lg border border-border/60 bg-background/70 p-3 text-xs text-muted-foreground md:grid-cols-2">
                                   <div>
-                                    <span className="font-medium text-foreground">Fallback:</span>{" "}
-                                    {turn.decisionTrace.fallbackReason}
+                                    <span className="font-medium text-foreground">
+                                      Source:
+                                    </span>{" "}
+                                    {turn.decisionTrace.contentSourceLabel}
+                                    {turn.decisionTrace.aiModel
+                                      ? ` • ${turn.decisionTrace.aiModel}`
+                                      : ""}
+                                  </div>
+                                  <div>
+                                    <span className="font-medium text-foreground">
+                                      Template:
+                                    </span>{" "}
+                                    {turn.decisionTrace.templateName ??
+                                      turn.templateName ??
+                                      "Not recorded"}
+                                    {turn.decisionTrace.templateRenderMode
+                                      ? ` • ${turn.decisionTrace.templateRenderMode}`
+                                      : ""}
+                                  </div>
+                                  <div>
+                                    <span className="font-medium text-foreground">
+                                      Prompt:
+                                    </span>{" "}
+                                    {turn.decisionTrace.promptSourceLabel}
+                                  </div>
+                                  <div>
+                                    <span className="font-medium text-foreground">
+                                      Operator:
+                                    </span>{" "}
+                                    {turn.decisionTrace.operatorReviewRequired
+                                      ? turn.decisionTrace
+                                          .operatorEditStatus ===
+                                        "WAITING_FOR_OPERATOR"
+                                        ? "Review needed"
+                                        : "Human handling required"
+                                      : "No review required"}
+                                  </div>
+                                  {turn.decisionTrace.inboundMessageExcerpt ? (
+                                    <div className="md:col-span-2">
+                                      <span className="font-medium text-foreground">
+                                        Customer:
+                                      </span>{" "}
+                                      {turn.decisionTrace.inboundMessageExcerpt}
+                                    </div>
+                                  ) : null}
+                                  {turn.decisionTrace.aiPromptPreview ? (
+                                    <div className="md:col-span-2">
+                                      <span className="font-medium text-foreground">
+                                        Prompt preview:
+                                      </span>{" "}
+                                      {turn.decisionTrace.aiPromptPreview}
+                                    </div>
+                                  ) : null}
+                                  {turn.decisionTrace.fallbackReason ? (
+                                    <div>
+                                      <span className="font-medium text-foreground">
+                                        Fallback:
+                                      </span>{" "}
+                                      {turn.decisionTrace.fallbackReason}
+                                    </div>
+                                  ) : null}
+                                  {turn.decisionTrace.warningCodes.length >
+                                  0 ? (
+                                    <div>
+                                      <span className="font-medium text-foreground">
+                                        Warnings:
+                                      </span>{" "}
+                                      {turn.decisionTrace.warningCodes.join(
+                                        ", ",
+                                      )}
+                                    </div>
+                                  ) : null}
+                                </div>
+                                {turn.renderedBody ? (
+                                  <div className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">
+                                    {turn.renderedBody}
                                   </div>
                                 ) : null}
-                                {turn.decisionTrace.warningCodes.length > 0 ? (
-                                  <div>
-                                    <span className="font-medium text-foreground">Warnings:</span>{" "}
-                                    {turn.decisionTrace.warningCodes.join(", ")}
+                                {turn.errorSummary ? (
+                                  <div className="mt-2 text-sm text-destructive">
+                                    {turn.errorSummary}
                                   </div>
                                 ) : null}
                               </div>
-                              {turn.renderedBody ? (
-                                <div className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{turn.renderedBody}</div>
-                              ) : null}
-                              {turn.errorSummary ? (
-                                <div className="mt-2 text-sm text-destructive">{turn.errorSummary}</div>
-                              ) : null}
-                            </div>
-                          ))}
+                            ))}
                         </div>
                       )}
                     </div>
                   </div>
 
                   {detail.automationHistory.length === 0 ? (
-                    <div className="rounded-2xl border border-dashed border-border/80 bg-muted/10 px-4 py-5 text-sm text-muted-foreground">
+                    <div className="rounded-lg border border-dashed border-border/80 bg-muted/10 px-4 py-5 text-sm text-muted-foreground">
                       No autoresponder attempt is recorded for this lead yet.
                     </div>
                   ) : (
                     detail.automationHistory.map((attempt) => (
-                      <div className="rounded-2xl border border-border/80 p-4" key={attempt.id}>
+                      <div
+                        className="rounded-lg border border-border/80 p-4"
+                        key={attempt.id}
+                      >
                         <div className="space-y-2">
                           <div className="flex flex-wrap items-center gap-2">
                             <StatusChip status={attempt.status} />
-                            <Badge variant="secondary">{attempt.cadenceLabel}</Badge>
-                            {attempt.deliveryChannelLabel ? <Badge variant="outline">{attempt.deliveryChannelLabel}</Badge> : null}
+                            <Badge variant="secondary">
+                              {attempt.cadenceLabel}
+                            </Badge>
+                            {attempt.deliveryChannelLabel ? (
+                              <Badge variant="outline">
+                                {attempt.deliveryChannelLabel}
+                              </Badge>
+                            ) : null}
                           </div>
                           <div className="text-sm text-muted-foreground">
                             Triggered {formatDateTime(attempt.triggeredAt)}
-                            {attempt.dueAt ? ` • Due ${formatDateTime(attempt.dueAt)}` : ""}
-                            {attempt.completedAt ? ` • Completed ${formatDateTime(attempt.completedAt)}` : ""}
+                            {attempt.dueAt
+                              ? ` • Due ${formatDateTime(attempt.dueAt)}`
+                              : ""}
+                            {attempt.completedAt
+                              ? ` • Completed ${formatDateTime(attempt.completedAt)}`
+                              : ""}
                           </div>
                           <div className="text-xs text-muted-foreground">
-                            Rule {attempt.ruleName ?? "Not selected"} • Template {attempt.templateName ?? "Not selected"} • {attempt.scopeLabel}
+                            Rule {attempt.ruleName ?? "Not selected"} • Template{" "}
+                            {attempt.templateName ?? "Not selected"} •{" "}
+                            {attempt.scopeLabel}
                           </div>
                         </div>
 
-                        {attempt.recipient ? <div className="mt-3 text-sm">Recipient: {attempt.recipient}</div> : null}
-                        {attempt.skipReasonLabel ? <div className="mt-2 text-sm text-muted-foreground">Skip reason: {attempt.skipReasonLabel}</div> : null}
-                        {attempt.errorSummary ? <div className="mt-2 text-sm text-destructive">{attempt.errorSummary}</div> : null}
-                        {attempt.renderedSubject ? <div className="mt-3 text-sm font-medium">{attempt.renderedSubject}</div> : null}
-                        {attempt.renderedBody ? <div className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{attempt.renderedBody}</div> : null}
+                        {attempt.recipient ? (
+                          <div className="mt-3 text-sm">
+                            Recipient: {attempt.recipient}
+                          </div>
+                        ) : null}
+                        {attempt.skipReasonLabel ? (
+                          <div className="mt-2 text-sm text-muted-foreground">
+                            Skip reason: {attempt.skipReasonLabel}
+                          </div>
+                        ) : null}
+                        {attempt.errorSummary ? (
+                          <div className="mt-2 text-sm text-destructive">
+                            {attempt.errorSummary}
+                          </div>
+                        ) : null}
+                        {attempt.renderedSubject ? (
+                          <div className="mt-3 text-sm font-medium">
+                            {attempt.renderedSubject}
+                          </div>
+                        ) : null}
+                        {attempt.renderedBody ? (
+                          <div className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">
+                            {attempt.renderedBody}
+                          </div>
+                        ) : null}
                         {attempt.providerMessageId || attempt.providerStatus ? (
                           <div className="mt-3 text-xs text-muted-foreground">
-                            Provider {attempt.providerStatus ?? "status unavailable"}
-                            {attempt.providerMessageId ? ` • Message ${attempt.providerMessageId}` : ""}
+                            Provider{" "}
+                            {attempt.providerStatus ?? "status unavailable"}
+                            {attempt.providerMessageId
+                              ? ` • Message ${attempt.providerMessageId}`
+                              : ""}
                           </div>
                         ) : null}
                         {attempt.providerMetadataJson ? (
-                          <div className="mt-3 rounded-2xl border border-dashed border-border/70 p-3">
+                          <div className="mt-3 rounded-lg border border-dashed border-border/70 p-3">
                             <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                               Provider metadata
                             </div>
@@ -651,19 +987,31 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
 
                 <TabsContent className="mt-4 space-y-3" value="partner">
                   {detail.crm.statusTimeline.length === 0 ? (
-                    <div className="rounded-2xl border border-dashed border-border/80 bg-muted/10 px-4 py-5 text-sm text-muted-foreground">
+                    <div className="rounded-lg border border-dashed border-border/80 bg-muted/10 px-4 py-5 text-sm text-muted-foreground">
                       No partner lifecycle statuses are recorded yet.
                     </div>
                   ) : (
                     detail.crm.statusTimeline.map((event) => (
-                      <div className="rounded-2xl border border-border/80 p-4" key={event.id}>
+                      <div
+                        className="rounded-lg border border-border/80 p-4"
+                        key={event.id}
+                      >
                         <div className="space-y-2">
                           <div className="flex flex-wrap items-center gap-2">
                             <StatusChip status={event.status} />
-                            <Badge variant={event.sourceSystem === "CRM" ? "outline" : "secondary"}>
-                              {event.sourceSystem === "CRM" ? "CRM" : "Internal"}
+                            <Badge
+                              variant={
+                                event.sourceSystem === "CRM"
+                                  ? "outline"
+                                  : "secondary"
+                              }
+                            >
+                              {event.sourceSystem === "CRM"
+                                ? "CRM"
+                                : "Internal"}
                             </Badge>
-                            {asRecord(event.payloadJson)?.connector === "ServiceTitan" ? (
+                            {asRecord(event.payloadJson)?.connector ===
+                            "ServiceTitan" ? (
                               <Badge variant="secondary">ServiceTitan</Badge>
                             ) : null}
                           </div>
@@ -671,9 +1019,11 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
                             {formatDateTime(event.occurredAt)}
                             {event.substatus ? ` • ${event.substatus}` : ""}
                           </div>
-                          {asRecord(event.payloadJson)?.connector === "ServiceTitan" ? (
+                          {asRecord(event.payloadJson)?.connector ===
+                          "ServiceTitan" ? (
                             <div className="text-xs text-muted-foreground">
-                              Connector-derived lifecycle update from the mapped ServiceTitan record.
+                              Connector-derived lifecycle update from the mapped
+                              ServiceTitan record.
                             </div>
                           ) : null}
                         </div>
@@ -688,19 +1038,28 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
           <Card>
             <CardHeader>
               <CardTitle>Partner operations</CardTitle>
-              <CardDescription>Update CRM mapping and downstream lifecycle without mixing them into Yelp-native thread history.</CardDescription>
+              <CardDescription>
+                Update CRM mapping and downstream lifecycle without mixing them
+                into Yelp-native thread history.
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="rounded-2xl border border-border/80 bg-muted/10 p-4">
+              <div className="rounded-lg border border-border/80 bg-muted/10 p-4">
                 <div className="flex flex-wrap items-center gap-2">
                   <StatusChip status={mapping?.state ?? "UNRESOLVED"} />
                   <StatusChip status={detail.crm.currentInternalStatus} />
                   <StatusChip status={detail.crm.health.status} />
                 </div>
-                <div className="mt-3 text-sm font-medium">{detail.crm.mappingReference}</div>
-                <div className="mt-1 text-sm text-muted-foreground">{detail.crm.health.message}</div>
+                <div className="mt-3 text-sm font-medium">
+                  {detail.crm.mappingReference}
+                </div>
+                <div className="mt-1 text-sm text-muted-foreground">
+                  {detail.crm.health.message}
+                </div>
                 {mapping?.matchedAt ? (
-                  <div className="mt-2 text-xs text-muted-foreground">Matched {formatDateTime(mapping.matchedAt)}</div>
+                  <div className="mt-2 text-xs text-muted-foreground">
+                    Matched {formatDateTime(mapping.matchedAt)}
+                  </div>
                 ) : null}
               </div>
 
@@ -712,11 +1071,15 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
                   <AccordionContent className="space-y-4">
                     <LeadCrmMappingForm
                       defaultValues={{
-                        state: mapping?.state === "MATCHED" ? "MANUAL_OVERRIDE" : mapping?.state ?? "UNRESOLVED",
+                        state:
+                          mapping?.state === "MATCHED"
+                            ? "MANUAL_OVERRIDE"
+                            : (mapping?.state ?? "UNRESOLVED"),
                         externalCrmLeadId: mapping?.externalCrmLeadId ?? "",
-                        externalOpportunityId: mapping?.externalOpportunityId ?? "",
+                        externalOpportunityId:
+                          mapping?.externalOpportunityId ?? "",
                         externalJobId: mapping?.externalJobId ?? "",
-                        issueSummary: mapping?.issueSummary ?? ""
+                        issueSummary: mapping?.issueSummary ?? "",
                       }}
                       leadId={detail.lead.id}
                     />
@@ -728,7 +1091,10 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
                     Add partner lifecycle update
                   </AccordionTrigger>
                   <AccordionContent className="space-y-4">
-                    <LeadCrmStatusForm disabled={!detail.crm.mappingResolved} leadId={detail.lead.id} />
+                    <LeadCrmStatusForm
+                      disabled={!detail.crm.mappingResolved}
+                      leadId={detail.lead.id}
+                    />
                   </AccordionContent>
                 </AccordionItem>
               </Accordion>
@@ -738,7 +1104,10 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
           <Card>
             <CardHeader>
               <CardTitle>Technical details</CardTitle>
-              <CardDescription>Use this only when intake, sync, or payload evidence needs review.</CardDescription>
+              <CardDescription>
+                Use this only when intake, sync, or payload evidence needs
+                review.
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <Accordion className="space-y-1" type="multiple">
@@ -748,24 +1117,32 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
                   </AccordionTrigger>
                   <AccordionContent className="space-y-3">
                     {detail.lead.webhookEvents.length === 0 ? (
-                      <div className="rounded-2xl border border-dashed border-border/80 bg-muted/10 px-4 py-5 text-sm text-muted-foreground">
-                        No raw webhook deliveries are linked to this lead. It may have entered through manual backfill.
+                      <div className="rounded-lg border border-dashed border-border/80 bg-muted/10 px-4 py-5 text-sm text-muted-foreground">
+                        No raw webhook deliveries are linked to this lead. It
+                        may have entered through manual backfill.
                       </div>
                     ) : (
                       detail.lead.webhookEvents.map((event) => (
-                        <div className="rounded-2xl border border-border/80 p-4" key={event.id}>
+                        <div
+                          className="rounded-lg border border-border/80 p-4"
+                          key={event.id}
+                        >
                           <div className="flex flex-wrap items-center justify-between gap-3">
                             <div>
                               <div className="font-medium">{event.topic}</div>
                               <div className="text-sm text-muted-foreground">
                                 Received {formatDateTime(event.receivedAt)}
-                                {event.deliveryId ? ` • ${event.deliveryId}` : ""}
+                                {event.deliveryId
+                                  ? ` • ${event.deliveryId}`
+                                  : ""}
                               </div>
                             </div>
                             <StatusChip status={event.status} />
                           </div>
                           {event.syncRun?.errors[0] ? (
-                            <div className="mt-3 text-sm text-muted-foreground">{event.syncRun.errors[0].message}</div>
+                            <div className="mt-3 text-sm text-muted-foreground">
+                              {event.syncRun.errors[0].message}
+                            </div>
                           ) : null}
                         </div>
                       ))
@@ -778,29 +1155,50 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
                     Intake and processing issues
                   </AccordionTrigger>
                   <AccordionContent className="space-y-3">
-                    {detail.processingIssues.length === 0 && detail.crm.issues.length === 0 ? (
-                      <div className="rounded-2xl border border-dashed border-border/80 bg-muted/10 px-4 py-5 text-sm text-muted-foreground">
-                        No intake or CRM issues are currently recorded for this lead.
+                    {detail.processingIssues.length === 0 &&
+                    detail.crm.issues.length === 0 ? (
+                      <div className="rounded-lg border border-dashed border-border/80 bg-muted/10 px-4 py-5 text-sm text-muted-foreground">
+                        No intake or CRM issues are currently recorded for this
+                        lead.
                       </div>
                     ) : (
                       <>
                         {detail.crm.issues.map((issue) => (
-                          <div className="rounded-2xl border border-border/80 bg-muted/10 p-4" key={issue.code}>
+                          <div
+                            className="rounded-lg border border-border/80 bg-muted/10 p-4"
+                            key={issue.code}
+                          >
                             <div className="flex items-center justify-between gap-3">
-                              <div className="text-sm font-medium">CRM enrichment</div>
-                              <StatusChip status={issue.code === "FAILED_SYNC" ? "FAILED" : issue.code} />
+                              <div className="text-sm font-medium">
+                                CRM enrichment
+                              </div>
+                              <StatusChip
+                                status={
+                                  issue.code === "FAILED_SYNC"
+                                    ? "FAILED"
+                                    : issue.code
+                                }
+                              />
                             </div>
-                            <div className="mt-2 text-sm text-muted-foreground">{issue.message}</div>
+                            <div className="mt-2 text-sm text-muted-foreground">
+                              {issue.message}
+                            </div>
                           </div>
                         ))}
                         {detail.processingIssues.map((issue) => (
-                          <div className="rounded-2xl border border-border/80 bg-muted/10 p-4" key={issue.id}>
+                          <div
+                            className="rounded-lg border border-border/80 bg-muted/10 p-4"
+                            key={issue.id}
+                          >
                             <div className="flex items-center justify-between gap-3">
-                              <div className="text-sm font-medium">{formatDateTime(issue.receivedAt)}</div>
+                              <div className="text-sm font-medium">
+                                {formatDateTime(issue.receivedAt)}
+                              </div>
                               <StatusChip status={issue.status} />
                             </div>
                             <div className="mt-2 text-sm text-muted-foreground">
-                              {issue.syncRun?.errors[0]?.message ?? "The webhook failed during processing."}
+                              {issue.syncRun?.errors[0]?.message ??
+                                "The webhook failed during processing."}
                             </div>
                           </div>
                         ))}
@@ -836,20 +1234,26 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
                           <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                             Latest delivery payload
                           </div>
-                          <JsonViewer value={detail.lead.webhookEvents[0].payloadJson} />
+                          <JsonViewer
+                            value={detail.lead.webhookEvents[0].payloadJson}
+                          />
                         </div>
                         <div className="space-y-2">
                           <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                             Latest delivery headers
                           </div>
-                          <JsonViewer value={detail.lead.webhookEvents[0].headersJson} />
+                          <JsonViewer
+                            value={detail.lead.webhookEvents[0].headersJson}
+                          />
                         </div>
                         {detail.lead.webhookEvents[0].errorJson ? (
                           <div className="space-y-2">
                             <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                               Latest delivery error
                             </div>
-                            <JsonViewer value={detail.lead.webhookEvents[0].errorJson} />
+                            <JsonViewer
+                              value={detail.lead.webhookEvents[0].errorJson}
+                            />
                           </div>
                         ) : null}
                       </>
@@ -862,33 +1266,49 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
                     Source boundaries
                   </AccordionTrigger>
                   <AccordionContent className="space-y-3">
-                    <div className="rounded-2xl border border-border/80 p-4">
+                    <div className="rounded-lg border border-border/80 p-4">
                       <div className="flex items-center gap-2">
                         <Badge>Yelp-native</Badge>
-                        <span className="font-medium">Thread events, lead IDs, read markers</span>
+                        <span className="font-medium">
+                          Thread events, lead IDs, read markers
+                        </span>
                       </div>
-                      <div className="mt-2 text-sm text-muted-foreground">{detail.sourceBoundaries.yelp}</div>
+                      <div className="mt-2 text-sm text-muted-foreground">
+                        {detail.sourceBoundaries.yelp}
+                      </div>
                     </div>
-                    <div className="rounded-2xl border border-border/80 p-4">
+                    <div className="rounded-lg border border-border/80 p-4">
                       <div className="flex items-center gap-2">
                         <Badge variant="outline">Partner lifecycle</Badge>
-                        <span className="font-medium">CRM IDs, mapping, lifecycle statuses</span>
+                        <span className="font-medium">
+                          CRM IDs, mapping, lifecycle statuses
+                        </span>
                       </div>
-                      <div className="mt-2 text-sm text-muted-foreground">{detail.sourceBoundaries.crm}</div>
+                      <div className="mt-2 text-sm text-muted-foreground">
+                        {detail.sourceBoundaries.crm}
+                      </div>
                     </div>
-                    <div className="rounded-2xl border border-border/80 p-4">
+                    <div className="rounded-lg border border-border/80 p-4">
                       <div className="flex items-center gap-2">
                         <Badge variant="secondary">Local</Badge>
-                        <span className="font-medium">Webhook processing and fallback delivery</span>
+                        <span className="font-medium">
+                          Webhook processing and fallback delivery
+                        </span>
                       </div>
-                      <div className="mt-2 text-sm text-muted-foreground">{detail.sourceBoundaries.local}</div>
+                      <div className="mt-2 text-sm text-muted-foreground">
+                        {detail.sourceBoundaries.local}
+                      </div>
                     </div>
-                    <div className="rounded-2xl border border-border/80 p-4">
+                    <div className="rounded-lg border border-border/80 p-4">
                       <div className="flex items-center gap-2">
                         <Badge variant="outline">Automation</Badge>
-                        <span className="font-medium">Rules, rendered messages, local attempts</span>
+                        <span className="font-medium">
+                          Rules, rendered messages, local attempts
+                        </span>
                       </div>
-                      <div className="mt-2 text-sm text-muted-foreground">{detail.sourceBoundaries.automation}</div>
+                      <div className="mt-2 text-sm text-muted-foreground">
+                        {detail.sourceBoundaries.automation}
+                      </div>
                     </div>
                   </AccordionContent>
                 </AccordionItem>
@@ -901,7 +1321,9 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
           <Card>
             <CardHeader>
               <CardTitle>Reply</CardTitle>
-              <CardDescription>Primary operator action. Keep the response inside Yelp first.</CardDescription>
+              <CardDescription>
+                Primary operator action. Keep the response inside Yelp first.
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <LeadReplyForm
@@ -911,7 +1333,9 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
                 canUseEmail={detail.replyComposer.canUseEmail}
                 maskedEmail={detail.replyComposer.maskedEmail}
                 canMarkAsRead={detail.replyComposer.canMarkAsRead}
-                latestOutboundChannel={detail.replyComposer.latestOutboundChannel}
+                latestOutboundChannel={
+                  detail.replyComposer.latestOutboundChannel
+                }
                 canMarkAsReplied={detail.replyComposer.canMarkAsReplied}
                 canGenerateAiDrafts={detail.replyComposer.canGenerateAiDrafts}
                 conversationSuggestion={detail.conversationSuggestion}
@@ -921,48 +1345,85 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ lea
 
           <LeadAiSummaryPanel
             leadId={detail.lead.id}
-            canGenerate={detail.aiAssist.envConfigured && detail.aiAssist.enabled}
-            modelLabel={detail.aiAssist.envConfigured ? detail.aiAssist.modelLabel : "Model unavailable"}
+            canGenerate={
+              detail.aiAssist.envConfigured && detail.aiAssist.enabled
+            }
+            modelLabel={
+              detail.aiAssist.envConfigured
+                ? detail.aiAssist.modelLabel
+                : "Model unavailable"
+            }
           />
 
           <Card>
             <CardHeader>
               <CardTitle>Lead ops</CardTitle>
-              <CardDescription>Internal mapping, lifecycle, and issue context.</CardDescription>
+              <CardDescription>
+                Internal mapping, lifecycle, and issue context.
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-3">
-                <SummaryFact label="CRM mapping" value={<StatusChip status={mapping?.state ?? "UNRESOLVED"} />} />
-                <SummaryFact label="Partner lifecycle" value={<StatusChip status={detail.crm.currentInternalStatus} />} />
-                <SummaryFact label="Partner sync health" value={detail.crm.health.message} subtle />
-                <SummaryFact label="Masked email" value={detail.replyComposer.maskedEmail ?? "Not available"} subtle />
+                <SummaryFact
+                  label="CRM mapping"
+                  value={<StatusChip status={mapping?.state ?? "UNRESOLVED"} />}
+                />
+                <SummaryFact
+                  label="Partner lifecycle"
+                  value={
+                    <StatusChip status={detail.crm.currentInternalStatus} />
+                  }
+                />
+                <SummaryFact
+                  label="Partner sync health"
+                  value={detail.crm.health.message}
+                  subtle
+                />
+                <SummaryFact
+                  label="Masked email"
+                  value={detail.replyComposer.maskedEmail ?? "Not available"}
+                  subtle
+                />
               </div>
 
               <div className="border-t border-border/70 pt-4">
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div className="text-sm font-semibold">Open lead issues</div>
-                  <Badge variant={detail.linkedIssues.length > 0 ? "warning" : "outline"}>
+                  <Badge
+                    variant={
+                      detail.linkedIssues.length > 0 ? "warning" : "outline"
+                    }
+                  >
                     {detail.linkedIssues.length}
                   </Badge>
                 </div>
 
                 {detail.linkedIssues.length === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-border/80 bg-muted/10 px-4 py-5 text-sm text-muted-foreground">
+                  <div className="rounded-lg border border-dashed border-border/80 bg-muted/10 px-4 py-5 text-sm text-muted-foreground">
                     No open operator issues are linked to this lead.
                   </div>
                 ) : (
                   <div className="space-y-3">
                     {detail.linkedIssues.map((issue) => (
-                      <div className="rounded-2xl border border-border/80 p-4" key={issue.id}>
+                      <div
+                        className="rounded-lg border border-border/80 p-4"
+                        key={issue.id}
+                      >
                         <div className="flex items-start justify-between gap-3">
                           <div className="space-y-2">
                             <div className="flex flex-wrap items-center gap-2">
                               <StatusChip status={issue.severity} />
                               <span className="text-sm font-medium">
-                                {titleCase(issue.issueType.replaceAll("_", " ").toLowerCase())}
+                                {titleCase(
+                                  issue.issueType
+                                    .replaceAll("_", " ")
+                                    .toLowerCase(),
+                                )}
                               </span>
                             </div>
-                            <div className="text-sm text-muted-foreground">{issue.summary}</div>
+                            <div className="text-sm text-muted-foreground">
+                              {issue.summary}
+                            </div>
                             <div className="text-xs text-muted-foreground">
                               Last seen {formatDateTime(issue.lastDetectedAt)}
                             </div>

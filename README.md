@@ -95,7 +95,8 @@ Useful optional values:
 - `YELP_*_BASE_URL` overrides for different environments
 - `YELP_ACCESS_TOKEN` as the preferred bearer-token fallback for Yelp Leads and other bearer-auth Yelp Partner API reads
 - `YELP_API_KEY` as a legacy bearer-token fallback name if your team still stores the same token under that env var
-- `YELP_CLIENT_ID`, `YELP_CLIENT_SECRET`, and `YELP_REDIRECT_URI` for future Yelp OAuth or business-access flows
+- `YELP_CLIENT_ID` and `YELP_CLIENT_SECRET` as env fallbacks for Yelp OAuth refresh if the values are not saved in Admin Settings
+- `YELP_REDIRECT_URI` for external Yelp OAuth authorization-code setup
 - `YELP_ALLOWED_BUSINESS_IDS` for future business-access allowlisting or subscription-coverage logic
 
 ## Credentials and capabilities
@@ -104,6 +105,7 @@ Admin Settings includes:
 
 - Partner API Basic Auth credentials
 - Yelp API bearer token for Leads and other bearer-auth Yelp APIs
+- Yelp OAuth client and refresh token fields on the bearer-token credential, used to refresh expiring Leads API access tokens automatically
 - Optional Business Match and Data Ingestion credentials
 - Env-var mapping guidance so teams can map existing values like `YELP_API_KEY` to the correct credential form
 - Capability flags:
@@ -113,12 +115,15 @@ Admin Settings includes:
   - `hasConversionsApi`
   - `hasPartnerSupportApi`
   - `hasCrmIntegration`
-  - `adsApiEnabled`
-  - `programFeatureApiEnabled`
-  - `reportingApiEnabled`
-  - `dataIngestionApiEnabled`
-  - `businessMatchApiEnabled`
-  - `demoModeEnabled`
+
+The Businesses page includes a Yelp business sync action. It prefers Yelp Partner Support migration info when configured, then falls back to a Leads API probe. The sync marks saved business IDs as active, migrated, not found, no access, or error without deleting historical records.
+
+- `adsApiEnabled`
+- `programFeatureApiEnabled`
+- `reportingApiEnabled`
+- `dataIngestionApiEnabled`
+- `businessMatchApiEnabled`
+- `demoModeEnabled`
 
 Secrets are encrypted server-side with AES-GCM and never rendered back after save.
 

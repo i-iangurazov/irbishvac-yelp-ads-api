@@ -10,9 +10,18 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { leadReplyFormSchema, type LeadReplyFormInput } from "@/features/leads/schemas";
+import {
+  leadReplyFormSchema,
+  type LeadReplyFormInput,
+} from "@/features/leads/schemas";
 import { apiFetch } from "@/lib/utils/client-api";
 
 type LeadReplyDraftResponse = {
@@ -75,7 +84,7 @@ export function LeadReplyForm({
   latestOutboundChannel,
   canMarkAsReplied,
   canGenerateAiDrafts,
-  conversationSuggestion
+  conversationSuggestion,
 }: {
   leadId: string;
   defaultChannel: "YELP_THREAD" | "EMAIL" | null;
@@ -89,14 +98,19 @@ export function LeadReplyForm({
   conversationSuggestion?: ConversationSuggestion | null;
 }) {
   const router = useRouter();
-  const [externalReplyType, setExternalReplyType] = useState<"PHONE" | "EMAIL">("PHONE");
+  const [externalReplyType, setExternalReplyType] = useState<"PHONE" | "EMAIL">(
+    "PHONE",
+  );
   const [isMarkingReplied, setIsMarkingReplied] = useState(false);
-  const [draftResult, setDraftResult] = useState<LeadReplyDraftResponse | null>(null);
-  const [selectedAiDraft, setSelectedAiDraft] = useState<SelectedAiDraft | null>(null);
+  const [draftResult, setDraftResult] = useState<LeadReplyDraftResponse | null>(
+    null,
+  );
+  const [selectedAiDraft, setSelectedAiDraft] =
+    useState<SelectedAiDraft | null>(null);
   const submitIdempotencyKeyRef = useRef(
     typeof crypto !== "undefined" && "randomUUID" in crypto
       ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(16).slice(2)}`
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
   );
   const [isGeneratingDrafts, setIsGeneratingDrafts] = useState(false);
   const [isDiscardingDrafts, setIsDiscardingDrafts] = useState(false);
@@ -106,14 +120,20 @@ export function LeadReplyForm({
     watch,
     setValue,
     reset,
-    formState: { errors, isSubmitting }
+    formState: { errors, isSubmitting },
   } = useForm<LeadReplyFormInput>({
     resolver: zodResolver(leadReplyFormSchema),
     defaultValues: {
-      channel: defaultChannel ?? (canUseYelpThread ? "YELP_THREAD" : canUseEmail ? "EMAIL" : "YELP_THREAD"),
+      channel:
+        defaultChannel ??
+        (canUseYelpThread
+          ? "YELP_THREAD"
+          : canUseEmail
+            ? "EMAIL"
+            : "YELP_THREAD"),
       subject: "",
-      body: ""
-    }
+      body: "",
+    },
   });
 
   const selectedChannel = watch("channel");
@@ -143,10 +163,13 @@ export function LeadReplyForm({
 
   const submit = handleSubmit(async (values) => {
     try {
-      const result = await apiFetch<{ status: string; warning?: string | null }>(`/api/leads/${leadId}/reply`, {
+      const result = await apiFetch<{
+        status: string;
+        warning?: string | null;
+      }>(`/api/leads/${leadId}/reply`, {
         method: "POST",
         headers: {
-          "Idempotency-Key": submitIdempotencyKeyRef.current
+          "Idempotency-Key": submitIdempotencyKeyRef.current,
         },
         body: JSON.stringify({
           ...values,
@@ -155,10 +178,10 @@ export function LeadReplyForm({
                 requestId: selectedAiDraft.requestId,
                 draftId: selectedAiDraft.draftId,
                 edited: aiDraftEdited,
-                warningCodes: selectedAiDraft.warningCodes
+                warningCodes: selectedAiDraft.warningCodes,
               }
-            : undefined
-        })
+            : undefined,
+        }),
       });
       submitIdempotencyKeyRef.current =
         typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -171,29 +194,34 @@ export function LeadReplyForm({
         toast.success(
           values.channel === "YELP_THREAD"
             ? "Reply posted to the Yelp thread."
-            : "Yelp masked email reply sent."
+            : "Yelp masked email reply sent.",
         );
       }
 
       reset({
         channel: values.channel,
         subject: "",
-        body: ""
+        body: "",
       });
       setSelectedAiDraft(null);
       setDraftResult(null);
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to send the reply.");
+      toast.error(
+        error instanceof Error ? error.message : "Unable to send the reply.",
+      );
     }
   });
 
   const markRead = async () => {
     try {
-      const result = await apiFetch<{ warning?: string | null }>(`/api/leads/${leadId}/mark-read`, {
-        method: "POST",
-        body: JSON.stringify({})
-      });
+      const result = await apiFetch<{ warning?: string | null }>(
+        `/api/leads/${leadId}/mark-read`,
+        {
+          method: "POST",
+          body: JSON.stringify({}),
+        },
+      );
 
       if (result.warning) {
         toast.warning(result.warning);
@@ -203,7 +231,11 @@ export function LeadReplyForm({
 
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to mark the lead as read.");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to mark the lead as read.",
+      );
     }
   };
 
@@ -211,12 +243,15 @@ export function LeadReplyForm({
     setIsMarkingReplied(true);
 
     try {
-      const result = await apiFetch<{ warning?: string | null }>(`/api/leads/${leadId}/mark-replied`, {
-        method: "POST",
-        body: JSON.stringify({
-          replyType: externalReplyType
-        })
-      });
+      const result = await apiFetch<{ warning?: string | null }>(
+        `/api/leads/${leadId}/mark-replied`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            replyType: externalReplyType,
+          }),
+        },
+      );
 
       if (result.warning) {
         toast.warning(result.warning);
@@ -224,13 +259,17 @@ export function LeadReplyForm({
         toast.success(
           externalReplyType === "PHONE"
             ? "Lead marked replied after phone or SMS follow-up."
-            : "Lead marked replied after Yelp masked email follow-up."
+            : "Lead marked replied after Yelp masked email follow-up.",
         );
       }
 
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to mark the lead as replied.");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to mark the lead as replied.",
+      );
     } finally {
       setIsMarkingReplied(false);
     }
@@ -244,13 +283,16 @@ export function LeadReplyForm({
     setIsGeneratingDrafts(true);
 
     try {
-      const result = await apiFetch<LeadReplyDraftResponse>(`/api/leads/${leadId}/reply-draft`, {
-        method: "POST",
-        body: JSON.stringify({
-          channel: selectedChannel,
-          variantCount: 3
-        })
-      });
+      const result = await apiFetch<LeadReplyDraftResponse>(
+        `/api/leads/${leadId}/reply-draft`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            channel: selectedChannel,
+            variantCount: 3,
+          }),
+        },
+      );
 
       setDraftResult(result);
       setSelectedAiDraft(null);
@@ -261,7 +303,11 @@ export function LeadReplyForm({
         toast.success("AI drafts generated.");
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to generate AI drafts.");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to generate AI drafts.",
+      );
     } finally {
       setIsGeneratingDrafts(false);
     }
@@ -275,14 +321,17 @@ export function LeadReplyForm({
     setIsDiscardingDrafts(true);
 
     try {
-      await apiFetch<{ status: string }>(`/api/leads/${leadId}/reply-draft/usage`, {
-        method: "POST",
-        body: JSON.stringify({
-          requestId: draftResult.requestId,
-          draftId: selectedAiDraft?.draftId,
-          action: "DISCARDED"
-        })
-      });
+      await apiFetch<{ status: string }>(
+        `/api/leads/${leadId}/reply-draft/usage`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            requestId: draftResult.requestId,
+            draftId: selectedAiDraft?.draftId,
+            action: "DISCARDED",
+          }),
+        },
+      );
     } catch {
       // Keep the operator flow responsive even if usage audit logging fails.
     } finally {
@@ -296,7 +345,10 @@ export function LeadReplyForm({
     setValue("body", draft.body, { shouldDirty: true, shouldTouch: true });
 
     if (selectedChannel === "EMAIL") {
-      setValue("subject", draft.subject ?? "", { shouldDirty: true, shouldTouch: true });
+      setValue("subject", draft.subject ?? "", {
+        shouldDirty: true,
+        shouldTouch: true,
+      });
     }
 
     setSelectedAiDraft({
@@ -305,7 +357,7 @@ export function LeadReplyForm({
       channel: selectedChannel,
       body: draft.body,
       subject: draft.subject ?? null,
-      warningCodes: draftResult?.warnings.map((warning) => warning.code) ?? []
+      warningCodes: draftResult?.warnings.map((warning) => warning.code) ?? [],
     });
 
     toast.success("Draft copied into the reply composer.");
@@ -317,15 +369,21 @@ export function LeadReplyForm({
     }
 
     setValue("channel", "YELP_THREAD", { shouldValidate: true });
-    setValue("body", conversationSuggestion.body, { shouldDirty: true, shouldTouch: true });
-    setValue("subject", conversationSuggestion.subject ?? "", { shouldDirty: true, shouldTouch: true });
+    setValue("body", conversationSuggestion.body, {
+      shouldDirty: true,
+      shouldTouch: true,
+    });
+    setValue("subject", conversationSuggestion.subject ?? "", {
+      shouldDirty: true,
+      shouldTouch: true,
+    });
     setSelectedAiDraft({
       requestId: `conversation:${conversationSuggestion.turnId}`,
       draftId: conversationSuggestion.turnId,
       channel: "YELP_THREAD",
       body: conversationSuggestion.body,
       subject: conversationSuggestion.subject,
-      warningCodes: conversationSuggestion.warningCodes
+      warningCodes: conversationSuggestion.warningCodes,
     });
     setDraftResult(null);
 
@@ -339,39 +397,58 @@ export function LeadReplyForm({
           <Label>Reply channel</Label>
           <Select
             defaultValue={watch("channel")}
-            onValueChange={(value) => setValue("channel", value as "YELP_THREAD" | "EMAIL", { shouldValidate: true })}
+            onValueChange={(value) =>
+              setValue("channel", value as "YELP_THREAD" | "EMAIL", {
+                shouldValidate: true,
+              })
+            }
           >
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {canUseYelpThread ? <SelectItem value="YELP_THREAD">Yelp thread</SelectItem> : null}
-              {canUseEmail ? <SelectItem value="EMAIL">Yelp masked email fallback</SelectItem> : null}
+              {canUseYelpThread ? (
+                <SelectItem value="YELP_THREAD">Yelp thread</SelectItem>
+              ) : null}
+              {canUseEmail ? (
+                <SelectItem value="EMAIL">
+                  Yelp masked email fallback
+                </SelectItem>
+              ) : null}
             </SelectContent>
           </Select>
         </div>
 
         {canMarkAsRead ? (
-          <Button disabled={isSubmitting} onClick={markRead} type="button" variant="outline">
+          <Button
+            disabled={isSubmitting}
+            onClick={markRead}
+            type="button"
+            variant="outline"
+          >
             Mark unread as read
           </Button>
         ) : null}
       </div>
 
-      <div className="rounded-xl border border-border/80 bg-muted/10 px-4 py-3 text-xs text-muted-foreground">
+      <div className="rounded-lg border border-border/80 bg-muted/10 px-4 py-3 text-xs text-muted-foreground">
         {noReplyChannel
           ? "No live reply channel is available for this lead yet."
           : selectedChannel === "YELP_THREAD"
             ? "Primary path. Sends directly into the Yelp thread."
             : `Fallback path. Sends through Yelp's masked email${maskedEmail ? ` (${maskedEmail})` : ""}.`}
-        {latestOutboundChannel ? ` Last outbound channel: ${channelLabel(latestOutboundChannel)}.` : ""}
+        {latestOutboundChannel
+          ? ` Last outbound channel: ${channelLabel(latestOutboundChannel)}.`
+          : ""}
       </div>
 
       {conversationSuggestion ? (
-        <div className="rounded-xl border border-amber-300/80 bg-amber-50/70 px-4 py-3">
+        <div className="rounded-lg border border-amber-300/80 bg-amber-50/70 px-4 py-3">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="space-y-2">
-              <div className="text-sm font-medium text-amber-950">{conversationSuggestion.title}</div>
+              <div className="text-sm font-medium text-amber-950">
+                {conversationSuggestion.title}
+              </div>
               <div className="flex flex-wrap gap-2 text-[11px] font-medium text-amber-900">
                 <span className="rounded-full border border-amber-300 bg-amber-100 px-2.5 py-1">
                   Review-only
@@ -384,9 +461,13 @@ export function LeadReplyForm({
                 </span>
               </div>
               {conversationSuggestion.stopReasonLabel ? (
-                <p className="text-xs text-amber-900">{conversationSuggestion.stopReasonLabel}</p>
+                <p className="text-xs text-amber-900">
+                  {conversationSuggestion.stopReasonLabel}
+                </p>
               ) : null}
-              <p className="whitespace-pre-wrap text-sm leading-6 text-amber-950">{conversationSuggestion.body}</p>
+              <p className="whitespace-pre-wrap text-sm leading-6 text-amber-950">
+                {conversationSuggestion.body}
+              </p>
             </div>
             <Button
               disabled={!canUseYelpThread || isSubmitting}
@@ -401,11 +482,14 @@ export function LeadReplyForm({
         </div>
       ) : null}
 
-      <div className="rounded-xl border border-border/80 px-4 py-3">
+      <div className="rounded-lg border border-border/80 px-4 py-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="space-y-1">
             <div className="text-sm font-medium">AI draft assist</div>
-            <p className="text-xs text-muted-foreground">Review-only suggestions for this channel. Nothing sends automatically.</p>
+            <p className="text-xs text-muted-foreground">
+              Review-only suggestions for this channel. Nothing sends
+              automatically.
+            </p>
           </div>
           <div className="flex flex-wrap gap-2">
             {draftResult ? (
@@ -419,17 +503,28 @@ export function LeadReplyForm({
               </Button>
             ) : null}
             <Button
-              disabled={noReplyChannel || !canGenerateAiDrafts || isGeneratingDrafts || isSubmitting}
+              disabled={
+                noReplyChannel ||
+                !canGenerateAiDrafts ||
+                isGeneratingDrafts ||
+                isSubmitting
+              }
               onClick={generateDrafts}
               type="button"
               variant="outline"
             >
-              {isGeneratingDrafts ? "Generating..." : draftResult ? "Regenerate drafts" : "Generate draft"}
+              {isGeneratingDrafts
+                ? "Generating..."
+                : draftResult
+                  ? "Regenerate drafts"
+                  : "Generate draft"}
             </Button>
           </div>
         </div>
         {!canGenerateAiDrafts ? (
-          <p className="mt-3 text-xs text-muted-foreground">AI drafting is not configured in this environment.</p>
+          <p className="mt-3 text-xs text-muted-foreground">
+            AI drafting is not configured in this environment.
+          </p>
         ) : null}
         {draftResult ? (
           <div className="mt-4 space-y-3">
@@ -454,16 +549,28 @@ export function LeadReplyForm({
                 const isSelected = selectedAiDraft?.draftId === draft.id;
 
                 return (
-                  <div className="rounded-xl border border-border/80 bg-muted/10 p-3" key={draft.id}>
+                  <div
+                    className="rounded-lg border border-border/80 bg-muted/10 p-3"
+                    key={draft.id}
+                  >
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="space-y-2">
                         <div className="text-sm font-medium">{draft.title}</div>
                         {selectedChannel === "EMAIL" && draft.subject ? (
-                          <div className="text-xs text-muted-foreground">Subject: {draft.subject}</div>
+                          <div className="text-xs text-muted-foreground">
+                            Subject: {draft.subject}
+                          </div>
                         ) : null}
-                        <p className="whitespace-pre-wrap text-sm leading-6">{draft.body}</p>
+                        <p className="whitespace-pre-wrap text-sm leading-6">
+                          {draft.body}
+                        </p>
                       </div>
-                      <Button onClick={() => applyDraft(draft)} size="sm" type="button" variant={isSelected ? "secondary" : "outline"}>
+                      <Button
+                        onClick={() => applyDraft(draft)}
+                        size="sm"
+                        type="button"
+                        variant={isSelected ? "secondary" : "outline"}
+                      >
                         {isSelected ? "In composer" : "Use draft"}
                       </Button>
                     </div>
@@ -476,19 +583,29 @@ export function LeadReplyForm({
       </div>
 
       {canMarkAsReplied ? (
-        <div className="grid gap-3 rounded-xl border border-border/80 bg-muted/10 px-4 py-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+        <div className="grid gap-3 rounded-lg border border-border/80 bg-muted/10 px-4 py-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
           <div className="space-y-2">
             <Label>Outside-Yelp follow-up</Label>
-            <Select defaultValue={externalReplyType} onValueChange={(value) => setExternalReplyType(value as "PHONE" | "EMAIL")}>
+            <Select
+              defaultValue={externalReplyType}
+              onValueChange={(value) =>
+                setExternalReplyType(value as "PHONE" | "EMAIL")
+              }
+            >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="PHONE">Phone or SMS</SelectItem>
-                <SelectItem value="EMAIL">Email sent outside this console</SelectItem>
+                <SelectItem value="EMAIL">
+                  Email sent outside this console
+                </SelectItem>
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">Use this only after a real phone, SMS, or email handoff happened outside Yelp.</p>
+            <p className="text-xs text-muted-foreground">
+              Use this only after a real phone, SMS, or email handoff happened
+              outside Yelp.
+            </p>
           </div>
 
           <Button
@@ -505,8 +622,14 @@ export function LeadReplyForm({
       {selectedChannel === "EMAIL" ? (
         <div className="space-y-2">
           <Label htmlFor="lead-reply-subject">Email subject</Label>
-          <Input id="lead-reply-subject" placeholder="Thanks for contacting our team" {...register("subject")} />
-          {errors.subject ? <p className="text-sm text-destructive">{errors.subject.message}</p> : null}
+          <Input
+            id="lead-reply-subject"
+            placeholder="Thanks for contacting our team"
+            {...register("subject")}
+          />
+          {errors.subject ? (
+            <p className="text-sm text-destructive">{errors.subject.message}</p>
+          ) : null}
         </div>
       ) : null}
 
@@ -520,15 +643,22 @@ export function LeadReplyForm({
         />
         {selectedAiDraft ? (
           <p className="text-xs text-muted-foreground">
-            The current draft started from AI suggestions. Review and edit it before sending.
+            The current draft started from AI suggestions. Review and edit it
+            before sending.
           </p>
         ) : null}
-        {errors.body ? <p className="text-sm text-destructive">{errors.body.message}</p> : null}
+        {errors.body ? (
+          <p className="text-sm text-destructive">{errors.body.message}</p>
+        ) : null}
       </div>
 
       <div className="flex justify-end">
         <Button disabled={noReplyChannel || isSubmitting} type="submit">
-          {isSubmitting ? "Sending..." : selectedChannel === "YELP_THREAD" ? "Send in Yelp thread" : "Send email reply"}
+          {isSubmitting
+            ? "Sending..."
+            : selectedChannel === "YELP_THREAD"
+              ? "Send in Yelp thread"
+              : "Send email reply"}
         </Button>
       </div>
     </form>

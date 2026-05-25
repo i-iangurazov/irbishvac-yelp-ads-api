@@ -4,18 +4,35 @@ import { Card, CardContent } from "@/components/ui/card";
 
 export function CapabilityState({
   enabled,
-  message
+  message,
 }: {
   enabled: boolean;
   message?: string | null;
 }) {
   return (
-    <Card className={enabled ? "border-success/30 bg-success/5" : "border-warning/30 bg-warning/10"}>
+    <Card
+      className={
+        enabled
+          ? "border-success/30 bg-success/5"
+          : "border-warning/30 bg-warning/10"
+      }
+    >
       <CardContent className="flex items-start gap-3 p-4">
-        {enabled ? <CheckCircle2 className="mt-0.5 h-5 w-5 text-success" /> : <KeyRound className="mt-0.5 h-5 w-5 text-warning" />}
+        {enabled ? (
+          <CheckCircle2 className="mt-0.5 h-5 w-5 text-success" />
+        ) : (
+          <KeyRound className="mt-0.5 h-5 w-5 text-warning" />
+        )}
         <div>
-          <div className="font-medium">{enabled ? "Enabled" : "Not enabled"}</div>
-          <div className="text-sm text-muted-foreground">{message ?? (enabled ? "Configured and available." : "Not enabled by Yelp / missing credentials.")}</div>
+          <div className="font-medium">
+            {enabled ? "Enabled" : "Not enabled"}
+          </div>
+          <div className="text-sm text-muted-foreground">
+            {message ??
+              (enabled
+                ? "Configured and available."
+                : "Not enabled by Yelp / missing credentials.")}
+          </div>
         </div>
       </CardContent>
     </Card>

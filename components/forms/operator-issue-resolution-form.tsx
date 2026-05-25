@@ -21,7 +21,7 @@ export function OperatorIssueResolutionForm({
   issueId,
   action,
   title,
-  submitLabel
+  submitLabel,
 }: {
   issueId: string;
   action: "resolve" | "ignore";
@@ -32,25 +32,29 @@ export function OperatorIssueResolutionForm({
   const {
     register,
     handleSubmit,
-    formState: { errors, isSubmitting }
+    formState: { errors, isSubmitting },
   } = useForm<ResolutionValues>({
     resolver: zodResolver(operatorIssueResolutionSchema),
     defaultValues: {
       reason: "",
-      note: ""
-    }
+      note: "",
+    },
   });
 
   const submit = handleSubmit(async (values) => {
     try {
       await apiFetch(`/api/issues/${issueId}/${action}`, {
         method: "POST",
-        body: JSON.stringify(values)
+        body: JSON.stringify(values),
       });
-      toast.success(action === "resolve" ? "Issue resolved." : "Issue ignored.");
+      toast.success(
+        action === "resolve" ? "Issue resolved." : "Issue ignored.",
+      );
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to update issue.");
+      toast.error(
+        error instanceof Error ? error.message : "Unable to update issue.",
+      );
     }
   });
 
@@ -59,15 +63,34 @@ export function OperatorIssueResolutionForm({
       <div className="text-sm font-medium">{title}</div>
       <div className="space-y-1">
         <Label htmlFor={`${action}-reason`}>Reason</Label>
-        <Input id={`${action}-reason`} placeholder={action === "resolve" ? "Handled in CRM" : "Known test tenant issue"} {...register("reason")} />
-        {errors.reason ? <p className="text-sm text-destructive">{errors.reason.message}</p> : null}
+        <Input
+          id={`${action}-reason`}
+          placeholder={
+            action === "resolve" ? "Handled in CRM" : "Known test tenant issue"
+          }
+          {...register("reason")}
+        />
+        {errors.reason ? (
+          <p className="text-sm text-destructive">{errors.reason.message}</p>
+        ) : null}
       </div>
       <div className="space-y-1">
         <Label htmlFor={`${action}-note`}>Note</Label>
-        <Textarea id={`${action}-note`} placeholder="Optional operator context." rows={3} {...register("note")} />
-        {errors.note ? <p className="text-sm text-destructive">{errors.note.message}</p> : null}
+        <Textarea
+          id={`${action}-note`}
+          placeholder="Optional operator context."
+          rows={3}
+          {...register("note")}
+        />
+        {errors.note ? (
+          <p className="text-sm text-destructive">{errors.note.message}</p>
+        ) : null}
       </div>
-      <Button disabled={isSubmitting} type="submit" variant={action === "resolve" ? "outline" : "secondary"}>
+      <Button
+        disabled={isSubmitting}
+        type="submit"
+        variant={action === "resolve" ? "outline" : "secondary"}
+      >
         {isSubmitting ? "Saving..." : submitLabel}
       </Button>
     </form>

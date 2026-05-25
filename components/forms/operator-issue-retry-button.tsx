@@ -8,7 +8,7 @@ import { apiFetch } from "@/lib/utils/client-api";
 
 export function OperatorIssueRetryButton({
   issueId,
-  label = "Retry"
+  label = "Retry",
 }: {
   issueId: string;
   label?: string;
@@ -18,12 +18,14 @@ export function OperatorIssueRetryButton({
   async function handleRetry() {
     try {
       await apiFetch(`/api/issues/${issueId}/retry`, {
-        method: "POST"
+        method: "POST",
       });
       toast.success("Retry requested.");
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to retry issue.");
+      toast.error(
+        error instanceof Error ? error.message : "Unable to retry issue.",
+      );
     }
   }
 

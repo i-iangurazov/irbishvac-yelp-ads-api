@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 export function OperatorIssuesFilterForm({
   businesses,
   locations,
-  values
+  values,
 }: {
   businesses: Array<{ id: string; name: string }>;
   locations: Array<{ id: string; name: string }>;
@@ -24,7 +24,10 @@ export function OperatorIssuesFilterForm({
       className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_0.85fr_0.85fr_0.85fr_auto_auto]"
     >
       <div className="space-y-1">
-        <label className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground" htmlFor="issueType">
+        <label
+          className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground"
+          htmlFor="issueType"
+        >
           Type
         </label>
         <select
@@ -38,14 +41,19 @@ export function OperatorIssuesFilterForm({
           <option value="UNMAPPED_LEAD">Unmapped lead</option>
           <option value="CRM_SYNC_FAILURE">CRM sync failure</option>
           <option value="AUTORESPONDER_FAILURE">Autoresponder failure</option>
-          <option value="REPORT_DELIVERY_FAILURE">Report delivery failure</option>
+          <option value="REPORT_DELIVERY_FAILURE">
+            Report delivery failure
+          </option>
           <option value="MAPPING_CONFLICT">Mapping conflict</option>
           <option value="STALE_LEAD">Stale lead</option>
         </select>
       </div>
 
       <div className="space-y-1">
-        <label className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground" htmlFor="businessId">
+        <label
+          className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground"
+          htmlFor="businessId"
+        >
           Client
         </label>
         <select
@@ -64,7 +72,10 @@ export function OperatorIssuesFilterForm({
       </div>
 
       <div className="space-y-1">
-        <label className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground" htmlFor="locationId">
+        <label
+          className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground"
+          htmlFor="locationId"
+        >
           Location
         </label>
         <select
@@ -83,7 +94,10 @@ export function OperatorIssuesFilterForm({
       </div>
 
       <div className="space-y-1">
-        <label className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground" htmlFor="severity">
+        <label
+          className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground"
+          htmlFor="severity"
+        >
           Severity
         </label>
         <select
@@ -101,7 +115,10 @@ export function OperatorIssuesFilterForm({
       </div>
 
       <div className="space-y-1">
-        <label className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground" htmlFor="status">
+        <label
+          className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground"
+          htmlFor="status"
+        >
           Status
         </label>
         <select
@@ -118,7 +135,10 @@ export function OperatorIssuesFilterForm({
       </div>
 
       <div className="space-y-1">
-        <label className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground" htmlFor="age">
+        <label
+          className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground"
+          htmlFor="age"
+        >
           Age
         </label>
         <select

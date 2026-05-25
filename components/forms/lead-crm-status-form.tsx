@@ -9,7 +9,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { crmLeadStatusFormSchema, type CrmLeadStatusFormValues } from "@/features/crm-enrichment/schemas";
+import {
+  crmLeadStatusFormSchema,
+  type CrmLeadStatusFormValues,
+} from "@/features/crm-enrichment/schemas";
 import { apiFetch } from "@/lib/utils/client-api";
 
 const lifecycleStatuses = [
@@ -23,7 +26,7 @@ const lifecycleStatuses = [
   ["CANCELED", "Canceled"],
   ["CLOSED_WON", "Closed won"],
   ["CLOSED_LOST", "Closed lost"],
-  ["LOST", "Lost"]
+  ["LOST", "Lost"],
 ] as const;
 
 function toDateTimeLocalValue(date: Date) {
@@ -34,7 +37,7 @@ function toDateTimeLocalValue(date: Date) {
 
 export function LeadCrmStatusForm({
   leadId,
-  disabled
+  disabled,
 }: {
   leadId: string;
   disabled: boolean;
@@ -43,15 +46,15 @@ export function LeadCrmStatusForm({
   const {
     register,
     handleSubmit,
-    formState: { isSubmitting, errors }
+    formState: { isSubmitting, errors },
   } = useForm<CrmLeadStatusFormValues>({
     resolver: zodResolver(crmLeadStatusFormSchema),
     defaultValues: {
       status: "NEW",
       occurredAt: toDateTimeLocalValue(new Date()),
       substatus: "",
-      note: ""
-    }
+      note: "",
+    },
   });
 
   const submit = handleSubmit(async (values) => {
@@ -60,13 +63,17 @@ export function LeadCrmStatusForm({
         method: "POST",
         body: JSON.stringify({
           ...values,
-          occurredAt: new Date(values.occurredAt).toISOString()
-        })
+          occurredAt: new Date(values.occurredAt).toISOString(),
+        }),
       });
       toast.success("Partner lifecycle status saved.");
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to save partner lifecycle status.");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to save partner lifecycle status.",
+      );
     }
   });
 
@@ -90,14 +97,28 @@ export function LeadCrmStatusForm({
         </div>
         <div className="space-y-2">
           <Label htmlFor="crm-occurred-at">Occurred at</Label>
-          <Input disabled={disabled} id="crm-occurred-at" type="datetime-local" {...register("occurredAt")} />
-          {errors.occurredAt ? <p className="text-sm text-destructive">{errors.occurredAt.message}</p> : null}
+          <Input
+            disabled={disabled}
+            id="crm-occurred-at"
+            type="datetime-local"
+            {...register("occurredAt")}
+          />
+          {errors.occurredAt ? (
+            <p className="text-sm text-destructive">
+              {errors.occurredAt.message}
+            </p>
+          ) : null}
         </div>
       </div>
 
       <div className="space-y-2">
         <Label htmlFor="crm-substatus">Substatus</Label>
-        <Input disabled={disabled} id="crm-substatus" placeholder="Optional queue or outcome detail." {...register("substatus")} />
+        <Input
+          disabled={disabled}
+          id="crm-substatus"
+          placeholder="Optional queue or outcome detail."
+          {...register("substatus")}
+        />
       </div>
 
       <div className="space-y-2">

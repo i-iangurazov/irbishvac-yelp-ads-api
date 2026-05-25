@@ -9,12 +9,18 @@ import { getProgramFeatureOverview } from "@/features/program-features/service";
 import { requireUser } from "@/lib/auth/service";
 import { titleCase } from "@/lib/utils/format";
 
-export default async function ProgramFeaturesPage({ params }: { params: Promise<{ programId: string }> }) {
+export default async function ProgramFeaturesPage({
+  params,
+}: {
+  params: Promise<{ programId: string }>;
+}) {
   const user = await requireUser();
   const { programId } = await params;
   const overview = await getProgramFeatureOverview(user.tenantId, programId);
 
-  const latestMap = new Map<string, (typeof overview.features)[number]>(overview.features.map((feature) => [feature.type, feature]));
+  const latestMap = new Map<string, (typeof overview.features)[number]>(
+    overview.features.map((feature) => [feature.type, feature]),
+  );
 
   return (
     <div>
@@ -24,7 +30,10 @@ export default async function ProgramFeaturesPage({ params }: { params: Promise<
         actions={<YelpSyncButton label="Refresh live features" />}
       />
 
-      <CapabilityState enabled={overview.capabilityState.enabled} message={overview.capabilityState.message} />
+      <CapabilityState
+        enabled={overview.capabilityState.enabled}
+        message={overview.capabilityState.message}
+      />
 
       <Card className="mt-6">
         <CardHeader>
@@ -47,7 +56,8 @@ export default async function ProgramFeaturesPage({ params }: { params: Promise<
           <div className="text-xs text-muted-foreground">
             {overview.liveFeatureState.loaded
               ? "These feature types come from live Yelp program info. Only enabled features are shown below."
-              : overview.liveFeatureState.message ?? "Live Yelp feature visibility is unavailable, so the console is falling back to saved local snapshots."}
+              : (overview.liveFeatureState.message ??
+                "Live Yelp feature visibility is unavailable, so the console is falling back to saved local snapshots.")}
           </div>
         </CardContent>
       </Card>
@@ -58,7 +68,11 @@ export default async function ProgramFeaturesPage({ params }: { params: Promise<
             key={featureType}
             programId={overview.program.id}
             featureType={featureType as keyof typeof featureCatalog}
-            initialValue={(latestMap.get(featureType)?.valueJson as Record<string, unknown> | undefined) ?? { type: featureType }}
+            initialValue={
+              (latestMap.get(featureType)?.valueJson as
+                | Record<string, unknown>
+                | undefined) ?? { type: featureType }
+            }
           />
         ))}
       </div>

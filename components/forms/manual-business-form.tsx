@@ -7,7 +7,13 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -31,7 +37,7 @@ export function ManualBusinessForm() {
     watch,
     setValue,
     handleSubmit,
-    formState: { errors, isSubmitting }
+    formState: { errors, isSubmitting },
   } = useForm<ManualBusinessFormValues>({
     resolver: zodResolver(manualBusinessFormSchema),
     defaultValues: {
@@ -41,16 +47,18 @@ export function ManualBusinessForm() {
       state: "",
       country: "US",
       categoriesText: "",
-      hasAboutText: false
-    }
+      hasAboutText: false,
+    },
   });
 
   const categories = parseManualCategoryText(watch("categoriesText") ?? "");
-  const categoryAliases = categories.map((category) => category.alias).filter((value): value is string => Boolean(value));
+  const categoryAliases = categories
+    .map((category) => category.alias)
+    .filter((value): value is string => Boolean(value));
   const hasAboutText = watch("hasAboutText");
   const missingItems = [
     ...(hasAboutText ? [] : ["Add specialties/about-this-business text"]),
-    ...(categories.length > 0 ? [] : ["Add at least one category"])
+    ...(categories.length > 0 ? [] : ["Add at least one category"]),
   ];
 
   const onSubmit = handleSubmit(async (values) => {
@@ -68,15 +76,17 @@ export function ManualBusinessForm() {
           readiness: {
             hasAboutText: values.hasAboutText,
             hasCategories: categories.length > 0,
-            missingItems
-          }
-        })
+            missingItems,
+          },
+        }),
       });
 
       toast.success("Business saved.");
       router.push(`/businesses/${saved.id}`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to save business.");
+      toast.error(
+        error instanceof Error ? error.message : "Unable to save business.",
+      );
     }
   });
 
@@ -85,26 +95,47 @@ export function ManualBusinessForm() {
       <CardHeader>
         <CardTitle>Manual fallback</CardTitle>
         <CardDescription>
-          Save a business directly when Yelp already handed over the encrypted business ID.
+          Save a business directly when Yelp already handed over the encrypted
+          business ID.
         </CardDescription>
       </CardHeader>
       <CardContent>
         <form className="grid gap-4 lg:grid-cols-2" onSubmit={onSubmit}>
           <div className="space-y-2">
             <Label htmlFor="manual-name">Business name</Label>
-            <Input id="manual-name" placeholder="Northwind HVAC" {...register("name")} />
-            {errors.name ? <p className="text-sm text-destructive">{errors.name.message}</p> : null}
+            <Input
+              id="manual-name"
+              placeholder="Northwind HVAC"
+              {...register("name")}
+            />
+            {errors.name ? (
+              <p className="text-sm text-destructive">{errors.name.message}</p>
+            ) : null}
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="manual-encrypted-business-id">Encrypted Yelp business ID</Label>
-            <Input id="manual-encrypted-business-id" placeholder="enc_business_123" {...register("encrypted_business_id")} />
-            {errors.encrypted_business_id ? <p className="text-sm text-destructive">{errors.encrypted_business_id.message}</p> : null}
+            <Label htmlFor="manual-encrypted-business-id">
+              Encrypted Yelp business ID
+            </Label>
+            <Input
+              id="manual-encrypted-business-id"
+              placeholder="enc_business_123"
+              {...register("encrypted_business_id")}
+            />
+            {errors.encrypted_business_id ? (
+              <p className="text-sm text-destructive">
+                {errors.encrypted_business_id.message}
+              </p>
+            ) : null}
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="manual-city">City</Label>
-            <Input id="manual-city" placeholder="San Francisco" {...register("city")} />
+            <Input
+              id="manual-city"
+              placeholder="San Francisco"
+              {...register("city")}
+            />
           </div>
 
           <div className="space-y-2">
@@ -114,7 +145,11 @@ export function ManualBusinessForm() {
 
           <div className="space-y-2">
             <Label htmlFor="manual-country">Country</Label>
-            <Input id="manual-country" placeholder="US" {...register("country")} />
+            <Input
+              id="manual-country"
+              placeholder="US"
+              {...register("country")}
+            />
           </div>
 
           <div className="space-y-2 lg:col-span-2">
@@ -125,7 +160,9 @@ export function ManualBusinessForm() {
               {...register("categoriesText")}
             />
             <p className="text-xs text-muted-foreground">
-              One category per line. Use <span className="font-mono">Label | yelp_alias</span> when you know the alias.
+              One category per line. Use{" "}
+              <span className="font-mono">Label | yelp_alias</span> when you
+              know the alias.
             </p>
           </div>
 
@@ -133,16 +170,22 @@ export function ManualBusinessForm() {
             <div>
               <div className="font-medium">About text already exists</div>
               <div className="text-sm text-muted-foreground">
-                Turn this on only if the Yelp listing already has specialties or about text in place.
+                Turn this on only if the Yelp listing already has specialties or
+                about text in place.
               </div>
             </div>
-            <Switch checked={hasAboutText} onCheckedChange={(checked) => setValue("hasAboutText", checked)} />
+            <Switch
+              checked={hasAboutText}
+              onCheckedChange={(checked) => setValue("hasAboutText", checked)}
+            />
           </Label>
 
-          <div className="rounded-xl border border-border bg-muted/40 p-4 lg:col-span-2">
+          <div className="rounded-lg border border-border bg-muted/40 p-4 lg:col-span-2">
             <div className="font-medium">CPC readiness preview</div>
             <div className="mt-2 text-sm text-muted-foreground">
-              {missingItems.length === 0 ? "Ready for CPC." : missingItems.join("; ")}
+              {missingItems.length === 0
+                ? "Ready for CPC."
+                : missingItems.join("; ")}
             </div>
             <div className="mt-3 text-sm text-muted-foreground">
               {categories.length === 0

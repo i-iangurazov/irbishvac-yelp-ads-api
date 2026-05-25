@@ -13,7 +13,7 @@ export const capabilityFlagsSchema = z.object({
   reportingApiEnabled: z.boolean().default(false),
   dataIngestionApiEnabled: z.boolean().default(false),
   businessMatchApiEnabled: z.boolean().default(false),
-  demoModeEnabled: z.boolean().default(false)
+  demoModeEnabled: z.boolean().default(false),
 });
 
 export const credentialFormSchema = z.object({
@@ -21,14 +21,28 @@ export const credentialFormSchema = z.object({
   label: z.string().min(2).max(80),
   username: z.string().max(200).optional(),
   secret: z.string().max(2000).optional(),
+  oauthClientId: z.string().max(200).optional(),
+  oauthClientSecret: z.string().max(2000).optional(),
+  oauthRefreshToken: z.string().max(2000).optional(),
   baseUrl: z.string().url().or(z.literal("")).optional(),
   isEnabled: z.boolean().default(false),
-  testPath: z.string().max(200).optional()
+  testPath: z.string().max(200).optional(),
 });
 
 export const roleAssignmentSchema = z.object({
   userId: z.string().min(1),
-  roleCode: z.nativeEnum(RoleCode)
+  roleCode: z.nativeEnum(RoleCode),
+});
+
+export const userCreateSchema = z.object({
+  name: z.string().min(2).max(120),
+  email: z
+    .string()
+    .email()
+    .max(200)
+    .transform((value) => value.trim().toLowerCase()),
+  roleCode: z.nativeEnum(RoleCode),
+  password: z.string().min(12).max(200),
 });
 
 export const credentialKindLabels: Record<CredentialKind, string> = {
@@ -36,5 +50,5 @@ export const credentialKindLabels: Record<CredentialKind, string> = {
   REPORTING_FUSION: "Yelp API Bearer Token",
   BUSINESS_MATCH: "Business Match API",
   DATA_INGESTION: "Data Ingestion API",
-  CRM_SERVICETITAN: "ServiceTitan Connector"
+  CRM_SERVICETITAN: "ServiceTitan Connector",
 };

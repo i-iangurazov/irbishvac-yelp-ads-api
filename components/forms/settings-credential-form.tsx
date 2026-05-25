@@ -7,11 +7,20 @@ import { toast } from "sonner";
 import type { CredentialKind } from "@prisma/client";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { credentialFormSchema, credentialKindLabels } from "@/features/settings/schemas";
+import {
+  credentialFormSchema,
+  credentialKindLabels,
+} from "@/features/settings/schemas";
 import { apiFetch } from "@/lib/utils/client-api";
 
 const credentialInstructions: Record<
@@ -27,41 +36,42 @@ const credentialInstructions: Record<
     howToGet:
       "Use the Partner API username and password Yelp issued for this environment. If they are missing, ask your Yelp partner contact to provision or resend them.",
     baseUrlNote:
-      "Keep the default base URL unless Yelp gave you an environment-specific host."
+      "Keep the default base URL unless Yelp gave you an environment-specific host.",
   },
   REPORTING_FUSION: {
-    source: "Yelp-issued bearer token for Yelp Partner APIs under api.yelp.com.",
+    source:
+      "Yelp-issued bearer token or OAuth client for Yelp Partner APIs under api.yelp.com.",
     howToGet:
-      "Paste the Yelp access token Yelp issued for this tenant or environment. This console uses it for Leads and other bearer-auth Yelp APIs under api.yelp.com. If your team still stores it in env, YELP_ACCESS_TOKEN is the preferred name.",
+      "Paste the current access token if you have one. For Leads API OAuth, also save the client ID, client secret, and refresh token so this console can refresh the access token automatically.",
     baseUrlNote:
-      "Keep the default api.yelp.com host unless Yelp gave you a different bearer-auth endpoint."
+      "Keep the default api.yelp.com host unless Yelp gave you a different bearer-auth endpoint.",
   },
   BUSINESS_MATCH: {
     source: "Yelp partner support when Business Match is enabled.",
     howToGet:
       "Use the username and secret Yelp provides for Business Match. If the feature is unavailable, confirm access with Yelp before saving anything here.",
     baseUrlNote:
-      "Keep the default base URL unless Yelp assigned a different Business Match endpoint."
+      "Keep the default base URL unless Yelp assigned a different Business Match endpoint.",
   },
   DATA_INGESTION: {
     source: "Yelp partner support for Data Ingestion access.",
     howToGet:
       "Use the username and secret Yelp issued for Data Ingestion. Save this only if Yelp has enabled ingestion for this tenant.",
     baseUrlNote:
-      "Keep the default base URL unless Yelp gave you a tenant-specific ingestion host."
+      "Keep the default base URL unless Yelp gave you a tenant-specific ingestion host.",
   },
   CRM_SERVICETITAN: {
     source: "ServiceTitan customer admin or integration owner.",
     howToGet:
       "Use the ServiceTitan connector workflow on the Integrations page for live setup. This generic Settings form is not the primary path for ServiceTitan.",
     baseUrlNote:
-      "Use the dedicated Integrations page so environment, tenant ID, app key, and auth host stay aligned."
-  }
+      "Use the dedicated Integrations page so environment, tenant ID, app key, and auth host stay aligned.",
+  },
 };
 
 export function SettingsCredentialForm({
   kind,
-  defaultValues
+  defaultValues,
 }: {
   kind: CredentialKind;
   defaultValues?: {
@@ -69,6 +79,12 @@ export function SettingsCredentialForm({
     baseUrl?: string | null;
     isEnabled?: boolean;
     testPath?: string | null;
+    oauthClientIdConfigured?: boolean;
+    oauthClientSecretConfigured?: boolean;
+    oauthRefreshTokenConfigured?: boolean;
+    oauthAccessTokenExpiresAt?: string | null;
+    oauthRefreshTokenExpiresAt?: string | null;
+    oauthLastRefreshedAt?: string | null;
   };
 }) {
   const [isTesting, setIsTesting] = useState(false);
@@ -80,7 +96,7 @@ export function SettingsCredentialForm({
     reset,
     watch,
     handleSubmit,
-    formState: { isSubmitting }
+    formState: { isSubmitting },
   } = useForm({
     resolver: zodResolver(credentialFormSchema),
     defaultValues: {
@@ -88,26 +104,34 @@ export function SettingsCredentialForm({
       label: defaultValues?.label ?? credentialKindLabels[kind],
       username: "",
       secret: "",
+      oauthClientId: "",
+      oauthClientSecret: "",
+      oauthRefreshToken: "",
       baseUrl: defaultValues?.baseUrl ?? "",
       isEnabled: defaultValues?.isEnabled ?? true,
-      testPath: defaultValues?.testPath ?? ""
-    }
+      testPath: defaultValues?.testPath ?? "",
+    },
   });
 
   const submit = handleSubmit(async (values) => {
     try {
       await apiFetch("/api/settings/credentials", {
         method: "POST",
-        body: JSON.stringify(values)
+        body: JSON.stringify(values),
       });
       reset({
         ...values,
         username: "",
-        secret: ""
+        secret: "",
+        oauthClientId: "",
+        oauthClientSecret: "",
+        oauthRefreshToken: "",
       });
       toast.success(`${credentialKindLabels[kind]} saved.`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to save credentials.");
+      toast.error(
+        error instanceof Error ? error.message : "Unable to save credentials.",
+      );
     }
   });
 
@@ -119,18 +143,24 @@ export function SettingsCredentialForm({
 
       await apiFetch("/api/settings/credentials", {
         method: "POST",
-        body: JSON.stringify(values)
+        body: JSON.stringify(values),
       });
 
-      const result = await apiFetch<{ status: "SUCCESS" | "FAILED"; message: string }>("/api/settings/credentials/test", {
+      const result = await apiFetch<{
+        status: "SUCCESS" | "FAILED";
+        message: string;
+      }>("/api/settings/credentials/test", {
         method: "POST",
-        body: JSON.stringify({ kind })
+        body: JSON.stringify({ kind }),
       });
 
       reset({
         ...values,
         username: "",
-        secret: ""
+        secret: "",
+        oauthClientId: "",
+        oauthClientSecret: "",
+        oauthRefreshToken: "",
       });
 
       if (result.status === "SUCCESS") {
@@ -139,7 +169,9 @@ export function SettingsCredentialForm({
         toast.error(result.message);
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Connection test failed.");
+      toast.error(
+        error instanceof Error ? error.message : "Connection test failed.",
+      );
     } finally {
       setIsTesting(false);
     }
@@ -149,15 +181,23 @@ export function SettingsCredentialForm({
     <Card>
       <CardHeader>
         <CardTitle>{credentialKindLabels[kind]}</CardTitle>
-        <CardDescription>Encrypted server-side and never shown again after save.</CardDescription>
+        <CardDescription>
+          Encrypted server-side and never shown again after save.
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <form className="space-y-4" onSubmit={submit}>
           <div className="rounded-lg border border-border/70 bg-muted/30 p-4 text-sm">
             <div className="font-medium">How to get it</div>
-            <div className="mt-2 text-muted-foreground">{instructions.source}</div>
-            <div className="mt-1 text-muted-foreground">{instructions.howToGet}</div>
-            <div className="mt-1 text-muted-foreground">{instructions.baseUrlNote}</div>
+            <div className="mt-2 text-muted-foreground">
+              {instructions.source}
+            </div>
+            <div className="mt-1 text-muted-foreground">
+              {instructions.howToGet}
+            </div>
+            <div className="mt-1 text-muted-foreground">
+              {instructions.baseUrlNote}
+            </div>
           </div>
           <Input type="hidden" {...register("kind")} />
           <div className="space-y-2">
@@ -167,21 +207,106 @@ export function SettingsCredentialForm({
           {kind !== "REPORTING_FUSION" ? (
             <div className="space-y-2">
               <Label>Username</Label>
-              <Input {...register("username")} placeholder="Only re-enter when changing" />
+              <Input
+                {...register("username")}
+                placeholder="Only re-enter when changing"
+              />
             </div>
           ) : null}
           <div className="space-y-2">
-            <Label>{kind === "REPORTING_FUSION" ? "Access token" : "Password / secret"}</Label>
-            <Input type="password" {...register("secret")} placeholder="Only re-enter when rotating" />
+            <Label>
+              {kind === "REPORTING_FUSION"
+                ? "Current access token"
+                : "Password / secret"}
+            </Label>
+            <Input
+              type="password"
+              {...register("secret")}
+              placeholder="Only re-enter when rotating"
+            />
           </div>
+          {kind === "REPORTING_FUSION" ? (
+            <div className="space-y-4 rounded-lg border border-border/70 bg-muted/20 p-4">
+              <div>
+                <div className="font-medium">OAuth refresh</div>
+                <div className="mt-1 text-sm text-muted-foreground">
+                  Save these when using Yelp Leads OAuth tokens that expire
+                  weekly.
+                </div>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>OAuth client ID</Label>
+                  <Input
+                    {...register("oauthClientId")}
+                    placeholder={
+                      defaultValues?.oauthClientIdConfigured
+                        ? "Configured; re-enter to change"
+                        : "Yelp client ID"
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>OAuth client secret</Label>
+                  <Input
+                    type="password"
+                    {...register("oauthClientSecret")}
+                    placeholder={
+                      defaultValues?.oauthClientSecretConfigured
+                        ? "Configured; re-enter to change"
+                        : "Yelp client secret"
+                    }
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>OAuth refresh token</Label>
+                <Input
+                  type="password"
+                  {...register("oauthRefreshToken")}
+                  placeholder={
+                    defaultValues?.oauthRefreshTokenConfigured
+                      ? "Configured; re-enter to change"
+                      : "Yelp refresh token"
+                  }
+                />
+              </div>
+              <div className="grid gap-2 text-xs text-muted-foreground md:grid-cols-3">
+                <div>
+                  Access token expiry:{" "}
+                  <span className="font-medium text-foreground">
+                    {defaultValues?.oauthAccessTokenExpiresAt ??
+                      "Refresh on next Leads request"}
+                  </span>
+                </div>
+                <div>
+                  Refresh token expiry:{" "}
+                  <span className="font-medium text-foreground">
+                    {defaultValues?.oauthRefreshTokenExpiresAt ?? "Unknown"}
+                  </span>
+                </div>
+                <div>
+                  Last refresh:{" "}
+                  <span className="font-medium text-foreground">
+                    {defaultValues?.oauthLastRefreshedAt ?? "Not refreshed yet"}
+                  </span>
+                </div>
+              </div>
+            </div>
+          ) : null}
           <div className="space-y-2">
             <Label>Base URL</Label>
             <Input {...register("baseUrl")} />
-            <p className="text-sm text-muted-foreground">{instructions.baseUrlNote}</p>
+            <p className="text-sm text-muted-foreground">
+              {instructions.baseUrlNote}
+            </p>
           </div>
           <div className="space-y-2">
             <Label>Connection test path</Label>
-            <Input {...register("testPath")} placeholder="/some-safe-read-endpoint" />
+            <Input
+              {...register("testPath")}
+              placeholder="/some-safe-read-endpoint"
+            />
             <p className="text-sm text-muted-foreground">
               Optional. Leave blank unless Yelp gave you a safe readable path.
             </p>
@@ -189,15 +314,26 @@ export function SettingsCredentialForm({
           <Label className="flex items-center justify-between rounded-lg border border-border p-4">
             <div>
               <div className="font-medium">Enabled</div>
-              <div className="text-sm text-muted-foreground">Enabled by default after saving credentials. Turn off only if you need to pause live requests.</div>
+              <div className="text-sm text-muted-foreground">
+                Enabled by default after saving credentials. Turn off only if
+                you need to pause live requests.
+              </div>
             </div>
-            <Switch checked={watch("isEnabled")} onCheckedChange={(checked) => setValue("isEnabled", checked)} />
+            <Switch
+              checked={watch("isEnabled")}
+              onCheckedChange={(checked) => setValue("isEnabled", checked)}
+            />
           </Label>
           <div className="flex gap-3">
             <Button type="submit" disabled={isSubmitting}>
               {isSubmitting ? "Saving..." : "Save changes"}
             </Button>
-            <Button type="button" variant="outline" onClick={testConnection} disabled={isSubmitting || isTesting}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={testConnection}
+              disabled={isSubmitting || isTesting}
+            >
               {isTesting ? "Saving and testing..." : "Save + test"}
             </Button>
           </div>

@@ -6,16 +6,31 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { reportMetrics, reportRequestFormSchema } from "@/features/reporting/schemas";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  reportMetrics,
+  reportRequestFormSchema,
+} from "@/features/reporting/schemas";
 import { apiFetch } from "@/lib/utils/client-api";
 
 export function ReportRequestForm({
-  businesses
+  businesses,
 }: {
   businesses: Array<{ id: string; name: string }>;
 }) {
@@ -25,7 +40,7 @@ export function ReportRequestForm({
     handleSubmit,
     setValue,
     watch,
-    formState: { isSubmitting, errors }
+    formState: { isSubmitting, errors },
   } = useForm({
     resolver: zodResolver(reportRequestFormSchema),
     defaultValues: {
@@ -33,8 +48,8 @@ export function ReportRequestForm({
       businessIds: businesses.length > 0 ? [businesses[0].id] : [],
       startDate: "",
       endDate: "",
-      metrics: ["impressions", "clicks", "adSpendCents"]
-    }
+      metrics: ["impressions", "clicks", "adSpendCents"],
+    },
   });
 
   const selectedBusinessIds = watch("businessIds");
@@ -44,14 +59,16 @@ export function ReportRequestForm({
     try {
       const report = await apiFetch<{ id: string }>("/api/reports", {
         method: "POST",
-        body: JSON.stringify(values)
+        body: JSON.stringify(values),
       });
 
       toast.success("Report request submitted.");
       router.push(`/reporting/${report.id}`);
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to request report.");
+      toast.error(
+        error instanceof Error ? error.message : "Unable to request report.",
+      );
     }
   });
 
@@ -59,13 +76,21 @@ export function ReportRequestForm({
     <Card className="shadow-none">
       <CardHeader>
         <CardTitle>Request report</CardTitle>
-        <CardDescription>Choose a window, select businesses, and request a delayed Yelp batch snapshot.</CardDescription>
+        <CardDescription>
+          Choose a window, select businesses, and request a delayed Yelp batch
+          snapshot.
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <form className="grid gap-5 lg:grid-cols-2" onSubmit={submit}>
           <div className="space-y-2">
             <Label>Granularity</Label>
-            <Select defaultValue={watch("granularity")} onValueChange={(value) => setValue("granularity", value as "DAILY" | "MONTHLY")}>
+            <Select
+              defaultValue={watch("granularity")}
+              onValueChange={(value) =>
+                setValue("granularity", value as "DAILY" | "MONTHLY")
+              }
+            >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -87,7 +112,9 @@ export function ReportRequestForm({
                       onCheckedChange={(checked) => {
                         const next = checked
                           ? [...selectedBusinessIds, business.id]
-                          : selectedBusinessIds.filter((item) => item !== business.id);
+                          : selectedBusinessIds.filter(
+                              (item) => item !== business.id,
+                            );
                         setValue("businessIds", next);
                       }}
                     />
@@ -96,7 +123,11 @@ export function ReportRequestForm({
                 ))}
               </div>
             </div>
-            {errors.businessIds ? <p className="text-sm text-destructive">{errors.businessIds.message as string}</p> : null}
+            {errors.businessIds ? (
+              <p className="text-sm text-destructive">
+                {errors.businessIds.message as string}
+              </p>
+            ) : null}
           </div>
 
           <div className="space-y-2">
@@ -107,7 +138,11 @@ export function ReportRequestForm({
           <div className="space-y-2">
             <Label htmlFor="endDate">End date</Label>
             <Input id="endDate" type="date" {...register("endDate")} />
-            {errors.endDate ? <p className="text-sm text-destructive">{errors.endDate.message}</p> : null}
+            {errors.endDate ? (
+              <p className="text-sm text-destructive">
+                {errors.endDate.message}
+              </p>
+            ) : null}
           </div>
 
           <div className="space-y-2 lg:col-span-2">

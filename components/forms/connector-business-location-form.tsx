@@ -4,13 +4,19 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { apiFetch } from "@/lib/utils/client-api";
 
 export function ConnectorBusinessLocationForm({
   businessId,
   defaultLocationId,
-  locations
+  locations,
 }: {
   businessId: string;
   defaultLocationId: string | null;
@@ -26,12 +32,16 @@ export function ConnectorBusinessLocationForm({
         method: "POST",
         body: JSON.stringify({
           businessId,
-          locationId: value === "unassigned" ? "" : value
-        })
+          locationId: value === "unassigned" ? "" : value,
+        }),
       });
       toast.success("Business mapping saved.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to save business mapping.");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to save business mapping.",
+      );
     } finally {
       setIsSaving(false);
     }
@@ -52,10 +62,15 @@ export function ConnectorBusinessLocationForm({
           ))}
         </SelectContent>
       </Select>
-      <Button type="button" variant="outline" size="sm" onClick={save} disabled={isSaving}>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={save}
+        disabled={isSaving}
+      >
         {isSaving ? "Saving..." : "Save"}
       </Button>
     </div>
   );
 }
-

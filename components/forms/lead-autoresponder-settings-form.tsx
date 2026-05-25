@@ -7,19 +7,31 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import {
   leadAutomationScopeModeOptions,
   leadConversationAutomationModeOptions,
-  leadConversationIntentOptions
+  leadConversationIntentOptions,
 } from "@/features/autoresponder/constants";
 import {
   leadAutoresponderSettingsSchema,
-  type LeadAutoresponderSettingsValues
+  type LeadAutoresponderSettingsValues,
 } from "@/features/autoresponder/schemas";
 import { apiFetch } from "@/lib/utils/client-api";
 
@@ -28,35 +40,47 @@ export function LeadAutoresponderSettingsForm({
   smtpConfigured,
   aiAssistConfigured,
   availableModels,
-  businesses
+  businesses,
 }: {
   defaultValues: LeadAutoresponderSettingsValues;
   smtpConfigured: boolean;
   aiAssistConfigured: boolean;
-  availableModels: ReadonlyArray<{ value: string; label: string; description: string }>;
-  businesses: Array<{ id: string; name: string; yelpBusinessId: string | null }>;
+  availableModels: ReadonlyArray<{
+    value: string;
+    label: string;
+    description: string;
+  }>;
+  businesses: Array<{
+    id: string;
+    name: string;
+    yelpBusinessId: string | null;
+  }>;
 }) {
   const router = useRouter();
   const {
     handleSubmit,
     watch,
     setValue,
-    formState: { isSubmitting }
+    formState: { isSubmitting },
   } = useForm<LeadAutoresponderSettingsValues>({
     resolver: zodResolver(leadAutoresponderSettingsSchema),
-    defaultValues
+    defaultValues,
   });
 
   const submit = handleSubmit(async (values) => {
     try {
       await apiFetch("/api/settings/autoresponder", {
         method: "POST",
-        body: JSON.stringify(values)
+        body: JSON.stringify(values),
       });
       toast.success("Lead autoresponder settings saved.");
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to save lead autoresponder settings.");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to save lead autoresponder settings.",
+      );
     }
   });
   const followUp24hEnabled = watch("followUp24hEnabled");
@@ -65,30 +89,38 @@ export function LeadAutoresponderSettingsForm({
   const scopeMode = watch("scopeMode");
   const scopedBusinessIds = watch("scopedBusinessIds");
   const conversationAutomationEnabled = watch("conversationAutomationEnabled");
-  const conversationGlobalPauseEnabled = watch("conversationGlobalPauseEnabled");
+  const conversationGlobalPauseEnabled = watch(
+    "conversationGlobalPauseEnabled",
+  );
   const conversationMode = watch("conversationMode");
   const conversationAllowedIntents = watch("conversationAllowedIntents");
 
   const toggleScopedBusiness = (businessId: string, checked: boolean) => {
     const next = checked
       ? Array.from(new Set([...(scopedBusinessIds ?? []), businessId]))
-      : (scopedBusinessIds ?? []).filter((candidate: string) => candidate !== businessId);
+      : (scopedBusinessIds ?? []).filter(
+          (candidate: string) => candidate !== businessId,
+        );
 
     setValue("scopedBusinessIds", next, {
-      shouldValidate: true
+      shouldValidate: true,
     });
   };
 
-  const toggleConversationIntent = (intent: LeadAutoresponderSettingsValues["conversationAllowedIntents"][number], checked: boolean) => {
+  const toggleConversationIntent = (
+    intent: LeadAutoresponderSettingsValues["conversationAllowedIntents"][number],
+    checked: boolean,
+  ) => {
     const next = checked
       ? Array.from(new Set([...(conversationAllowedIntents ?? []), intent]))
       : (conversationAllowedIntents ?? []).filter(
-          (candidate: LeadAutoresponderSettingsValues["conversationAllowedIntents"][number]) =>
-            candidate !== intent
+          (
+            candidate: LeadAutoresponderSettingsValues["conversationAllowedIntents"][number],
+          ) => candidate !== intent,
         );
 
     setValue("conversationAllowedIntents", next, {
-      shouldValidate: true
+      shouldValidate: true,
     });
   };
 
@@ -96,18 +128,26 @@ export function LeadAutoresponderSettingsForm({
     <Card className="shadow-none">
       <CardHeader className="pb-3">
         <CardTitle>Tenant defaults</CardTitle>
-        <CardDescription>Default automation for the businesses covered here, unless a business override replaces it.</CardDescription>
+        <CardDescription>
+          Default automation for the businesses covered here, unless a business
+          override replaces it.
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <form className="space-y-5" onSubmit={submit}>
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
-            <div className="space-y-4 rounded-xl border border-border/80 bg-muted/10 p-4">
+            <div className="space-y-4 rounded-lg border border-border/80 bg-muted/10 p-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="text-sm font-medium">Enabled</div>
-                  <div className="text-xs text-muted-foreground">Run the default first-response policy after intake.</div>
+                  <div className="text-xs text-muted-foreground">
+                    Run the default first-response policy after intake.
+                  </div>
                 </div>
-                <Switch checked={watch("isEnabled")} onCheckedChange={(checked) => setValue("isEnabled", checked)} />
+                <Switch
+                  checked={watch("isEnabled")}
+                  onCheckedChange={(checked) => setValue("isEnabled", checked)}
+                />
               </div>
 
               <div className="space-y-2">
@@ -115,9 +155,13 @@ export function LeadAutoresponderSettingsForm({
                 <Select
                   value={scopeMode}
                   onValueChange={(value) =>
-                    setValue("scopeMode", value as LeadAutoresponderSettingsValues["scopeMode"], {
-                      shouldValidate: true
-                    })
+                    setValue(
+                      "scopeMode",
+                      value as LeadAutoresponderSettingsValues["scopeMode"],
+                      {
+                        shouldValidate: true,
+                      },
+                    )
                   }
                 >
                   <SelectTrigger>
@@ -132,42 +176,58 @@ export function LeadAutoresponderSettingsForm({
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  {leadAutomationScopeModeOptions.find((option) => option.value === scopeMode)?.description ??
-                    "Choose how tenant defaults are applied."}
+                  {leadAutomationScopeModeOptions.find(
+                    (option) => option.value === scopeMode,
+                  )?.description ?? "Choose how tenant defaults are applied."}
                 </p>
               </div>
 
               <div className="space-y-2">
                 <Label>Primary channel</Label>
-                <Select value={watch("defaultChannel")} onValueChange={(value) => setValue("defaultChannel", value as "YELP_THREAD" | "EMAIL")}>
+                <Select
+                  value={watch("defaultChannel")}
+                  onValueChange={(value) =>
+                    setValue("defaultChannel", value as "YELP_THREAD" | "EMAIL")
+                  }
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="YELP_THREAD">Yelp thread</SelectItem>
-                    <SelectItem value="EMAIL">Yelp masked email fallback</SelectItem>
+                    <SelectItem value="EMAIL">
+                      Yelp masked email fallback
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
-              <div className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-background px-3 py-3">
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-border/70 bg-background px-3 py-3">
                 <div>
-                  <div className="text-sm font-medium">Masked email fallback</div>
+                  <div className="text-sm font-medium">
+                    Masked email fallback
+                  </div>
                   <div className="text-xs text-muted-foreground">
-                    {smtpConfigured ? "SMTP configured." : "SMTP not configured."}
+                    {smtpConfigured
+                      ? "SMTP configured."
+                      : "SMTP not configured."}
                   </div>
                 </div>
                 <Switch
                   checked={watch("emailFallbackEnabled")}
-                  onCheckedChange={(checked) => setValue("emailFallbackEnabled", checked)}
+                  onCheckedChange={(checked) =>
+                    setValue("emailFallbackEnabled", checked)
+                  }
                 />
               </div>
             </div>
 
-            <div className="space-y-4 rounded-xl border border-border/80 bg-muted/10 p-4">
+            <div className="space-y-4 rounded-lg border border-border/80 bg-muted/10 p-4">
               <div>
                 <div className="text-sm font-medium">
-                  {scopeMode === "SELECTED_BUSINESSES" ? "Selected businesses" : "Coverage summary"}
+                  {scopeMode === "SELECTED_BUSINESSES"
+                    ? "Selected businesses"
+                    : "Coverage summary"}
                 </div>
                 <div className="text-xs text-muted-foreground">
                   {scopeMode === "SELECTED_BUSINESSES"
@@ -184,16 +244,21 @@ export function LeadAutoresponderSettingsForm({
                       return (
                         <label
                           key={business.id}
-                          className="flex items-start gap-3 rounded-xl border border-border/70 bg-background px-3 py-3"
+                          className="flex items-start gap-3 rounded-lg border border-border/70 bg-background px-3 py-3"
                         >
                           <Checkbox
                             checked={checked}
-                            onCheckedChange={(value) => toggleScopedBusiness(business.id, value === true)}
+                            onCheckedChange={(value) =>
+                              toggleScopedBusiness(business.id, value === true)
+                            }
                           />
                           <div className="min-w-0">
-                            <div className="text-sm font-medium">{business.name}</div>
+                            <div className="text-sm font-medium">
+                              {business.name}
+                            </div>
                             <div className="text-xs text-muted-foreground">
-                              {business.yelpBusinessId ?? "Yelp business ID missing"}
+                              {business.yelpBusinessId ??
+                                "Yelp business ID missing"}
                             </div>
                           </div>
                         </label>
@@ -201,32 +266,42 @@ export function LeadAutoresponderSettingsForm({
                     })}
                   </div>
                 ) : (
-                  <div className="rounded-xl border border-dashed border-border/80 px-4 py-3 text-sm text-muted-foreground">
+                  <div className="rounded-lg border border-dashed border-border/80 px-4 py-3 text-sm text-muted-foreground">
                     No Yelp businesses are saved yet.
                   </div>
                 )
               ) : (
-                <div className="rounded-xl border border-border/70 bg-background px-4 py-3 text-sm text-muted-foreground">
-                  Every business without its own override currently inherits these defaults.
+                <div className="rounded-lg border border-border/70 bg-background px-4 py-3 text-sm text-muted-foreground">
+                  Every business without its own override currently inherits
+                  these defaults.
                 </div>
               )}
             </div>
           </div>
 
-          <div className="space-y-4 rounded-xl border border-border/80 bg-muted/10 p-4">
+          <div className="space-y-4 rounded-lg border border-border/80 bg-muted/10 p-4">
             <div>
               <div className="text-sm font-medium">Follow-ups</div>
-              <div className="text-xs text-muted-foreground">Keep later nudges explicit and thread-safe.</div>
+              <div className="text-xs text-muted-foreground">
+                Keep later nudges explicit and thread-safe.
+              </div>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-3 rounded-xl border border-border/70 bg-background px-3 py-3">
+              <div className="space-y-3 rounded-lg border border-border/70 bg-background px-3 py-3">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <div className="text-sm font-medium">24-hour follow-up</div>
-                    <div className="text-xs text-muted-foreground">Only when the customer has not replied.</div>
+                    <div className="text-xs text-muted-foreground">
+                      Only when the customer has not replied.
+                    </div>
                   </div>
-                  <Switch checked={followUp24hEnabled} onCheckedChange={(checked) => setValue("followUp24hEnabled", checked)} />
+                  <Switch
+                    checked={followUp24hEnabled}
+                    onCheckedChange={(checked) =>
+                      setValue("followUp24hEnabled", checked)
+                    }
+                  />
                 </div>
                 {followUp24hEnabled ? (
                   <div className="space-y-2">
@@ -237,22 +312,35 @@ export function LeadAutoresponderSettingsForm({
                       type="number"
                       value={watch("followUp24hDelayHours")}
                       onChange={(event) =>
-                        setValue("followUp24hDelayHours", Number(event.target.value), {
-                          shouldValidate: true
-                        })
+                        setValue(
+                          "followUp24hDelayHours",
+                          Number(event.target.value),
+                          {
+                            shouldValidate: true,
+                          },
+                        )
                       }
                     />
                   </div>
                 ) : null}
               </div>
 
-              <div className="space-y-3 rounded-xl border border-border/70 bg-background px-3 py-3">
+              <div className="space-y-3 rounded-lg border border-border/70 bg-background px-3 py-3">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <div className="text-sm font-medium">Following-week follow-up</div>
-                    <div className="text-xs text-muted-foreground">Only when the thread still has no safe stop condition.</div>
+                    <div className="text-sm font-medium">
+                      Following-week follow-up
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      Only when the thread still has no safe stop condition.
+                    </div>
                   </div>
-                  <Switch checked={followUp7dEnabled} onCheckedChange={(checked) => setValue("followUp7dEnabled", checked)} />
+                  <Switch
+                    checked={followUp7dEnabled}
+                    onCheckedChange={(checked) =>
+                      setValue("followUp7dEnabled", checked)
+                    }
+                  />
                 </div>
                 {followUp7dEnabled ? (
                   <div className="space-y-2">
@@ -263,9 +351,13 @@ export function LeadAutoresponderSettingsForm({
                       type="number"
                       value={watch("followUp7dDelayDays")}
                       onChange={(event) =>
-                        setValue("followUp7dDelayDays", Number(event.target.value), {
-                          shouldValidate: true
-                        })
+                        setValue(
+                          "followUp7dDelayDays",
+                          Number(event.target.value),
+                          {
+                            shouldValidate: true,
+                          },
+                        )
                       }
                     />
                   </div>
@@ -274,16 +366,20 @@ export function LeadAutoresponderSettingsForm({
             </div>
           </div>
 
-          <div className="space-y-4 rounded-xl border border-border/80 bg-muted/10 p-4">
+          <div className="space-y-4 rounded-lg border border-border/80 bg-muted/10 p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="text-sm font-medium">AI assist</div>
-                <div className="text-xs text-muted-foreground">Allows AI-assisted live templates and review tools.</div>
+                <div className="text-xs text-muted-foreground">
+                  Allows AI-assisted live templates and review tools.
+                </div>
               </div>
               <Switch
                 checked={aiAssistEnabled}
                 disabled={!aiAssistConfigured}
-                onCheckedChange={(checked) => setValue("aiAssistEnabled", checked)}
+                onCheckedChange={(checked) =>
+                  setValue("aiAssistEnabled", checked)
+                }
               />
             </div>
 
@@ -293,7 +389,12 @@ export function LeadAutoresponderSettingsForm({
                   <Label>AI model</Label>
                   <Select
                     value={watch("aiModel")}
-                    onValueChange={(value) => setValue("aiModel", value as LeadAutoresponderSettingsValues["aiModel"])}
+                    onValueChange={(value) =>
+                      setValue(
+                        "aiModel",
+                        value as LeadAutoresponderSettingsValues["aiModel"],
+                      )
+                    }
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -307,53 +408,74 @@ export function LeadAutoresponderSettingsForm({
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
-                    {availableModels.find((model) => model.value === watch("aiModel"))?.description ?? "Approved model"}
+                    {availableModels.find(
+                      (model) => model.value === watch("aiModel"),
+                    )?.description ?? "Approved model"}
                   </p>
                 </div>
-                <div className="rounded-xl border border-border/70 bg-background px-3 py-3 text-xs text-muted-foreground">
-                  <div className="font-medium text-foreground">Live AI guardrails</div>
-                  <div className="mt-1">Rules still decide eligibility. Static fallback still exists if AI output is unsafe or unavailable.</div>
+                <div className="rounded-lg border border-border/70 bg-background px-3 py-3 text-xs text-muted-foreground">
+                  <div className="font-medium text-foreground">
+                    Live AI guardrails
+                  </div>
+                  <div className="mt-1">
+                    Rules still decide eligibility. Static fallback still exists
+                    if AI output is unsafe or unavailable.
+                  </div>
                 </div>
               </div>
             ) : (
               <div className="text-xs text-muted-foreground">
-                {aiAssistConfigured ? "AI assist is off." : "Add `OPENAI_API_KEY` before enabling AI assist."}
+                {aiAssistConfigured
+                  ? "AI assist is off."
+                  : "Add `OPENAI_API_KEY` before enabling AI assist."}
               </div>
             )}
           </div>
 
-          <div className="space-y-4 rounded-xl border border-border/80 bg-muted/10 p-4">
+          <div className="space-y-4 rounded-lg border border-border/80 bg-muted/10 p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <div className="text-sm font-medium">Conversation automation</div>
-                <div className="text-xs text-muted-foreground">Handle new inbound Yelp thread messages conservatively after the first reply.</div>
+                <div className="text-sm font-medium">
+                  Conversation automation
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  Handle new inbound Yelp thread messages conservatively after
+                  the first reply.
+                </div>
               </div>
               <Switch
                 checked={conversationAutomationEnabled}
-                onCheckedChange={(checked) => setValue("conversationAutomationEnabled", checked)}
+                onCheckedChange={(checked) =>
+                  setValue("conversationAutomationEnabled", checked)
+                }
               />
             </div>
 
             {conversationAutomationEnabled ? (
               <div className="space-y-4">
-                <div className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-background px-3 py-3">
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-border/70 bg-background px-3 py-3">
                   <div>
                     <div className="text-sm font-medium">Quick pause</div>
-                    <div className="text-xs text-muted-foreground">Stop new conversation auto-handling tenant-wide without deleting the saved setup.</div>
+                    <div className="text-xs text-muted-foreground">
+                      Stop new conversation auto-handling tenant-wide without
+                      deleting the saved setup.
+                    </div>
                   </div>
                   <Switch
                     checked={conversationGlobalPauseEnabled}
                     onCheckedChange={(checked) =>
                       setValue("conversationGlobalPauseEnabled", checked, {
-                        shouldValidate: true
+                        shouldValidate: true,
                       })
                     }
                   />
                 </div>
 
                 {conversationGlobalPauseEnabled ? (
-                  <div className="rounded-xl border border-border/70 bg-background px-4 py-3 text-sm text-muted-foreground">
-                    Conversation automation is paused. Existing review, mode, and handoff settings stay saved and will apply again when you resume automation.
+                  <div className="rounded-lg border border-border/70 bg-background px-4 py-3 text-sm text-muted-foreground">
+                    Conversation automation is paused. Existing review, mode,
+                    and handoff settings stay saved and will apply again when
+                    you resume automation.
                   </div>
                 ) : (
                   <>
@@ -363,24 +485,37 @@ export function LeadAutoresponderSettingsForm({
                         <Select
                           value={conversationMode}
                           onValueChange={(value) =>
-                            setValue("conversationMode", value as LeadAutoresponderSettingsValues["conversationMode"], {
-                              shouldValidate: true
-                            })
+                            setValue(
+                              "conversationMode",
+                              value as LeadAutoresponderSettingsValues["conversationMode"],
+                              {
+                                shouldValidate: true,
+                              },
+                            )
                           }
                         >
                           <SelectTrigger>
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {leadConversationAutomationModeOptions.map((option) => (
-                              <SelectItem key={option.value} value={option.value}>
-                                {option.label}
-                              </SelectItem>
-                            ))}
+                            {leadConversationAutomationModeOptions.map(
+                              (option) => (
+                                <SelectItem
+                                  key={option.value}
+                                  value={option.value}
+                                >
+                                  {option.label}
+                                </SelectItem>
+                              ),
+                            )}
                           </SelectContent>
                         </Select>
                         <p className="text-xs text-muted-foreground">
-                          {leadConversationAutomationModeOptions.find((option) => option.value === conversationMode)?.description}
+                          {
+                            leadConversationAutomationModeOptions.find(
+                              (option) => option.value === conversationMode,
+                            )?.description
+                          }
                         </p>
                       </div>
                       <div className="space-y-2">
@@ -391,9 +526,13 @@ export function LeadAutoresponderSettingsForm({
                           type="number"
                           value={watch("conversationMaxAutomatedTurns")}
                           onChange={(event) =>
-                            setValue("conversationMaxAutomatedTurns", Number(event.target.value), {
-                              shouldValidate: true
-                            })
+                            setValue(
+                              "conversationMaxAutomatedTurns",
+                              Number(event.target.value),
+                              {
+                                shouldValidate: true,
+                              },
+                            )
                           }
                         />
                       </div>
@@ -402,53 +541,92 @@ export function LeadAutoresponderSettingsForm({
                     {conversationMode === "BOUNDED_AUTO_REPLY" ? (
                       <div className="space-y-3">
                         <div>
-                          <div className="text-sm font-medium">Approved low-risk auto-reply intents</div>
-                          <div className="text-xs text-muted-foreground">Everything else falls back to review or human handoff.</div>
+                          <div className="text-sm font-medium">
+                            Approved low-risk auto-reply intents
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            Everything else falls back to review or human
+                            handoff.
+                          </div>
                         </div>
                         <div className="grid gap-3 md:grid-cols-2">
-                          {leadConversationIntentOptions.slice(0, 3).map((intent) => {
-                            const checked = conversationAllowedIntents.includes(intent.value);
+                          {leadConversationIntentOptions
+                            .slice(0, 3)
+                            .map((intent) => {
+                              const checked =
+                                conversationAllowedIntents.includes(
+                                  intent.value,
+                                );
 
-                            return (
-                              <label
-                                key={intent.value}
-                                className="flex items-start gap-3 rounded-xl border border-border/70 bg-background px-3 py-3"
-                              >
-                                <Checkbox
-                                  checked={checked}
-                                  onCheckedChange={(value) => toggleConversationIntent(intent.value, value === true)}
-                                />
-                                <div className="min-w-0">
-                                  <div className="text-sm font-medium">{intent.label}</div>
-                                  <div className="text-xs text-muted-foreground">{intent.description}</div>
-                                </div>
-                              </label>
-                            );
-                          })}
+                              return (
+                                <label
+                                  key={intent.value}
+                                  className="flex items-start gap-3 rounded-lg border border-border/70 bg-background px-3 py-3"
+                                >
+                                  <Checkbox
+                                    checked={checked}
+                                    onCheckedChange={(value) =>
+                                      toggleConversationIntent(
+                                        intent.value,
+                                        value === true,
+                                      )
+                                    }
+                                  />
+                                  <div className="min-w-0">
+                                    <div className="text-sm font-medium">
+                                      {intent.label}
+                                    </div>
+                                    <div className="text-xs text-muted-foreground">
+                                      {intent.description}
+                                    </div>
+                                  </div>
+                                </label>
+                              );
+                            })}
                         </div>
                       </div>
                     ) : null}
 
                     <div className="grid gap-3 md:grid-cols-2">
-                      <div className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-background px-3 py-3">
+                      <div className="flex items-center justify-between gap-3 rounded-lg border border-border/70 bg-background px-3 py-3">
                         <div>
-                          <div className="text-sm font-medium">Review fallback</div>
-                          <div className="text-xs text-muted-foreground">Use a suggested draft when bounded auto-reply cannot safely act.</div>
+                          <div className="text-sm font-medium">
+                            Review fallback
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            Use a suggested draft when bounded auto-reply cannot
+                            safely act.
+                          </div>
                         </div>
                         <Switch
                           checked={watch("conversationReviewFallbackEnabled")}
-                          onCheckedChange={(checked) => setValue("conversationReviewFallbackEnabled", checked)}
+                          onCheckedChange={(checked) =>
+                            setValue(
+                              "conversationReviewFallbackEnabled",
+                              checked,
+                            )
+                          }
                         />
                       </div>
 
-                      <div className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-background px-3 py-3">
+                      <div className="flex items-center justify-between gap-3 rounded-lg border border-border/70 bg-background px-3 py-3">
                         <div>
-                          <div className="text-sm font-medium">Issue queue escalation</div>
-                          <div className="text-xs text-muted-foreground">Open an issue when automation blocks on risky inbound messages.</div>
+                          <div className="text-sm font-medium">
+                            Issue queue escalation
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            Open an issue when automation blocks on risky
+                            inbound messages.
+                          </div>
                         </div>
                         <Switch
                           checked={watch("conversationEscalateToIssueQueue")}
-                          onCheckedChange={(checked) => setValue("conversationEscalateToIssueQueue", checked)}
+                          onCheckedChange={(checked) =>
+                            setValue(
+                              "conversationEscalateToIssueQueue",
+                              checked,
+                            )
+                          }
                         />
                       </div>
                     </div>
@@ -457,7 +635,8 @@ export function LeadAutoresponderSettingsForm({
               </div>
             ) : (
               <div className="text-xs text-muted-foreground">
-                New inbound customer thread messages will stay human-only for this tenant default.
+                New inbound customer thread messages will stay human-only for
+                this tenant default.
               </div>
             )}
           </div>

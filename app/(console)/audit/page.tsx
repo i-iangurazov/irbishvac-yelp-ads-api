@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Route } from "next";
 
+import { OperatorIssuesRefreshButton } from "@/components/forms/operator-issues-refresh-button";
 import { OperatorIssuesFilterForm } from "@/components/forms/operator-issues-filter-form";
 import { OperatorIssuesTable } from "@/components/forms/operator-issues-table";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -8,13 +9,30 @@ import { MetricCard } from "@/components/shared/metric-card";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusChip } from "@/components/shared/status-chip";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { getAuditLog } from "@/features/audit/service";
 import type { OperatorIssueFiltersInput } from "@/features/issues/schemas";
 import { getOperatorQueue } from "@/features/issues/service";
 import { getOperationalPilotOverview } from "@/features/operations/observability-service";
-import { getAuditSyncOverview, getAuditWebhookOverview, getAuditWorkerJobOverview } from "@/features/operations/service";
+import {
+  getAuditSyncOverview,
+  getAuditWebhookOverview,
+  getAuditWorkerJobOverview,
+} from "@/features/operations/service";
 import { requireUser } from "@/lib/auth/service";
 import { formatDateTime, titleCase } from "@/lib/utils/format";
 
@@ -22,7 +40,9 @@ function formatAuditAction(actionType: string) {
   return titleCase(actionType.replaceAll(".", " ").replaceAll("/", " "));
 }
 
-function buildAuditQuery(values: Record<string, string | number | null | undefined>) {
+function buildAuditQuery(
+  values: Record<string, string | number | null | undefined>,
+) {
   const query: Record<string, string> = {};
 
   for (const [key, value] of Object.entries(values)) {
@@ -35,7 +55,7 @@ function buildAuditQuery(values: Record<string, string | number | null | undefin
 
   return {
     pathname: "/audit",
-    query
+    query,
   };
 }
 
@@ -59,11 +79,23 @@ function formatAge(from: Date, now = new Date()) {
   return `${hours} hr`;
 }
 
-function getWebhookBusinessLabel(event: Awaited<ReturnType<typeof getAuditWebhookOverview>>["attentionEvents"][number]) {
-  return event.lead?.business?.name ?? event.lead?.externalBusinessId ?? "Unknown business";
+function getWebhookBusinessLabel(
+  event: Awaited<
+    ReturnType<typeof getAuditWebhookOverview>
+  >["attentionEvents"][number],
+) {
+  return (
+    event.lead?.business?.name ??
+    event.lead?.externalBusinessId ??
+    "Unknown business"
+  );
 }
 
-function getWebhookLeadLabel(event: Awaited<ReturnType<typeof getAuditWebhookOverview>>["attentionEvents"][number]) {
+function getWebhookLeadLabel(
+  event: Awaited<
+    ReturnType<typeof getAuditWebhookOverview>
+  >["attentionEvents"][number],
+) {
   if (!event.lead) {
     return "Lead not linked";
   }
@@ -71,19 +103,38 @@ function getWebhookLeadLabel(event: Awaited<ReturnType<typeof getAuditWebhookOve
   return event.lead.customerName ?? event.lead.externalLeadId;
 }
 
-function getWebhookErrorSummary(event: Awaited<ReturnType<typeof getAuditWebhookOverview>>["attentionEvents"][number]) {
-  const errorJson = typeof event.errorJson === "object" && event.errorJson !== null ? event.errorJson as Record<string, unknown> : null;
-  const webhookError = typeof errorJson?.message === "string" ? errorJson.message : null;
+function getWebhookErrorSummary(
+  event: Awaited<
+    ReturnType<typeof getAuditWebhookOverview>
+  >["attentionEvents"][number],
+) {
+  const errorJson =
+    typeof event.errorJson === "object" && event.errorJson !== null
+      ? (event.errorJson as Record<string, unknown>)
+      : null;
+  const webhookError =
+    typeof errorJson?.message === "string" ? errorJson.message : null;
 
-  return event.syncRun?.errorSummary ?? webhookError ?? (event.syncRun?._count.errors ? `${event.syncRun._count.errors} sync errors` : "No error summary");
+  return (
+    event.syncRun?.errorSummary ??
+    webhookError ??
+    (event.syncRun?._count.errors
+      ? `${event.syncRun._count.errors} sync errors`
+      : "No error summary")
+  );
 }
 
 function formatWorkerKind(kind: string) {
-  return titleCase(kind.replaceAll("INTERNAL_RECONCILE_", "").replaceAll("_", " ").toLowerCase());
+  return titleCase(
+    kind
+      .replaceAll("INTERNAL_RECONCILE_", "")
+      .replaceAll("_", " ")
+      .toLowerCase(),
+  );
 }
 
 export default async function AuditPage({
-  searchParams
+  searchParams,
 }: {
   searchParams: Promise<{
     issueType?: string;
@@ -97,42 +148,83 @@ export default async function AuditPage({
 }) {
   const user = await requireUser();
   const filters = await searchParams;
-  const [events, syncOverview, webhookOverview, workerJobOverview, issueQueue, pilotOverview] = await Promise.all([
+  const [
+    events,
+    syncOverview,
+    webhookOverview,
+    workerJobOverview,
+    issueQueue,
+    pilotOverview,
+  ] = await Promise.all([
     getAuditLog(user.tenantId, { take: 50 }),
     getAuditSyncOverview(user.tenantId),
     getAuditWebhookOverview(user.tenantId),
     getAuditWorkerJobOverview(user.tenantId),
-    getOperatorQueue(user.tenantId, filters as OperatorIssueFiltersInput),
-    getOperationalPilotOverview(user.tenantId)
+    getOperatorQueue(user.tenantId, filters as OperatorIssueFiltersInput, {
+      refresh: false,
+    }),
+    getOperationalPilotOverview(user.tenantId),
   ]);
-  const failedEvents = events.filter((event) => event.status === "FAILED").length;
-  const syncFailures = syncOverview.recentSyncRuns.filter((syncRun) => syncRun.status === "FAILED" || syncRun.status === "PARTIAL").length;
+  const failedEvents = events.filter(
+    (event) => event.status === "FAILED",
+  ).length;
+  const syncFailures = syncOverview.recentSyncRuns.filter(
+    (syncRun) => syncRun.status === "FAILED" || syncRun.status === "PARTIAL",
+  ).length;
   const oldestPendingAgeMs = webhookOverview.oldestPending
     ? Date.now() - webhookOverview.oldestPending.receivedAt.getTime()
     : 0;
   const oldestPendingReconcileAt =
-    webhookOverview.oldestPendingReconcile?.startedAt ?? webhookOverview.oldestPendingReconcile?.createdAt ?? null;
-  const oldestPendingReconcileAgeMs = oldestPendingReconcileAt ? Date.now() - oldestPendingReconcileAt.getTime() : 0;
+    webhookOverview.oldestPendingReconcile?.startedAt ??
+    webhookOverview.oldestPendingReconcile?.createdAt ??
+    null;
+  const oldestPendingReconcileAgeMs = oldestPendingReconcileAt
+    ? Date.now() - oldestPendingReconcileAt.getTime()
+    : 0;
 
   return (
     <div>
       <PageHeader
         title="Audit"
-        description="Work the operator queue first. Audit trail and pilot telemetry are supporting evidence."
-        actions={<Badge variant="outline">Operator queue</Badge>}
+        description="Work the operator queue first. Refresh issue detection only when the team needs a current pass."
+        actions={
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
+            <Badge variant="outline">Operator queue</Badge>
+            <OperatorIssuesRefreshButton />
+          </div>
+        }
       />
 
       <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard title="Open issues" value={issueQueue.summary.open} description="Current operator workload after issue refresh." />
-        <MetricCard title="High severity" value={issueQueue.summary.highSeverity} description="Open issues marked high or critical." />
-        <MetricCard title="Retry ready" value={issueQueue.summary.retryableOpen} description="Open issues with a safe retry path." />
-        <MetricCard title="Unmapped leads" value={issueQueue.summary.unmappedLeads} description="Leads still waiting for a CRM link." />
+        <MetricCard
+          title="Open issues"
+          value={issueQueue.summary.open}
+          description="Current operator workload from the saved issue queue."
+        />
+        <MetricCard
+          title="High severity"
+          value={issueQueue.summary.highSeverity}
+          description="Open issues marked high or critical."
+        />
+        <MetricCard
+          title="Retry ready"
+          value={issueQueue.summary.retryableOpen}
+          description="Open issues with a safe retry path."
+        />
+        <MetricCard
+          title="Unmapped leads"
+          value={issueQueue.summary.unmappedLeads}
+          description="Leads still waiting for a CRM link."
+        />
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle>Operator queue</CardTitle>
-          <CardDescription>System-generated issues normalized across lead intake, CRM enrichment, automation, and report delivery.</CardDescription>
+          <CardDescription>
+            System-generated issues normalized across lead intake, CRM
+            enrichment, automation, and report delivery.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <OperatorIssuesFilterForm
@@ -153,7 +245,10 @@ export default async function AuditPage({
                   id: issue.id,
                   typeLabel: issue.typeLabel,
                   summary: issue.summary,
-                  businessName: issue.business?.name ?? issue.location?.name ?? "Tenant-wide",
+                  businessName:
+                    issue.business?.name ??
+                    issue.location?.name ??
+                    "Tenant-wide",
                   targetLabel: issue.targetLabel,
                   severity: issue.severity,
                   status: issue.status,
@@ -162,13 +257,14 @@ export default async function AuditPage({
                   retryLabel: issue.retryLabel,
                   remapHref: issue.remapHref ?? null,
                   firstDetectedLabel: formatDateTime(issue.firstDetectedAt),
-                  lastDetectedLabel: formatDateTime(issue.lastDetectedAt)
+                  lastDetectedLabel: formatDateTime(issue.lastDetectedAt),
                 }))}
               />
               {issueQueue.pagination.totalPages > 1 ? (
                 <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/70 pt-4 text-sm text-muted-foreground">
                   <span>
-                    Page {issueQueue.pagination.currentPage} of {issueQueue.pagination.totalPages} •{" "}
+                    Page {issueQueue.pagination.currentPage} of{" "}
+                    {issueQueue.pagination.totalPages} •{" "}
                     {issueQueue.pagination.filteredTotal} matching issues
                   </span>
                   <div className="flex gap-2">
@@ -180,7 +276,7 @@ export default async function AuditPage({
                       }`}
                       href={buildAuditQuery({
                         ...issueQueue.filters,
-                        page: issueQueue.pagination.currentPage - 1
+                        page: issueQueue.pagination.currentPage - 1,
                       })}
                     >
                       Previous
@@ -193,7 +289,7 @@ export default async function AuditPage({
                       }`}
                       href={buildAuditQuery({
                         ...issueQueue.filters,
-                        page: issueQueue.pagination.currentPage + 1
+                        page: issueQueue.pagination.currentPage + 1,
                       })}
                     >
                       Next
@@ -209,7 +305,10 @@ export default async function AuditPage({
       <Card className="mt-6 border-border/70 bg-muted/10">
         <CardHeader>
           <CardTitle>Pilot monitoring</CardTitle>
-          <CardDescription>Compact signals for queue growth, webhook lag, automation safety, and rollout posture.</CardDescription>
+          <CardDescription>
+            Compact signals for queue growth, webhook lag, automation safety,
+            and rollout posture.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
@@ -220,7 +319,9 @@ export default async function AuditPage({
             />
             <MetricCard
               title="Webhook lag"
-              value={formatLagMinutes(pilotOverview.windows.last24h.webhookAvgLagMs)}
+              value={formatLagMinutes(
+                pilotOverview.windows.last24h.webhookAvgLagMs,
+              )}
               description={`${pilotOverview.windows.last24h.webhookFailed} failed reconciles in 24h`}
             />
             <MetricCard
@@ -245,19 +346,27 @@ export default async function AuditPage({
             />
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border/80 bg-background/80 px-4 py-3 text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border/80 bg-background/80 px-4 py-3 text-xs text-muted-foreground">
             <span>{pilotOverview.queue.openIssues} issues open now</span>
             <span className="text-border">•</span>
             <span>{pilotOverview.queue.highSeverity} high severity</span>
             <span className="text-border">•</span>
-            <span>{pilotOverview.windows.last7d.lowConfidence} low-confidence conversation stops</span>
+            <span>
+              {pilotOverview.windows.last7d.lowConfidence} low-confidence
+              conversation stops
+            </span>
             <span className="text-border">•</span>
-            <span>{pilotOverview.windows.last7d.maxTurnHits} max-turn stops</span>
+            <span>
+              {pilotOverview.windows.last7d.maxTurnHits} max-turn stops
+            </span>
             <span className="text-border">•</span>
-            <span>{pilotOverview.windows.last24h.serviceTitanFailures} ServiceTitan failures in 24h</span>
+            <span>
+              {pilotOverview.windows.last24h.serviceTitanFailures} ServiceTitan
+              failures in 24h
+            </span>
           </div>
 
-          <div className="overflow-hidden rounded-2xl border border-border/70">
+          <div className="overflow-hidden rounded-lg border border-border/70">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -273,26 +382,47 @@ export default async function AuditPage({
                   pilotOverview.rolloutPosture.map((business) => (
                     <TableRow key={business.businessId}>
                       <TableCell>
-                        <div className="font-medium text-foreground">{business.businessName}</div>
-                        <div className="text-xs text-muted-foreground">{titleCase(business.scopeSource.replaceAll("_", " "))}</div>
+                        <div className="font-medium text-foreground">
+                          {business.businessName}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {titleCase(business.scopeSource.replaceAll("_", " "))}
+                        </div>
                       </TableCell>
                       <TableCell>
-                        <div className="font-medium text-foreground">{business.rolloutLabel}</div>
-                        <div className="text-xs text-muted-foreground">{business.rolloutStateLabel}</div>
+                        <div className="font-medium text-foreground">
+                          {business.rolloutLabel}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {business.rolloutStateLabel}
+                        </div>
                       </TableCell>
                       <TableCell>
-                        <div className="font-medium text-foreground">{business.conversationModeLabel}</div>
-                        <div className="text-xs text-muted-foreground">{business.aiModelLabel}</div>
+                        <div className="font-medium text-foreground">
+                          {business.conversationModeLabel}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {business.aiModelLabel}
+                        </div>
                       </TableCell>
                       <TableCell>
-                        {business.proofOfSend ? <StatusChip status="READY" /> : <span className="text-xs text-muted-foreground">Waiting for first live send</span>}
+                        {business.proofOfSend ? (
+                          <StatusChip status="READY" />
+                        ) : (
+                          <span className="text-xs text-muted-foreground">
+                            Waiting for first live send
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell>{business.openIssueCount}</TableCell>
                     </TableRow>
                   ))
                 ) : (
                   <TableRow>
-                    <TableCell className="text-sm text-muted-foreground" colSpan={5}>
+                    <TableCell
+                      className="text-sm text-muted-foreground"
+                      colSpan={5}
+                    >
                       No business rollout posture is available yet.
                     </TableCell>
                   </TableRow>
@@ -306,7 +436,10 @@ export default async function AuditPage({
       <Card className="mt-6">
         <CardHeader>
           <CardTitle>Webhook and reconcile drilldown</CardTitle>
-          <CardDescription>Event-level intake status, backlog age, linked lead, and recovery context.</CardDescription>
+          <CardDescription>
+            Event-level intake status, backlog age, linked lead, and recovery
+            context.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
@@ -323,7 +456,11 @@ export default async function AuditPage({
             <MetricCard
               title="Oldest pending"
               value={formatLagMinutes(oldestPendingAgeMs)}
-              description={webhookOverview.oldestPending ? `Status ${webhookOverview.oldestPending.status}` : "No pending webhook work"}
+              description={
+                webhookOverview.oldestPending
+                  ? `Status ${webhookOverview.oldestPending.status}`
+                  : "No pending webhook work"
+              }
             />
             <MetricCard
               title="Failed 24h"
@@ -364,7 +501,7 @@ export default async function AuditPage({
             />
           </div>
 
-          <div className="overflow-hidden rounded-2xl border border-border/70">
+          <div className="overflow-hidden rounded-lg border border-border/70">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -383,28 +520,45 @@ export default async function AuditPage({
                     <TableRow key={event.id}>
                       <TableCell>
                         <div>{formatDateTime(event.receivedAt)}</div>
-                        <div className="text-xs text-muted-foreground">{formatAge(event.receivedAt)} old</div>
+                        <div className="text-xs text-muted-foreground">
+                          {formatAge(event.receivedAt)} old
+                        </div>
                       </TableCell>
                       <TableCell>
-                        <div className="font-medium">{getWebhookBusinessLabel(event)}</div>
-                        {event.lead?.business?.encryptedYelpBusinessId ?? event.lead?.externalBusinessId ? (
+                        <div className="font-medium">
+                          {getWebhookBusinessLabel(event)}
+                        </div>
+                        {(event.lead?.business?.encryptedYelpBusinessId ??
+                        event.lead?.externalBusinessId) ? (
                           <div className="text-xs text-muted-foreground">
-                            {event.lead?.business?.encryptedYelpBusinessId ?? event.lead?.externalBusinessId}
+                            {event.lead?.business?.encryptedYelpBusinessId ??
+                              event.lead?.externalBusinessId}
                           </div>
                         ) : null}
                       </TableCell>
                       <TableCell>
                         {event.lead ? (
-                          <Link className="font-medium hover:underline" href={`/leads/${event.lead.id}` as Route}>
+                          <Link
+                            className="font-medium hover:underline"
+                            href={`/leads/${event.lead.id}` as Route}
+                          >
                             {getWebhookLeadLabel(event)}
                           </Link>
                         ) : (
-                          <span className="text-sm text-muted-foreground">Not linked</span>
+                          <span className="text-sm text-muted-foreground">
+                            Not linked
+                          </span>
                         )}
                       </TableCell>
                       <TableCell>
-                        <div className="max-w-[180px] truncate font-mono text-xs">{event.eventKey}</div>
-                        {event.deliveryId ? <div className="max-w-[180px] truncate text-xs text-muted-foreground">{event.deliveryId}</div> : null}
+                        <div className="max-w-[180px] truncate font-mono text-xs">
+                          {event.eventKey}
+                        </div>
+                        {event.deliveryId ? (
+                          <div className="max-w-[180px] truncate text-xs text-muted-foreground">
+                            {event.deliveryId}
+                          </div>
+                        ) : null}
                       </TableCell>
                       <TableCell>
                         <StatusChip status={event.status} />
@@ -416,7 +570,9 @@ export default async function AuditPage({
                             <StatusChip status={event.syncRun.status} />
                           </div>
                         ) : (
-                          <span className="text-sm text-muted-foreground">No sync run</span>
+                          <span className="text-sm text-muted-foreground">
+                            No sync run
+                          </span>
                         )}
                       </TableCell>
                       <TableCell className="max-w-[280px] text-sm text-muted-foreground">
@@ -426,8 +582,12 @@ export default async function AuditPage({
                   ))
                 ) : (
                   <TableRow>
-                    <TableCell className="text-sm text-muted-foreground" colSpan={7}>
-                      No stale, failed, or partial webhook events need operator attention.
+                    <TableCell
+                      className="text-sm text-muted-foreground"
+                      colSpan={7}
+                    >
+                      No stale, failed, or partial webhook events need operator
+                      attention.
                     </TableCell>
                   </TableRow>
                 )}
@@ -440,13 +600,19 @@ export default async function AuditPage({
       <Card className="mt-6 border-border/70 bg-muted/10">
         <CardHeader>
           <CardTitle>Worker durability</CardTitle>
-          <CardDescription>Leased cron workers, retries, and dead-lettered jobs that need operator attention.</CardDescription>
+          <CardDescription>
+            Leased cron workers, retries, and dead-lettered jobs that need
+            operator attention.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <MetricCard
               title="Active workers"
-              value={workerJobOverview.counts.claimed + workerJobOverview.counts.processing}
+              value={
+                workerJobOverview.counts.claimed +
+                workerJobOverview.counts.processing
+              }
               description={`${workerJobOverview.counts.queued} queued jobs`}
             />
             <MetricCard
@@ -466,7 +632,7 @@ export default async function AuditPage({
             />
           </div>
 
-          <div className="overflow-hidden rounded-2xl border border-border/70">
+          <div className="overflow-hidden rounded-lg border border-border/70">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -478,12 +644,22 @@ export default async function AuditPage({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(workerJobOverview.attentionJobs.length > 0 ? workerJobOverview.attentionJobs : workerJobOverview.recentJobs).length > 0 ? (
-                  (workerJobOverview.attentionJobs.length > 0 ? workerJobOverview.attentionJobs : workerJobOverview.recentJobs).map((job) => (
+                {(workerJobOverview.attentionJobs.length > 0
+                  ? workerJobOverview.attentionJobs
+                  : workerJobOverview.recentJobs
+                ).length > 0 ? (
+                  (workerJobOverview.attentionJobs.length > 0
+                    ? workerJobOverview.attentionJobs
+                    : workerJobOverview.recentJobs
+                  ).map((job) => (
                     <TableRow key={job.id}>
                       <TableCell>
-                        <div className="font-medium text-foreground">{formatWorkerKind(job.kind)}</div>
-                        <div className="max-w-[220px] truncate font-mono text-xs text-muted-foreground">{job.jobKey}</div>
+                        <div className="font-medium text-foreground">
+                          {formatWorkerKind(job.kind)}
+                        </div>
+                        <div className="max-w-[220px] truncate font-mono text-xs text-muted-foreground">
+                          {job.jobKey}
+                        </div>
                       </TableCell>
                       <TableCell>
                         <StatusChip status={job.status} />
@@ -493,13 +669,19 @@ export default async function AuditPage({
                       </TableCell>
                       <TableCell>{formatDateTime(job.updatedAt)}</TableCell>
                       <TableCell className="max-w-[320px] text-sm text-muted-foreground">
-                        {job.lastErrorSummary ?? (job.deadLetteredAt ? "Dead-lettered without error detail" : "No current issue")}
+                        {job.lastErrorSummary ??
+                          (job.deadLetteredAt
+                            ? "Dead-lettered without error detail"
+                            : "No current issue")}
                       </TableCell>
                     </TableRow>
                   ))
                 ) : (
                   <TableRow>
-                    <TableCell className="text-sm text-muted-foreground" colSpan={5}>
+                    <TableCell
+                      className="text-sm text-muted-foreground"
+                      colSpan={5}
+                    >
                       No durable worker jobs have run yet.
                     </TableCell>
                   </TableRow>
@@ -514,7 +696,9 @@ export default async function AuditPage({
         <Card>
           <CardHeader>
             <CardTitle>Recent events</CardTitle>
-            <CardDescription>Manual actions and system outcomes across the console.</CardDescription>
+            <CardDescription>
+              Manual actions and system outcomes across the console.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 p-0">
             <div className="flex flex-wrap items-center gap-2 px-6 pt-4 text-xs text-muted-foreground">
@@ -539,9 +723,16 @@ export default async function AuditPage({
                     <TableCell>{event.actor?.name ?? "System"}</TableCell>
                     <TableCell>{formatAuditAction(event.actionType)}</TableCell>
                     <TableCell>
-                      {event.program ? `${event.program.type} program` : event.business?.name ?? (event.reportRequest ? `${event.reportRequest.granularity} report` : "Tenant-wide")}
+                      {event.program
+                        ? `${event.program.type} program`
+                        : (event.business?.name ??
+                          (event.reportRequest
+                            ? `${event.reportRequest.granularity} report`
+                            : "Tenant-wide"))}
                     </TableCell>
-                    <TableCell><StatusChip status={event.status} /></TableCell>
+                    <TableCell>
+                      <StatusChip status={event.status} />
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -552,7 +743,10 @@ export default async function AuditPage({
         <Card className="border-border/70 bg-muted/10">
           <CardHeader>
             <CardTitle>Operational sync log</CardTitle>
-            <CardDescription>Background executions for reporting, leads, CRM, and enrichment work.</CardDescription>
+            <CardDescription>
+              Background executions for reporting, leads, CRM, and enrichment
+              work.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 p-0">
             <div className="flex flex-wrap items-center gap-2 px-6 pt-4 text-xs text-muted-foreground">

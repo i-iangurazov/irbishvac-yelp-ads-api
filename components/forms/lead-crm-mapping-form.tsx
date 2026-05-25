@@ -9,19 +9,22 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { crmLeadMappingFormSchema, type CrmLeadMappingFormValues } from "@/features/crm-enrichment/schemas";
+import {
+  crmLeadMappingFormSchema,
+  type CrmLeadMappingFormValues,
+} from "@/features/crm-enrichment/schemas";
 import { apiFetch } from "@/lib/utils/client-api";
 
 const operatorVisibleStates = [
   { value: "UNRESOLVED", label: "Unresolved" },
   { value: "MANUAL_OVERRIDE", label: "Manual override" },
   { value: "CONFLICT", label: "Conflict" },
-  { value: "ERROR", label: "Error" }
+  { value: "ERROR", label: "Error" },
 ] as const;
 
 export function LeadCrmMappingForm({
   leadId,
-  defaultValues
+  defaultValues,
 }: {
   leadId: string;
   defaultValues: Partial<CrmLeadMappingFormValues>;
@@ -31,13 +34,13 @@ export function LeadCrmMappingForm({
     register,
     handleSubmit,
     watch,
-    formState: { isSubmitting, errors }
+    formState: { isSubmitting, errors },
   } = useForm<CrmLeadMappingFormValues>({
     resolver: zodResolver(crmLeadMappingFormSchema),
     defaultValues: {
       state: "UNRESOLVED",
-      ...defaultValues
-    }
+      ...defaultValues,
+    },
   });
   const selectedState = watch("state");
 
@@ -52,13 +55,15 @@ export function LeadCrmMappingForm({
               ? "manual_override"
               : values.state === "UNRESOLVED"
                 ? "operator_unresolved"
-                : "operator_review"
-        })
+                : "operator_review",
+        }),
       });
       toast.success("CRM mapping saved.");
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to save CRM mapping.");
+      toast.error(
+        error instanceof Error ? error.message : "Unable to save CRM mapping.",
+      );
     }
   });
 
@@ -82,22 +87,40 @@ export function LeadCrmMappingForm({
       <div className="grid gap-4 md:grid-cols-3">
         <div className="space-y-2">
           <Label htmlFor="externalCrmLeadId">CRM lead ID</Label>
-          <Input id="externalCrmLeadId" placeholder="crm-lead-123" {...register("externalCrmLeadId")} />
-          {errors.externalCrmLeadId ? <p className="text-sm text-destructive">{errors.externalCrmLeadId.message}</p> : null}
+          <Input
+            id="externalCrmLeadId"
+            placeholder="crm-lead-123"
+            {...register("externalCrmLeadId")}
+          />
+          {errors.externalCrmLeadId ? (
+            <p className="text-sm text-destructive">
+              {errors.externalCrmLeadId.message}
+            </p>
+          ) : null}
         </div>
         <div className="space-y-2">
           <Label htmlFor="externalOpportunityId">Opportunity ID</Label>
-          <Input id="externalOpportunityId" placeholder="opp-456" {...register("externalOpportunityId")} />
+          <Input
+            id="externalOpportunityId"
+            placeholder="opp-456"
+            {...register("externalOpportunityId")}
+          />
         </div>
         <div className="space-y-2">
           <Label htmlFor="externalJobId">Job ID</Label>
-          <Input id="externalJobId" placeholder="job-789" {...register("externalJobId")} />
+          <Input
+            id="externalJobId"
+            placeholder="job-789"
+            {...register("externalJobId")}
+          />
         </div>
       </div>
 
       <div className="space-y-2">
         <Label htmlFor="issueSummary">
-          {selectedState === "CONFLICT" || selectedState === "ERROR" ? "Issue summary" : "Operator note"}
+          {selectedState === "CONFLICT" || selectedState === "ERROR"
+            ? "Issue summary"
+            : "Operator note"}
         </Label>
         <Textarea
           id="issueSummary"
@@ -110,11 +133,17 @@ export function LeadCrmMappingForm({
           }
           {...register("issueSummary")}
         />
-        {errors.issueSummary ? <p className="text-sm text-destructive">{errors.issueSummary.message}</p> : null}
+        {errors.issueSummary ? (
+          <p className="text-sm text-destructive">
+            {errors.issueSummary.message}
+          </p>
+        ) : null}
       </div>
 
       <div className="flex flex-col gap-3 border-t border-border/70 pt-4 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-        <span>Internal mapping only. Yelp-native lead history stays untouched.</span>
+        <span>
+          Internal mapping only. Yelp-native lead history stays untouched.
+        </span>
         <Button type="submit" disabled={isSubmitting}>
           {isSubmitting ? "Saving..." : "Save mapping"}
         </Button>

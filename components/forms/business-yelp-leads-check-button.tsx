@@ -9,7 +9,7 @@ import { apiFetch } from "@/lib/utils/client-api";
 
 export function BusinessYelpLeadsCheckButton({
   businessId,
-  disabled
+  disabled,
 }: {
   businessId: string;
   disabled?: boolean;
@@ -20,14 +20,21 @@ export function BusinessYelpLeadsCheckButton({
   async function runCheck() {
     try {
       setIsPending(true);
-      const result = await apiFetch<{ message?: string }>(`/api/businesses/${businessId}/yelp-leads-check`, {
-        method: "POST"
-      });
+      const result = await apiFetch<{ message?: string }>(
+        `/api/businesses/${businessId}/yelp-leads-check`,
+        {
+          method: "POST",
+        },
+      );
 
       toast.success(result.message ?? "Yelp Leads API check completed.");
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to check Yelp Leads API access.");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to check Yelp Leads API access.",
+      );
     } finally {
       setIsPending(false);
     }

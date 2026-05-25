@@ -9,7 +9,7 @@ import { apiFetch } from "@/lib/utils/client-api";
 
 export function ConnectorServiceMappingForm({
   serviceCategoryId,
-  defaultCodes
+  defaultCodes,
 }: {
   serviceCategoryId: string;
   defaultCodes: string[];
@@ -24,12 +24,16 @@ export function ConnectorServiceMappingForm({
         method: "POST",
         body: JSON.stringify({
           serviceCategoryId,
-          crmCodes: value
-        })
+          crmCodes: value,
+        }),
       });
       toast.success("Service mapping saved.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to save service mapping.");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to save service mapping.",
+      );
     } finally {
       setIsSaving(false);
     }
@@ -43,10 +47,15 @@ export function ConnectorServiceMappingForm({
         value={value}
         onChange={(event) => setValue(event.target.value)}
       />
-      <Button type="button" variant="outline" size="sm" onClick={save} disabled={isSaving}>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={save}
+        disabled={isSaving}
+      >
         {isSaving ? "Saving..." : "Save"}
       </Button>
     </div>
   );
 }
-

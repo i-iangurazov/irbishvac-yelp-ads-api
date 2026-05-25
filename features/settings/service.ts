@@ -1,20 +1,41 @@
 import "server-only";
 
-import type { ConnectionTestStatus, CredentialKind, RoleCode } from "@prisma/client";
+import type {
+  ConnectionTestStatus,
+  CredentialKind,
+  RoleCode,
+} from "@prisma/client";
 
 import { recordAuditEvent } from "@/features/audit/service";
-import { normalizeCapabilityFlags, type CapabilityFlags } from "@/features/settings/capabilities";
-import { capabilityFlagsSchema, credentialFormSchema } from "@/features/settings/schemas";
-import { countActiveUsersByRole, getTenantUserById, updateUserRole } from "@/lib/db/users-repository";
+import {
+  normalizeCapabilityFlags,
+  type CapabilityFlags,
+} from "@/features/settings/capabilities";
+import {
+  capabilityFlagsSchema,
+  credentialFormSchema,
+  userCreateSchema,
+} from "@/features/settings/schemas";
+import {
+  countActiveUsersByRole,
+  createTenantUser,
+  findUserByEmail,
+  getTenantUserById,
+  listUsersByTenant,
+  updateUserRole,
+} from "@/lib/db/users-repository";
 import {
   getCredentialSet,
   listCredentialSets,
   updateCredentialTestResult,
-  upsertCredentialSet
+  upsertCredentialSet,
 } from "@/lib/db/credentials-repository";
-import { getSystemSetting, upsertSystemSetting } from "@/lib/db/settings-repository";
-import { listUsersByTenant } from "@/lib/db/users-repository";
+import {
+  getSystemSetting,
+  upsertSystemSetting,
+} from "@/lib/db/settings-repository";
 import { toJsonValue } from "@/lib/db/json";
+import { hashPassword } from "@/lib/auth/password";
 import { encryptSecret } from "@/lib/utils/crypto";
 import { getServerEnv } from "@/lib/utils/env";
 import { YelpAdsClient } from "@/lib/yelp/ads-client";
@@ -53,7 +74,9 @@ function resolveFallbackBaseUrl(kind: CredentialKind) {
   return env.YELP_ADS_BASE_URL;
 }
 
-function getCapabilityKeysForCredential(kind: CredentialKind): Array<keyof CapabilityFlags> {
+function getCapabilityKeysForCredential(
+  kind: CredentialKind,
+): Array<keyof CapabilityFlags> {
   switch (kind) {
     case "ADS_BASIC_AUTH":
       return ["adsApiEnabled", "hasAdsApi"];
@@ -84,35 +107,82 @@ function normalizeTestPath(kind: CredentialKind, testPath: string | undefined) {
   return trimmed;
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function redactCredentialMetadata(value: unknown) {
+  const metadata = asRecord(value);
+  const oauth = asRecord(metadata.oauth);
+
+  if (Object.keys(oauth).length === 0) {
+    return value;
+  }
+
+  const redactedOauth = { ...oauth };
+
+  if (typeof redactedOauth.clientSecretEncrypted === "string") {
+    redactedOauth.clientSecretEncrypted = "configured";
+  } else {
+    delete redactedOauth.clientSecretEncrypted;
+  }
+
+  if (typeof redactedOauth.refreshTokenEncrypted === "string") {
+    redactedOauth.refreshTokenEncrypted = "configured";
+  } else {
+    delete redactedOauth.refreshTokenEncrypted;
+  }
+
+  return {
+    ...metadata,
+    oauth: redactedOauth,
+  };
+}
+
 export async function getSettingsOverview(tenantId: string) {
   const [credentials, capabilities, users] = await Promise.all([
     listCredentialSets(tenantId),
     getCapabilityFlags(tenantId),
-    listUsersByTenant(tenantId)
+    listUsersByTenant(tenantId),
   ]);
 
   return {
     credentials: credentials.map((credential) => ({
       ...credential,
       secretEncrypted: credential.secretEncrypted ? "configured" : null,
-      usernameEncrypted: credential.usernameEncrypted ? "configured" : null
+      usernameEncrypted: credential.usernameEncrypted ? "configured" : null,
+      metadataJson: redactCredentialMetadata(credential.metadataJson),
     })),
     capabilities,
-    users
+    users,
   };
 }
 
 export async function saveCredentialSet(
   tenantId: string,
   actorId: string,
-  input: unknown
+  input: unknown,
 ) {
   const data = credentialFormSchema.parse(input);
   const existing = await getCredentialSet(tenantId, data.kind);
   const normalizedTestPath = normalizeTestPath(data.kind, data.testPath);
   const nextMetadata = {
-    ...((existing?.metadataJson as Record<string, unknown> | null) ?? {})
+    ...((existing?.metadataJson as Record<string, unknown> | null) ?? {}),
   };
+  const oauthClientId =
+    data.kind === "REPORTING_FUSION"
+      ? data.oauthClientId?.trim()
+      : data.username?.trim();
+  const oauthClientSecret =
+    data.kind === "REPORTING_FUSION"
+      ? data.oauthClientSecret?.trim()
+      : undefined;
+  const oauthRefreshToken =
+    data.kind === "REPORTING_FUSION"
+      ? data.oauthRefreshToken?.trim()
+      : undefined;
 
   if (normalizedTestPath) {
     nextMetadata.testPath = normalizedTestPath;
@@ -120,25 +190,68 @@ export async function saveCredentialSet(
     delete nextMetadata.testPath;
   }
 
+  if (data.kind === "REPORTING_FUSION") {
+    const nextOAuth = {
+      ...asRecord(nextMetadata.oauth),
+    };
+
+    if (oauthClientSecret) {
+      nextOAuth.clientSecretEncrypted = encryptSecret(oauthClientSecret);
+    }
+
+    if (oauthRefreshToken) {
+      nextOAuth.refreshTokenEncrypted = encryptSecret(oauthRefreshToken);
+    }
+
+    if (
+      oauthClientSecret ||
+      oauthRefreshToken ||
+      oauthClientId ||
+      data.secret?.trim()
+    ) {
+      nextOAuth.tokenPath =
+        typeof nextOAuth.tokenPath === "string"
+          ? nextOAuth.tokenPath
+          : "/oauth2/token/v3";
+      delete nextOAuth.lastRefreshErrorAt;
+      delete nextOAuth.lastRefreshErrorMessage;
+    }
+
+    if (
+      (oauthClientSecret || oauthRefreshToken || oauthClientId) &&
+      !data.secret?.trim()
+    ) {
+      delete nextOAuth.accessTokenExpiresAt;
+    }
+
+    if (Object.keys(nextOAuth).length > 0) {
+      nextMetadata.oauth = nextOAuth;
+    }
+  }
+
   const credentialsChanged =
-    Boolean(data.username?.trim()) ||
+    Boolean(oauthClientId) ||
     Boolean(data.secret?.trim()) ||
-    (data.baseUrl || resolveFallbackBaseUrl(data.kind)) !== (existing?.baseUrl ?? resolveFallbackBaseUrl(data.kind)) ||
-    ((typeof nextMetadata.testPath === "string" ? nextMetadata.testPath : undefined) ?? "") !==
-      ((existing?.metadataJson as { testPath?: string } | null)?.testPath ?? "");
+    Boolean(oauthClientSecret) ||
+    Boolean(oauthRefreshToken) ||
+    (data.baseUrl || resolveFallbackBaseUrl(data.kind)) !==
+      (existing?.baseUrl ?? resolveFallbackBaseUrl(data.kind)) ||
+    ((typeof nextMetadata.testPath === "string"
+      ? nextMetadata.testPath
+      : undefined) ?? "") !==
+      ((existing?.metadataJson as { testPath?: string } | null)?.testPath ??
+        "");
 
   const nextRecord = await upsertCredentialSet(tenantId, data.kind, {
     tenantId,
     kind: data.kind,
     label: data.label,
-    usernameEncrypted:
-      data.username?.trim()
-        ? encryptSecret(data.username.trim())
-        : existing?.usernameEncrypted ?? null,
-    secretEncrypted:
-      data.secret?.trim()
-        ? encryptSecret(data.secret.trim())
-        : existing?.secretEncrypted ?? "",
+    usernameEncrypted: oauthClientId
+      ? encryptSecret(oauthClientId)
+      : (existing?.usernameEncrypted ?? null),
+    secretEncrypted: data.secret?.trim()
+      ? encryptSecret(data.secret.trim())
+      : (existing?.secretEncrypted ?? ""),
     baseUrl: data.baseUrl || resolveFallbackBaseUrl(data.kind),
     isEnabled: data.isEnabled,
     metadataJson: toJsonValue(nextMetadata),
@@ -146,9 +259,9 @@ export async function saveCredentialSet(
       ? {
           lastTestStatus: "UNTESTED",
           lastErrorMessage: null,
-          lastTestedAt: null
+          lastTestedAt: null,
         }
-      : {})
+      : {}),
   });
 
   const capabilityKeys = getCapabilityKeysForCredential(data.kind);
@@ -161,7 +274,11 @@ export async function saveCredentialSet(
       nextCapabilities[key] = nextRecord.isEnabled;
     }
 
-    await upsertSystemSetting(tenantId, "yelpCapabilities", normalizeCapabilityFlags(nextCapabilities));
+    await upsertSystemSetting(
+      tenantId,
+      "yelpCapabilities",
+      normalizeCapabilityFlags(nextCapabilities),
+    );
   }
 
   await recordAuditEvent({
@@ -173,26 +290,40 @@ export async function saveCredentialSet(
       kind: data.kind,
       label: data.label,
       baseUrl: data.baseUrl,
-      isEnabled: data.isEnabled
+      isEnabled: data.isEnabled,
+      oauthClientIdProvided:
+        data.kind === "REPORTING_FUSION" ? Boolean(oauthClientId) : undefined,
+      oauthClientSecretProvided:
+        data.kind === "REPORTING_FUSION"
+          ? Boolean(oauthClientSecret)
+          : undefined,
+      oauthRefreshTokenProvided:
+        data.kind === "REPORTING_FUSION"
+          ? Boolean(oauthRefreshToken)
+          : undefined,
     }),
     before: existing
       ? {
           ...existing,
           secretEncrypted: existing.secretEncrypted ? "configured" : null,
-          usernameEncrypted: existing.usernameEncrypted ? "configured" : null
+          usernameEncrypted: existing.usernameEncrypted ? "configured" : null,
         }
       : undefined,
     after: {
       ...nextRecord,
       secretEncrypted: nextRecord.secretEncrypted ? "configured" : null,
-      usernameEncrypted: nextRecord.usernameEncrypted ? "configured" : null
-    }
+      usernameEncrypted: nextRecord.usernameEncrypted ? "configured" : null,
+    },
   });
 
   return nextRecord;
 }
 
-export async function saveCapabilityFlags(tenantId: string, actorId: string, input: unknown) {
+export async function saveCapabilityFlags(
+  tenantId: string,
+  actorId: string,
+  input: unknown,
+) {
   const flags = normalizeCapabilityFlags(capabilityFlagsSchema.parse(input));
   const existing = await getSystemSetting(tenantId, "yelpCapabilities");
 
@@ -204,20 +335,89 @@ export async function saveCapabilityFlags(tenantId: string, actorId: string, inp
     actionType: "settings.capabilities.save",
     status: "SUCCESS",
     before: existing as never,
-    after: flags as never
+    after: flags as never,
   });
 
   return saved;
 }
 
-export async function saveUserRole(tenantId: string, actorId: string, userId: string, roleCode: RoleCode) {
+function toSafeUserSummary(user: Awaited<ReturnType<typeof createTenantUser>>) {
+  return {
+    id: user.id,
+    tenantId: user.tenantId,
+    email: user.email,
+    name: user.name,
+    isActive: user.isActive,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+    role: {
+      code: user.role.code,
+      name: user.role.name,
+    },
+  };
+}
+
+export async function createSettingsUser(
+  tenantId: string,
+  actorId: string,
+  input: unknown,
+) {
+  const values = userCreateSchema.parse(input);
+  const existing = await findUserByEmail(values.email);
+
+  if (existing) {
+    throw new YelpValidationError("A user with this email already exists.");
+  }
+
+  const created = await createTenantUser({
+    tenantId,
+    name: values.name.trim(),
+    email: values.email,
+    roleCode: values.roleCode,
+    passwordHash: await hashPassword(values.password),
+  });
+
+  await recordAuditEvent({
+    tenantId,
+    actorId,
+    actionType: "settings.user.create",
+    status: "SUCCESS",
+    requestSummary: {
+      email: created.email,
+      name: created.name,
+      roleCode: created.role.code,
+    },
+    after: {
+      id: created.id,
+      email: created.email,
+      name: created.name,
+      roleCode: created.role.code,
+      isActive: created.isActive,
+    },
+  });
+
+  return toSafeUserSummary(created);
+}
+
+export async function saveUserRole(
+  tenantId: string,
+  actorId: string,
+  userId: string,
+  roleCode: RoleCode,
+) {
   const existing = await getTenantUserById(userId, tenantId);
 
-  if (existing.role.code === "ADMIN" && roleCode !== "ADMIN" && existing.isActive) {
+  if (
+    existing.role.code === "ADMIN" &&
+    roleCode !== "ADMIN" &&
+    existing.isActive
+  ) {
     const activeAdminCount = await countActiveUsersByRole(tenantId, "ADMIN");
 
     if (activeAdminCount <= 1) {
-      throw new YelpValidationError("At least one active Admin must remain assigned to this tenant.");
+      throw new YelpValidationError(
+        "At least one active Admin must remain assigned to this tenant.",
+      );
     }
   }
 
@@ -230,26 +430,31 @@ export async function saveUserRole(tenantId: string, actorId: string, userId: st
     status: "SUCCESS",
     requestSummary: {
       userId,
-      roleCode
+      roleCode,
     },
     after: {
       userId,
-      roleCode: updated.role.code
+      roleCode: updated.role.code,
     },
     before: {
       userId,
-      roleCode: existing.role.code
-    }
+      roleCode: existing.role.code,
+    },
   });
 
-  return updated;
+  return toSafeUserSummary(updated);
 }
 
-async function getConnectionTester(tenantId: string, kind: CredentialKind): Promise<TestableConnectionClient> {
+async function getConnectionTester(
+  tenantId: string,
+  kind: CredentialKind,
+): Promise<TestableConnectionClient> {
   const credential = await getCredentialConfig(tenantId, kind);
 
   if (!credential) {
-    throw new YelpValidationError("Save credentials first before testing the connection.");
+    throw new YelpValidationError(
+      "Save credentials first before testing the connection.",
+    );
   }
 
   switch (kind) {
@@ -262,8 +467,10 @@ async function getConnectionTester(tenantId: string, kind: CredentialKind): Prom
     case "DATA_INGESTION":
       return new YelpDataIngestionClient(credential);
     case "CRM_SERVICETITAN": {
-      const metadata = (credential.metadata as Record<string, unknown> | null) ?? null;
-      const environment = metadata?.environment === "INTEGRATION" ? "INTEGRATION" : "PRODUCTION";
+      const metadata =
+        (credential.metadata as Record<string, unknown> | null) ?? null;
+      const environment =
+        metadata?.environment === "INTEGRATION" ? "INTEGRATION" : "PRODUCTION";
       const defaults = getDefaultServiceTitanUrls(environment);
 
       return new ServiceTitanClient({
@@ -272,13 +479,15 @@ async function getConnectionTester(tenantId: string, kind: CredentialKind): Prom
         environment,
         apiBaseUrl: credential.baseUrl || defaults.apiBaseUrl,
         authBaseUrl:
-          typeof metadata?.authBaseUrl === "string" && metadata.authBaseUrl.trim().length > 0
+          typeof metadata?.authBaseUrl === "string" &&
+          metadata.authBaseUrl.trim().length > 0
             ? metadata.authBaseUrl
             : defaults.authBaseUrl,
-        tenantId: typeof metadata?.tenantId === "string" ? metadata.tenantId : "",
+        tenantId:
+          typeof metadata?.tenantId === "string" ? metadata.tenantId : "",
         appKey: typeof metadata?.appKey === "string" ? metadata.appKey : "",
         clientId: credential.username ?? "",
-        clientSecret: credential.secret ?? ""
+        clientSecret: credential.secret ?? "",
       });
     }
     default:
@@ -286,11 +495,16 @@ async function getConnectionTester(tenantId: string, kind: CredentialKind): Prom
   }
 }
 
-export async function testCredentialConnection(tenantId: string, actorId: string, kind: CredentialKind) {
+export async function testCredentialConnection(
+  tenantId: string,
+  actorId: string,
+  kind: CredentialKind,
+) {
   const existing = await getCredentialSet(tenantId, kind);
   const credential = await getCredentialConfig(tenantId, kind);
   const testPath =
-    typeof credential?.metadata?.testPath === "string" && credential.metadata.testPath.trim().length > 0
+    typeof credential?.metadata?.testPath === "string" &&
+    credential.metadata.testPath.trim().length > 0
       ? credential.metadata.testPath.trim()
       : "";
 
@@ -302,14 +516,14 @@ export async function testCredentialConnection(tenantId: string, actorId: string
       status: "SUCCESS",
       responseSummary: toJsonValue({
         result: "Verification skipped",
-        message: "Yelp Ads docs do not define a generic health-check path."
-      })
+        message: "Yelp Ads docs do not define a generic health-check path.",
+      }),
     });
 
     return {
       status: "SUCCESS" as ConnectionTestStatus,
       message:
-        "Credentials saved. Yelp Ads does not document a generic health-check endpoint. Add a safe readable endpoint only if you want live verification."
+        "Credentials saved. Yelp Ads does not document a generic health-check endpoint. Add a safe readable endpoint only if you want live verification.",
     };
   }
 
@@ -326,13 +540,13 @@ export async function testCredentialConnection(tenantId: string, actorId: string
       actionType: `settings.credential.${kind.toLowerCase()}.test`,
       status: "SUCCESS",
       responseSummary: toJsonValue({
-        result: "Connection successful"
-      })
+        result: "Connection successful",
+      }),
     });
 
     return {
       status: "SUCCESS" as ConnectionTestStatus,
-      message: "Connection successful."
+      message: "Connection successful.",
     };
   } catch (error) {
     const normalized = normalizeUnknownError(error);
@@ -352,14 +566,14 @@ export async function testCredentialConnection(tenantId: string, actorId: string
       responseSummary: toJsonValue({
         result: "Connection failed",
         error: message,
-        testPath
+        testPath,
       }),
-      rawPayloadSummary: normalized.details as never
+      rawPayloadSummary: normalized.details as never,
     });
 
     return {
       status: "FAILED" as ConnectionTestStatus,
-      message
+      message,
     };
   }
 }

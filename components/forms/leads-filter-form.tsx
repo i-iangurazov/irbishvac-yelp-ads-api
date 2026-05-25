@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 
 export function LeadsFilterForm({
   businesses,
-  values
+  values,
 }: {
   businesses: Array<{ id: string; name: string }>;
   values: {
@@ -28,7 +28,10 @@ export function LeadsFilterForm({
       <input name="page" type="hidden" value="1" />
 
       <div className="space-y-1">
-        <label className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground" htmlFor="businessId">
+        <label
+          className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground"
+          htmlFor="businessId"
+        >
           Business
         </label>
         <select
@@ -47,7 +50,10 @@ export function LeadsFilterForm({
       </div>
 
       <div className="space-y-1">
-        <label className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground" htmlFor="attention">
+        <label
+          className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground"
+          htmlFor="attention"
+        >
           Attention
         </label>
         <select
@@ -62,7 +68,10 @@ export function LeadsFilterForm({
       </div>
 
       <div className="space-y-1">
-        <label className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground" htmlFor="mappingState">
+        <label
+          className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground"
+          htmlFor="mappingState"
+        >
           Mapping
         </label>
         <select
@@ -81,7 +90,10 @@ export function LeadsFilterForm({
       </div>
 
       <div className="space-y-1">
-        <label className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground" htmlFor="status">
+        <label
+          className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground"
+          htmlFor="status"
+        >
           Ingestion
         </label>
         <select
@@ -102,7 +114,10 @@ export function LeadsFilterForm({
       </div>
 
       <div className="space-y-1">
-        <label className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground" htmlFor="internalStatus">
+        <label
+          className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground"
+          htmlFor="internalStatus"
+        >
           Partner lifecycle
         </label>
         <select
@@ -128,21 +143,35 @@ export function LeadsFilterForm({
       </div>
 
       <div className="space-y-1">
-        <label className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground" htmlFor="from">
+        <label
+          className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground"
+          htmlFor="from"
+        >
           From
         </label>
-        <Input defaultValue={values.from ?? ""} id="from" name="from" type="date" />
+        <Input
+          defaultValue={values.from ?? ""}
+          id="from"
+          name="from"
+          type="date"
+        />
       </div>
 
       <div className="space-y-1">
-        <label className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground" htmlFor="to">
+        <label
+          className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground"
+          htmlFor="to"
+        >
           To
         </label>
         <Input defaultValue={values.to ?? ""} id="to" name="to" type="date" />
       </div>
 
       <div className="space-y-1">
-        <label className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground" htmlFor="pageSize">
+        <label
+          className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground"
+          htmlFor="pageSize"
+        >
           Page size
         </label>
         <select

@@ -9,8 +9,21 @@ import { PageHeader } from "@/components/shared/page-header";
 import { StatusChip } from "@/components/shared/status-chip";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import type { LeadFiltersInput } from "@/features/leads/schemas";
 import { getLeadsIndex } from "@/features/leads/service";
 import { requireUser } from "@/lib/auth/service";
@@ -21,7 +34,9 @@ function formatLeadCount(value: number) {
   return value.toLocaleString();
 }
 
-function buildLeadsQuery(values: Record<string, string | number | null | undefined>): UrlObject {
+function buildLeadsQuery(
+  values: Record<string, string | number | null | undefined>,
+): UrlObject {
   const query: Record<string, string> = {};
 
   for (const [key, value] of Object.entries(values)) {
@@ -34,12 +49,12 @@ function buildLeadsQuery(values: Record<string, string | number | null | undefin
 
   return {
     pathname: "/leads",
-    query
+    query,
   };
 }
 
 export default async function LeadsPage({
-  searchParams
+  searchParams,
 }: {
   searchParams: Promise<{
     businessId?: string;
@@ -55,7 +70,10 @@ export default async function LeadsPage({
 }) {
   const user = await requireUser();
   const filters = await searchParams;
-  const overview = await getLeadsIndex(user.tenantId, filters as LeadFiltersInput);
+  const overview = await getLeadsIndex(
+    user.tenantId,
+    filters as LeadFiltersInput,
+  );
   const canSyncLeads = hasPermission(user.role.code, "leads:write");
   const filtersApplied = Object.values(overview.filters).some(Boolean);
   const latestImport = overview.backfill.latestRun;
@@ -74,16 +92,19 @@ export default async function LeadsPage({
     overview.summary.filteredLeads === 0
       ? "No matching rows."
       : `${formatLeadCount(overview.pagination.pageRowStart)}-${formatLeadCount(overview.pagination.pageRowEnd)} of ${formatLeadCount(overview.summary.filteredLeads)} matching leads`;
-  const allBusinessCount = overview.businessSplit.reduce((total, business) => total + business.count, 0);
+  const allBusinessCount = overview.businessSplit.reduce(
+    (total, business) => total + business.count,
+    0,
+  );
   const previousPageHref = buildLeadsQuery({
     ...overview.filters,
     page: overview.pagination.currentPage - 1,
-    pageSize: overview.pagination.pageSize
+    pageSize: overview.pagination.pageSize,
   });
   const nextPageHref = buildLeadsQuery({
     ...overview.filters,
     page: overview.pagination.currentPage + 1,
-    pageSize: overview.pagination.pageSize
+    pageSize: overview.pagination.pageSize,
   });
 
   return (
@@ -108,13 +129,21 @@ export default async function LeadsPage({
       <Card className="mt-6 shadow-none">
         <CardContent className="grid gap-4 p-4 sm:grid-cols-2 xl:grid-cols-4">
           <div className="space-y-1 xl:border-r xl:border-border/70 xl:pr-4">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Synced</div>
-            <div className="text-2xl font-semibold tracking-tight">{formatLeadCount(overview.summary.totalSyncedLeads)}</div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              Synced
+            </div>
+            <div className="text-2xl font-semibold tracking-tight">
+              {formatLeadCount(overview.summary.totalSyncedLeads)}
+            </div>
             <div className="text-xs text-muted-foreground">Stored locally</div>
           </div>
           <div className="space-y-1 xl:border-r xl:border-border/70 xl:px-4">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Matching</div>
-            <div className="text-2xl font-semibold tracking-tight">{formatLeadCount(overview.summary.filteredLeads)}</div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              Matching
+            </div>
+            <div className="text-2xl font-semibold tracking-tight">
+              {formatLeadCount(overview.summary.filteredLeads)}
+            </div>
             <div className="text-xs text-muted-foreground">
               {overview.summary.filteredLeads === 0
                 ? "No rows in the current slice"
@@ -122,18 +151,28 @@ export default async function LeadsPage({
             </div>
           </div>
           <div className="space-y-1 xl:border-r xl:border-border/70 xl:px-4">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Attention</div>
-            <div className="text-2xl font-semibold tracking-tight">{formatLeadCount(overview.summary.needsAttention)}</div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              Attention
+            </div>
+            <div className="text-2xl font-semibold tracking-tight">
+              {formatLeadCount(overview.summary.needsAttention)}
+            </div>
             <div className="text-xs text-muted-foreground">
-              {formatLeadCount(overview.summary.unresolvedLeads)} unmapped • {formatLeadCount(overview.summary.crmIssues)} lifecycle issues
+              {formatLeadCount(overview.summary.unresolvedLeads)} unmapped •{" "}
+              {formatLeadCount(overview.summary.crmIssues)} lifecycle issues
             </div>
           </div>
           <div className="space-y-1 xl:pl-4">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Current page</div>
-            <div className="text-2xl font-semibold tracking-tight">
-              {overview.pagination.currentPage} / {overview.pagination.totalPages}
+            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              Current page
             </div>
-            <div className="text-xs text-muted-foreground">{formatLeadCount(overview.pagination.pageSize)} rows per page</div>
+            <div className="text-2xl font-semibold tracking-tight">
+              {overview.pagination.currentPage} /{" "}
+              {overview.pagination.totalPages}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {formatLeadCount(overview.pagination.pageSize)} rows per page
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -144,29 +183,46 @@ export default async function LeadsPage({
             <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <CardTitle className="text-base">Manual backfill</CardTitle>
-                <CardDescription>Secondary recovery tool for the latest 300 Yelp leads.</CardDescription>
+                <CardDescription>
+                  Secondary recovery tool for the latest 300 Yelp leads.
+                </CardDescription>
               </div>
               <div className="flex flex-wrap items-center gap-2 text-xs">
-                {latestImport ? <StatusChip status={latestImport.status} /> : <Badge variant="outline">Not run</Badge>}
-                {latestImport?.hasMore ? <Badge variant="outline">300-lead window</Badge> : null}
+                {latestImport ? (
+                  <StatusChip status={latestImport.status} />
+                ) : (
+                  <Badge variant="outline">Not run</Badge>
+                )}
+                {latestImport?.hasMore ? (
+                  <Badge variant="outline">300-lead window</Badge>
+                ) : null}
               </div>
             </div>
-            <div className="text-sm text-muted-foreground">{historicalImportNote}</div>
+            <div className="text-sm text-muted-foreground">
+              {historicalImportNote}
+            </div>
             {latestImport ? (
               <div className="text-xs text-muted-foreground">
-                {latestImport.businessName} • {latestImport.importedCount} new • {latestImport.updatedCount} refreshed •{" "}
-                {latestImport.failedCount} failed • {formatDateTime(latestImport.startedAt)}
+                {latestImport.businessName} • {latestImport.importedCount} new •{" "}
+                {latestImport.updatedCount} refreshed •{" "}
+                {latestImport.failedCount} failed •{" "}
+                {formatDateTime(latestImport.startedAt)}
               </div>
             ) : null}
           </div>
           {canSyncLeads ? (
             <LeadSyncForm
-              businesses={overview.businesses.map((business) => ({ id: business.id, name: business.name }))}
+              businesses={overview.businesses.map((business) => ({
+                id: business.id,
+                name: business.name,
+              }))}
               defaultBusinessId={overview.filters.businessId}
               capabilityEnabled={overview.capabilityEnabled}
             />
           ) : (
-            <div className="text-sm text-muted-foreground">Write access is required to run a manual backfill.</div>
+            <div className="text-sm text-muted-foreground">
+              Write access is required to run a manual backfill.
+            </div>
           )}
         </CardContent>
       </Card>
@@ -176,12 +232,18 @@ export default async function LeadsPage({
           <div className="flex flex-col gap-2 xl:flex-row xl:items-start xl:justify-between">
             <div>
               <CardTitle className="text-base">Queue controls</CardTitle>
-              <CardDescription>Filter the queue and switch business scope without leaving the list.</CardDescription>
+              <CardDescription>
+                Filter the queue and switch business scope without leaving the
+                list.
+              </CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <Badge variant="outline">{queueSummary}</Badge>
               {overview.summary.needsAttention > 0 ? (
-                <Badge variant="warning">{formatLeadCount(overview.summary.needsAttention)} need attention</Badge>
+                <Badge variant="warning">
+                  {formatLeadCount(overview.summary.needsAttention)} need
+                  attention
+                </Badge>
               ) : null}
             </div>
           </div>
@@ -199,11 +261,13 @@ export default async function LeadsPage({
                     ...overview.filters,
                     businessId: null,
                     page: 1,
-                    pageSize: overview.pagination.pageSize
+                    pageSize: overview.pagination.pageSize,
                   })}
                 >
                   All businesses
-                  <span className="ml-2 text-xs opacity-80">{formatLeadCount(allBusinessCount)}</span>
+                  <span className="ml-2 text-xs opacity-80">
+                    {formatLeadCount(allBusinessCount)}
+                  </span>
                 </Link>
               </Button>
               {overview.businessSplit.map((business) => (
@@ -218,11 +282,13 @@ export default async function LeadsPage({
                       ...overview.filters,
                       businessId: business.id,
                       page: 1,
-                      pageSize: overview.pagination.pageSize
+                      pageSize: overview.pagination.pageSize,
                     })}
                   >
                     {business.name}
-                    <span className="ml-2 text-xs opacity-80">{formatLeadCount(business.count)}</span>
+                    <span className="ml-2 text-xs opacity-80">
+                      {formatLeadCount(business.count)}
+                    </span>
                   </Link>
                 </Button>
               ))}
@@ -230,7 +296,10 @@ export default async function LeadsPage({
           ) : null}
 
           <LeadsFilterForm
-            businesses={overview.businesses.map((business) => ({ id: business.id, name: business.name }))}
+            businesses={overview.businesses.map((business) => ({
+              id: business.id,
+              name: business.name,
+            }))}
             values={overview.filters}
           />
         </CardContent>
@@ -241,10 +310,14 @@ export default async function LeadsPage({
           <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <CardTitle>Lead queue</CardTitle>
-              <div className="mt-1 text-sm text-muted-foreground">{queueSummary}</div>
+              <div className="mt-1 text-sm text-muted-foreground">
+                {queueSummary}
+              </div>
               <div className="mt-1 text-xs text-muted-foreground">
-                {formatLeadCount(overview.summary.unresolvedLeads)} unmapped • {formatLeadCount(overview.summary.crmIssues)} lifecycle issues •{" "}
-                {formatLeadCount(overview.summary.failedDeliveries)} recent intake failures
+                {formatLeadCount(overview.summary.unresolvedLeads)} unmapped •{" "}
+                {formatLeadCount(overview.summary.crmIssues)} lifecycle issues •{" "}
+                {formatLeadCount(overview.summary.failedDeliveries)} recent
+                intake failures
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -275,7 +348,10 @@ export default async function LeadsPage({
               </TableHeader>
               <TableBody>
                 {overview.leads.map((lead) => {
-                  const primaryLabel = lead.customerLabel === lead.externalLeadId ? lead.externalLeadId : lead.customerLabel;
+                  const primaryLabel =
+                    lead.customerLabel === lead.externalLeadId
+                      ? lead.externalLeadId
+                      : lead.customerLabel;
                   const processingLabel =
                     lead.processingStatus === "COMPLETED"
                       ? lead.internalStatusSource
@@ -289,15 +365,25 @@ export default async function LeadsPage({
                     <TableRow key={lead.id}>
                       <TableCell>
                         <div className="space-y-1.5">
-                          <Link className="line-clamp-1 font-semibold tracking-tight hover:underline" href={`/leads/${lead.id}`}>
+                          <Link
+                            className="line-clamp-1 font-semibold tracking-tight hover:underline"
+                            href={`/leads/${lead.id}`}
+                          >
                             {primaryLabel}
                           </Link>
                           {lead.customerLabel !== lead.externalLeadId ? (
-                            <div className="truncate font-mono text-[11px] text-muted-foreground">{lead.externalLeadId}</div>
+                            <div className="truncate font-mono text-[11px] text-muted-foreground">
+                              {lead.externalLeadId}
+                            </div>
                           ) : null}
-                          <div className="text-sm text-muted-foreground">{lead.mappedBusinessName ?? "Unmapped business"}</div>
+                          <div className="text-sm text-muted-foreground">
+                            {lead.mappedBusinessName ?? "Unmapped business"}
+                          </div>
                           <div className="truncate text-[11px] text-muted-foreground">
-                            {[lead.locationLabel, lead.serviceLabel].filter(Boolean).join(" • ") || "Location or service still unmapped"}
+                            {[lead.locationLabel, lead.serviceLabel]
+                              .filter(Boolean)
+                              .join(" • ") ||
+                              "Location or service still unmapped"}
                           </div>
                         </div>
                       </TableCell>
@@ -305,7 +391,10 @@ export default async function LeadsPage({
                         <div className="space-y-2 text-sm">
                           <div>{formatDateTime(lead.createdAtYelp)}</div>
                           <div className="text-xs text-muted-foreground">
-                            Latest {lead.latestActivityAt ? formatDateTime(lead.latestActivityAt) : "No activity yet"}
+                            Latest{" "}
+                            {lead.latestActivityAt
+                              ? formatDateTime(lead.latestActivityAt)
+                              : "No activity yet"}
                           </div>
                         </div>
                       </TableCell>
@@ -316,9 +405,17 @@ export default async function LeadsPage({
                             <StatusChip status={lead.internalStatus} />
                             <StatusChip status={lead.mappingState} />
                           </div>
-                          <div className="text-xs text-muted-foreground">{lead.mappingReference}</div>
-                          <div className="text-xs text-muted-foreground">{processingLabel}</div>
-                          {lead.processingError ? <div className="text-xs text-destructive">{lead.processingError}</div> : null}
+                          <div className="text-xs text-muted-foreground">
+                            {lead.mappingReference}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {processingLabel}
+                          </div>
+                          {lead.processingError ? (
+                            <div className="text-xs text-destructive">
+                              {lead.processingError}
+                            </div>
+                          ) : null}
                         </div>
                       </TableCell>
                       <TableCell>
@@ -328,8 +425,11 @@ export default async function LeadsPage({
                               <Badge variant="warning">Needs attention</Badge>
                               {lead.openIssueCount > 0 && lead.primaryIssue ? (
                                 <Button asChild size="sm" variant="ghost">
-                                  <Link href={`/audit/issues/${lead.primaryIssue.id}`}>
-                                    {lead.openIssueCount} open issue{lead.openIssueCount === 1 ? "" : "s"}
+                                  <Link
+                                    href={`/audit/issues/${lead.primaryIssue.id}`}
+                                  >
+                                    {lead.openIssueCount} open issue
+                                    {lead.openIssueCount === 1 ? "" : "s"}
                                   </Link>
                                 </Button>
                               ) : null}
@@ -339,9 +439,11 @@ export default async function LeadsPage({
                           )}
                           <div className="space-y-1 text-xs text-muted-foreground">
                             {lead.requiresAttention ? (
-                              lead.attentionReasons.slice(0, 2).map((reason) => (
-                                <div key={reason}>{reason}</div>
-                              ))
+                              lead.attentionReasons
+                                .slice(0, 2)
+                                .map((reason) => (
+                                  <div key={reason}>{reason}</div>
+                                ))
                             ) : lead.automationStatus === "SENT" ? (
                               <div>{lead.automationMessage}</div>
                             ) : (
@@ -359,16 +461,33 @@ export default async function LeadsPage({
           {overview.summary.filteredLeads > 0 ? (
             <div className="flex flex-col gap-3 border-t border-border/70 px-5 py-4 text-sm md:flex-row md:items-center md:justify-between">
               <div className="text-muted-foreground">
-                {pageSummary} • page {overview.pagination.currentPage} of {overview.pagination.totalPages}
+                {pageSummary} • page {overview.pagination.currentPage} of{" "}
+                {overview.pagination.totalPages}
               </div>
               <div className="flex items-center gap-2">
-                <Button asChild disabled={!overview.pagination.hasPreviousPage} size="sm" variant="outline">
-                  <Link aria-disabled={!overview.pagination.hasPreviousPage} href={previousPageHref}>
+                <Button
+                  asChild
+                  disabled={!overview.pagination.hasPreviousPage}
+                  size="sm"
+                  variant="outline"
+                >
+                  <Link
+                    aria-disabled={!overview.pagination.hasPreviousPage}
+                    href={previousPageHref}
+                  >
                     Previous
                   </Link>
                 </Button>
-                <Button asChild disabled={!overview.pagination.hasNextPage} size="sm" variant="outline">
-                  <Link aria-disabled={!overview.pagination.hasNextPage} href={nextPageHref}>
+                <Button
+                  asChild
+                  disabled={!overview.pagination.hasNextPage}
+                  size="sm"
+                  variant="outline"
+                >
+                  <Link
+                    aria-disabled={!overview.pagination.hasNextPage}
+                    href={nextPageHref}
+                  >
                     Next
                   </Link>
                 </Button>

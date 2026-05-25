@@ -21,25 +21,27 @@ export function OperatorIssueNoteForm({ issueId }: { issueId: string }) {
     register,
     handleSubmit,
     reset,
-    formState: { errors, isSubmitting }
+    formState: { errors, isSubmitting },
   } = useForm<NoteValues>({
     resolver: zodResolver(operatorIssueNoteSchema),
     defaultValues: {
-      note: ""
-    }
+      note: "",
+    },
   });
 
   const submit = handleSubmit(async (values) => {
     try {
       await apiFetch(`/api/issues/${issueId}/note`, {
         method: "POST",
-        body: JSON.stringify(values)
+        body: JSON.stringify(values),
       });
       toast.success("Internal note added.");
       reset();
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to add note.");
+      toast.error(
+        error instanceof Error ? error.message : "Unable to add note.",
+      );
     }
   });
 
@@ -48,8 +50,15 @@ export function OperatorIssueNoteForm({ issueId }: { issueId: string }) {
       <div className="text-sm font-medium">Internal note</div>
       <div className="space-y-1">
         <Label htmlFor="issue-note">Note</Label>
-        <Textarea id="issue-note" placeholder="Record operator context for the next reviewer." rows={4} {...register("note")} />
-        {errors.note ? <p className="text-sm text-destructive">{errors.note.message}</p> : null}
+        <Textarea
+          id="issue-note"
+          placeholder="Record operator context for the next reviewer."
+          rows={4}
+          {...register("note")}
+        />
+        {errors.note ? (
+          <p className="text-sm text-destructive">{errors.note.message}</p>
+        ) : null}
       </div>
       <Button disabled={isSubmitting} type="submit" variant="outline">
         {isSubmitting ? "Saving..." : "Add note"}

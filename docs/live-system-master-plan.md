@@ -62,13 +62,14 @@ The schema already supports the intended operating loop:
 
 - Ads partner endpoints use `ADS_BASIC_AUTH`.
 - Leads and other `api.yelp.com` bearer-auth reads use:
-  1. saved `REPORTING_FUSION` secret in Settings
+  1. saved `REPORTING_FUSION` secret in Settings, refreshed automatically from saved Yelp OAuth metadata when a refresh token is configured
   2. `YELP_ACCESS_TOKEN`
   3. legacy `YELP_API_KEY`
 - Leads client already supports:
   - `GET /v3/businesses/{business_id}/lead_ids`
   - `GET /v3/leads/{lead_id}`
   - `GET /v3/leads/{lead_id}/events`
+- Business sync checks saved Yelp business IDs against Partner Support migration info when available, with a Leads API existence probe fallback. Sync results are stored on `Business.readinessJson`; migrated or not-found IDs block new CPC launch readiness but keep historical records intact.
 - Reporting uses the current Yelp reporting request and poll flow.
 
 ### What is already real

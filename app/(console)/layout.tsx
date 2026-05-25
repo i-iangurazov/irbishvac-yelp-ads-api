@@ -2,16 +2,22 @@ import { ConsoleShell } from "@/components/layout/console-shell";
 import { LogoutButton } from "@/components/layout/logout-button";
 import { requireUser } from "@/lib/auth/service";
 
-export default async function ConsoleLayout({ children }: { children: React.ReactNode }) {
+export default async function ConsoleLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const user = await requireUser();
 
   return (
     <ConsoleShell
       header={
-        <div className="flex items-center justify-between border-b border-border/60 px-6 py-4">
-          <div>
-            <div className="text-sm text-muted-foreground">{user.tenant.name}</div>
-            <div className="font-medium">
+        <div className="flex flex-col gap-3 border-b border-border/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between md:px-6">
+          <div className="min-w-0">
+            <div className="text-sm text-muted-foreground">
+              {user.tenant.name}
+            </div>
+            <div className="truncate text-sm font-medium">
               {user.name} · {user.role.code}
             </div>
           </div>

@@ -4,7 +4,7 @@ import { AppSidebar } from "@/components/layout/app-sidebar";
 
 export function ConsoleShell({
   header,
-  children
+  children,
 }: {
   header: ReactNode;
   children: ReactNode;
@@ -15,7 +15,7 @@ export function ConsoleShell({
         <AppSidebar />
         <main className="min-w-0 flex-1">
           {header}
-          <div className="px-6 pb-10">{children}</div>
+          <div className="px-4 pb-10 md:px-6">{children}</div>
         </main>
       </div>
     </div>

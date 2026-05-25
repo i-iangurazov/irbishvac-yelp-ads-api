@@ -11,7 +11,7 @@ import {
   DialogContent,
   DialogDescription,
   DialogHeader,
-  DialogTitle
+  DialogTitle,
 } from "@/components/ui/dialog";
 import { apiFetch } from "@/lib/utils/client-api";
 
@@ -36,7 +36,7 @@ type LeadBackfillRunStatus = {
 export function LeadSyncForm({
   businesses,
   defaultBusinessId,
-  capabilityEnabled
+  capabilityEnabled,
 }: {
   businesses: Array<{ id: string; name: string }>;
   defaultBusinessId?: string;
@@ -44,8 +44,12 @@ export function LeadSyncForm({
 }) {
   const router = useRouter();
   const initialBusinessId = useMemo(
-    () => (defaultBusinessId && businesses.some((business) => business.id === defaultBusinessId) ? defaultBusinessId : businesses[0]?.id ?? ""),
-    [businesses, defaultBusinessId]
+    () =>
+      defaultBusinessId &&
+      businesses.some((business) => business.id === defaultBusinessId)
+        ? defaultBusinessId
+        : (businesses[0]?.id ?? ""),
+    [businesses, defaultBusinessId],
   );
   const [businessId, setBusinessId] = useState(initialBusinessId);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -65,7 +69,9 @@ export function LeadSyncForm({
     let cancelled = false;
     const poll = async () => {
       try {
-        const next = await apiFetch<LeadBackfillRunStatus>(`/api/leads/sync/runs/${progress.syncRunId}`);
+        const next = await apiFetch<LeadBackfillRunStatus>(
+          `/api/leads/sync/runs/${progress.syncRunId}`,
+        );
 
         if (cancelled) {
           return;
@@ -78,14 +84,16 @@ export function LeadSyncForm({
 
           if (next.status === "COMPLETED") {
             toast.success(
-              `Backfill completed for ${next.businessName}: ${next.importedCount} new, ${next.updatedCount} refreshed.`
+              `Backfill completed for ${next.businessName}: ${next.importedCount} new, ${next.updatedCount} refreshed.`,
             );
           } else if (next.status === "PARTIAL") {
             toast.warning(
-              `Backfill finished partially for ${next.businessName}: ${next.importedCount} new, ${next.updatedCount} refreshed, ${next.failedCount} failed.`
+              `Backfill finished partially for ${next.businessName}: ${next.importedCount} new, ${next.updatedCount} refreshed, ${next.failedCount} failed.`,
             );
           } else {
-            toast.error(next.errorSummary ?? `Backfill failed for ${next.businessName}.`);
+            toast.error(
+              next.errorSummary ?? `Backfill failed for ${next.businessName}.`,
+            );
           }
         }
       } catch (error) {
@@ -93,7 +101,11 @@ export function LeadSyncForm({
           return;
         }
 
-        setProcessError(error instanceof Error ? error.message : "Unable to refresh backfill progress.");
+        setProcessError(
+          error instanceof Error
+            ? error.message
+            : "Unable to refresh backfill progress.",
+        );
       }
     };
 
@@ -124,7 +136,7 @@ export function LeadSyncForm({
         businessName: string;
       }>("/api/leads/sync/runs", {
         method: "POST",
-        body: JSON.stringify({ businessId })
+        body: JSON.stringify({ businessId }),
       });
 
       setProgress({
@@ -142,15 +154,15 @@ export function LeadSyncForm({
         pageLimit: 0,
         processingMs: null,
         errorSummary: null,
-        progressLabel: "Queued"
+        progressLabel: "Queued",
       });
       setDialogOpen(true);
 
       void fetch(`/api/leads/sync/runs/${run.syncRunId}/process`, {
         method: "POST",
         headers: {
-          "Content-Type": "application/json"
-        }
+          "Content-Type": "application/json",
+        },
       })
         .then(async (response) => {
           if (response.ok) {
@@ -158,37 +170,58 @@ export function LeadSyncForm({
           }
 
           const data = await response.json().catch(() => ({}));
-          setProcessError(data.message ?? "Unable to process the lead backfill run.");
+          setProcessError(
+            data.message ?? "Unable to process the lead backfill run.",
+          );
         })
         .catch((error) => {
-          setProcessError(error instanceof Error ? error.message : "Unable to process the lead backfill run.");
+          setProcessError(
+            error instanceof Error
+              ? error.message
+              : "Unable to process the lead backfill run.",
+          );
         });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to sync Yelp leads.");
+      toast.error(
+        error instanceof Error ? error.message : "Unable to sync Yelp leads.",
+      );
     } finally {
       setIsSubmitting(false);
     }
   }
 
-  const isRunActive = progress ? ["QUEUED", "PROCESSING"].includes(progress.status) : false;
+  const isRunActive = progress
+    ? ["QUEUED", "PROCESSING"].includes(progress.status)
+    : false;
   const canCloseDialog = !isRunActive;
-  const syncDisabled = !capabilityEnabled || !businessId || isSubmitting || isRunActive;
+  const syncDisabled =
+    !capabilityEnabled || !businessId || isSubmitting || isRunActive;
 
   return (
     <>
       <div className="flex flex-col gap-3">
         <div className="space-y-1">
-          <label className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground" htmlFor="lead-sync-business">
+          <label
+            className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground"
+            htmlFor="lead-sync-business"
+          >
             Yelp business
           </label>
           <select
             className="ui-native-select w-full"
-            disabled={!capabilityEnabled || businesses.length === 0 || isSubmitting || isRunActive}
+            disabled={
+              !capabilityEnabled ||
+              businesses.length === 0 ||
+              isSubmitting ||
+              isRunActive
+            }
             id="lead-sync-business"
             onChange={(event) => setBusinessId(event.target.value)}
             value={businessId}
           >
-            {businesses.length === 0 ? <option value="">No saved businesses</option> : null}
+            {businesses.length === 0 ? (
+              <option value="">No saved businesses</option>
+            ) : null}
             {businesses.map((business) => (
               <option key={business.id} value={business.id}>
                 {business.name}
@@ -196,14 +229,24 @@ export function LeadSyncForm({
             ))}
           </select>
         </div>
-        <Button className="w-full" disabled={syncDisabled} onClick={handleSync} type="button">
+        <Button
+          className="w-full"
+          disabled={syncDisabled}
+          onClick={handleSync}
+          type="button"
+        >
           {isSubmitting ? "Starting..." : "Run backfill"}
         </Button>
       </div>
 
-      <Dialog open={dialogOpen} onOpenChange={(open) => (canCloseDialog ? setDialogOpen(open) : undefined)}>
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={(open) =>
+          canCloseDialog ? setDialogOpen(open) : undefined
+        }
+      >
         <DialogContent className="max-w-xl">
-            <DialogHeader>
+          <DialogHeader>
             <DialogTitle>Lead backfill</DialogTitle>
             <DialogDescription>
               {progress
@@ -213,12 +256,18 @@ export function LeadSyncForm({
           </DialogHeader>
 
           <div className="space-y-4">
-            <div className="rounded-xl border border-border/80 bg-muted/10 px-4 py-3">
+            <div className="rounded-lg border border-border/80 bg-muted/10 px-4 py-3">
               <div className="flex items-center justify-between gap-3">
                 <div className="text-sm font-medium">
-                  {isRunActive ? "Import in progress" : progress?.status === "COMPLETED" ? "Import complete" : "Import finished"}
+                  {isRunActive
+                    ? "Import in progress"
+                    : progress?.status === "COMPLETED"
+                      ? "Import complete"
+                      : "Import finished"}
                 </div>
-                {isRunActive ? <LoaderCircle className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
+                {isRunActive ? (
+                  <LoaderCircle className="h-4 w-4 animate-spin text-muted-foreground" />
+                ) : null}
               </div>
               <div className="mt-1 text-xs text-muted-foreground">
                 {processError ?? progress?.progressLabel ?? "Queued"}
@@ -226,21 +275,37 @@ export function LeadSyncForm({
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-xl border border-border/80 bg-background px-4 py-3">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Yelp pages fetched</div>
-                <div className="mt-2 text-2xl font-semibold tracking-tight">{progress?.pagesFetched ?? 0}</div>
+              <div className="rounded-lg border border-border/80 bg-background px-4 py-3">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                  Yelp pages fetched
+                </div>
+                <div className="mt-2 text-2xl font-semibold tracking-tight">
+                  {progress?.pagesFetched ?? 0}
+                </div>
               </div>
-              <div className="rounded-xl border border-border/80 bg-background px-4 py-3">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Lead IDs scanned</div>
-                <div className="mt-2 text-2xl font-semibold tracking-tight">{progress?.returnedLeadIds ?? 0}</div>
+              <div className="rounded-lg border border-border/80 bg-background px-4 py-3">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                  Lead IDs scanned
+                </div>
+                <div className="mt-2 text-2xl font-semibold tracking-tight">
+                  {progress?.returnedLeadIds ?? 0}
+                </div>
               </div>
-              <div className="rounded-xl border border-border/80 bg-background px-4 py-3">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">New leads</div>
-                <div className="mt-2 text-2xl font-semibold tracking-tight">{progress?.importedCount ?? 0}</div>
+              <div className="rounded-lg border border-border/80 bg-background px-4 py-3">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                  New leads
+                </div>
+                <div className="mt-2 text-2xl font-semibold tracking-tight">
+                  {progress?.importedCount ?? 0}
+                </div>
               </div>
-              <div className="rounded-xl border border-border/80 bg-background px-4 py-3">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Refreshed leads</div>
-                <div className="mt-2 text-2xl font-semibold tracking-tight">{progress?.updatedCount ?? 0}</div>
+              <div className="rounded-lg border border-border/80 bg-background px-4 py-3">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                  Refreshed leads
+                </div>
+                <div className="mt-2 text-2xl font-semibold tracking-tight">
+                  {progress?.updatedCount ?? 0}
+                </div>
               </div>
             </div>
 
@@ -248,14 +313,22 @@ export function LeadSyncForm({
               <span>{progress?.failedCount ?? 0} failed</span>
               <span>
                 Page size {progress?.pageSize || 20}
-                {progress?.hasMore ? " • Older Yelp history exists beyond this 300-lead backfill window" : ""}
+                {progress?.hasMore
+                  ? " • Older Yelp history exists beyond this 300-lead backfill window"
+                  : ""}
               </span>
-              {progress?.processingMs ? <span>{Math.round(progress.processingMs / 1000)}s elapsed</span> : null}
+              {progress?.processingMs ? (
+                <span>{Math.round(progress.processingMs / 1000)}s elapsed</span>
+              ) : null}
             </div>
 
             <div className="flex justify-end gap-2">
               {canCloseDialog ? (
-                <Button onClick={() => setDialogOpen(false)} type="button" variant="outline">
+                <Button
+                  onClick={() => setDialogOpen(false)}
+                  type="button"
+                  variant="outline"
+                >
                   Close
                 </Button>
               ) : null}

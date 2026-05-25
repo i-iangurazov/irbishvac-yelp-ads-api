@@ -7,7 +7,7 @@ function formatAuditAction(actionType: string) {
 }
 
 export function AuditTimeline({
-  events
+  events,
 }: {
   events: Array<{
     id: string;
@@ -20,12 +20,18 @@ export function AuditTimeline({
   return (
     <ol className="space-y-3">
       {events.map((event) => (
-        <li key={event.id} className="rounded-xl border border-border/80 bg-muted/10 p-4">
+        <li
+          key={event.id}
+          className="rounded-lg border border-border/80 bg-muted/10 p-4"
+        >
           <div className="flex items-center justify-between gap-4">
             <div>
-              <div className="font-medium">{formatAuditAction(event.actionType)}</div>
+              <div className="font-medium">
+                {formatAuditAction(event.actionType)}
+              </div>
               <div className="text-xs text-muted-foreground">
-                {event.actor?.name ?? "System"} on {formatDateTime(event.createdAt)}
+                {event.actor?.name ?? "System"} on{" "}
+                {formatDateTime(event.createdAt)}
               </div>
             </div>
             <StatusChip status={event.status} />

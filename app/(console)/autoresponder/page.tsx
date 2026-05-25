@@ -10,14 +10,27 @@ import { PageHeader } from "@/components/shared/page-header";
 import { StatusChip } from "@/components/shared/status-chip";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import type { LeadAutomationTemplateFormValues } from "@/features/autoresponder/schemas";
 import { getLeadAutomationModuleState } from "@/features/autoresponder/service";
 import {
   humanizeLeadAutomationRenderMode,
   humanizeLeadAutomationTemplateKind,
-  readLeadAutomationTemplateMetadata
+  readLeadAutomationTemplateMetadata,
 } from "@/features/autoresponder/template-metadata";
 import { requireUser } from "@/lib/auth/service";
 import { hasPermission } from "@/lib/permissions";
@@ -36,11 +49,15 @@ function getTemplateKindLabel(metadataJson: unknown) {
   return `${humanizeLeadAutomationTemplateKind(metadata.templateKind)} • ${humanizeLeadAutomationRenderMode(metadata.renderMode)}`;
 }
 
-function getTemplateKindValue(metadataJson: unknown): LeadAutomationTemplateFormValues["templateKind"] {
+function getTemplateKindValue(
+  metadataJson: unknown,
+): LeadAutomationTemplateFormValues["templateKind"] {
   return readLeadAutomationTemplateMetadata(metadataJson).templateKind;
 }
 
-function getTemplateRenderModeValue(metadataJson: unknown): LeadAutomationTemplateFormValues["renderMode"] {
+function getTemplateRenderModeValue(
+  metadataJson: unknown,
+): LeadAutomationTemplateFormValues["renderMode"] {
   return readLeadAutomationTemplateMetadata(metadataJson).renderMode;
 }
 
@@ -49,7 +66,7 @@ function getTemplateAiPromptValue(metadataJson: unknown) {
 }
 
 export default async function AutoresponderPage({
-  searchParams
+  searchParams,
 }: {
   searchParams: Promise<{
     templateId?: string;
@@ -67,18 +84,26 @@ export default async function AutoresponderPage({
   const params = await searchParams;
   const overview = await getLeadAutomationModuleState(user.tenantId);
   const selectedTemplate = params.templateId
-    ? overview.templates.find((template) => template.id === params.templateId) ?? null
+    ? (overview.templates.find(
+        (template) => template.id === params.templateId,
+      ) ?? null)
     : null;
-  const selectedRule = params.ruleId ? overview.rules.find((rule) => rule.id === params.ruleId) ?? null : null;
+  const selectedRule = params.ruleId
+    ? (overview.rules.find((rule) => rule.id === params.ruleId) ?? null)
+    : null;
   const selectedOverride = params.overrideBusinessId
-    ? overview.businessOverrides.find((override) => override.businessId === params.overrideBusinessId) ?? null
+    ? (overview.businessOverrides.find(
+        (override) => override.businessId === params.overrideBusinessId,
+      ) ?? null)
     : null;
   const businessOptions = overview.options.businesses.map((business) => ({
     id: business.id,
     name: business.name,
-    yelpBusinessId: business.encryptedYelpBusinessId ?? null
+    yelpBusinessId: business.encryptedYelpBusinessId ?? null,
   }));
-  const activeFollowUpCount = Number(overview.settings.followUp24hEnabled) + Number(overview.settings.followUp7dEnabled);
+  const activeFollowUpCount =
+    Number(overview.settings.followUp24hEnabled) +
+    Number(overview.settings.followUp7dEnabled);
 
   return (
     <div>
@@ -97,16 +122,28 @@ export default async function AutoresponderPage({
           <div className="flex flex-col gap-2 xl:flex-row xl:items-start xl:justify-between">
             <div>
               <CardTitle>Operating status</CardTitle>
-              <CardDescription>Current live mode, business coverage, and delivery health.</CardDescription>
+              <CardDescription>
+                Current live mode, business coverage, and delivery health.
+              </CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              <Badge variant={overview.moduleSummary.isEnabled ? "success" : "outline"}>
+              <Badge
+                variant={
+                  overview.moduleSummary.isEnabled ? "success" : "outline"
+                }
+              >
                 {overview.moduleSummary.isEnabled ? "Live" : "Disabled"}
               </Badge>
-              <Badge variant="outline">{channelLabel(overview.moduleSummary.defaultChannel)}</Badge>
-              <Badge variant="outline">{overview.moduleSummary.conversationRolloutLabel}</Badge>
+              <Badge variant="outline">
+                {channelLabel(overview.moduleSummary.defaultChannel)}
+              </Badge>
+              <Badge variant="outline">
+                {overview.moduleSummary.conversationRolloutLabel}
+              </Badge>
               <Badge variant="secondary">
-                {activeFollowUpCount === 0 ? "Follow-ups off" : `${activeFollowUpCount} follow-up cadence${activeFollowUpCount === 1 ? "" : "s"} active`}
+                {activeFollowUpCount === 0
+                  ? "Follow-ups off"
+                  : `${activeFollowUpCount} follow-up cadence${activeFollowUpCount === 1 ? "" : "s"} active`}
               </Badge>
             </div>
           </div>
@@ -114,12 +151,20 @@ export default async function AutoresponderPage({
         <CardContent className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(18rem,0.9fr)]">
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <div className="space-y-1 xl:border-r xl:border-border/70 xl:pr-4">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Status</div>
-              <div className="text-xl font-semibold tracking-tight">{overview.moduleSummary.isEnabled ? "Live" : "Disabled"}</div>
-              <div className="text-xs text-muted-foreground">{channelLabel(overview.moduleSummary.defaultChannel)}</div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                Status
+              </div>
+              <div className="text-xl font-semibold tracking-tight">
+                {overview.moduleSummary.isEnabled ? "Live" : "Disabled"}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {channelLabel(overview.moduleSummary.defaultChannel)}
+              </div>
             </div>
             <div className="space-y-1 xl:border-r xl:border-border/70 xl:px-4">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Business scope</div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                Business scope
+              </div>
               <div className="text-xl font-semibold tracking-tight">
                 {overview.moduleSummary.scopeMode === "SELECTED_BUSINESSES"
                   ? overview.moduleSummary.scopedBusinessCount
@@ -132,50 +177,81 @@ export default async function AutoresponderPage({
               </div>
             </div>
             <div className="space-y-1 xl:border-r xl:border-border/70 xl:px-4">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Live content</div>
-              <div className="text-xl font-semibold tracking-tight">{overview.moduleSummary.enabledTemplateCount}</div>
-              <div className="text-xs text-muted-foreground">{overview.moduleSummary.enabledRuleCount} enabled rules</div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                Live content
+              </div>
+              <div className="text-xl font-semibold tracking-tight">
+                {overview.moduleSummary.enabledTemplateCount}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {overview.moduleSummary.enabledRuleCount} enabled rules
+              </div>
             </div>
             <div className="space-y-1 xl:pl-4">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">AI assist</div>
-              <div className="text-xl font-semibold tracking-tight">{overview.aiAssist.enabled ? "On" : "Off"}</div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                AI assist
+              </div>
+              <div className="text-xl font-semibold tracking-tight">
+                {overview.aiAssist.enabled ? "On" : "Off"}
+              </div>
               <div className="text-xs text-muted-foreground">
-                {overview.aiAssist.envConfigured ? overview.aiAssist.modelLabel : "OpenAI key not configured"}
+                {overview.aiAssist.envConfigured
+                  ? overview.aiAssist.modelLabel
+                  : "OpenAI key not configured"}
               </div>
             </div>
           </div>
 
-          <div className="rounded-2xl border border-border/70 bg-muted/10 px-4 py-4">
+          <div className="rounded-lg border border-border/70 bg-muted/10 px-4 py-4">
             <div className="space-y-3 text-sm">
               <div className="flex items-center justify-between gap-3">
-                <span className="text-muted-foreground">Yelp thread delivery</span>
-                <StatusChip status={overview.moduleSummary.deliveryAccessStatus} />
+                <span className="text-muted-foreground">
+                  Yelp thread delivery
+                </span>
+                <StatusChip
+                  status={overview.moduleSummary.deliveryAccessStatus}
+                />
               </div>
               <div className="flex items-center justify-between gap-3">
                 <span className="text-muted-foreground">Businesses ready</span>
-                <span className="font-medium">{overview.moduleSummary.businessReadyCount}</span>
+                <span className="font-medium">
+                  {overview.moduleSummary.businessReadyCount}
+                </span>
               </div>
               <div className="flex items-center justify-between gap-3">
                 <span className="text-muted-foreground">Proof of send</span>
-                <span className="font-medium">{overview.moduleSummary.businessLiveCount}</span>
+                <span className="font-medium">
+                  {overview.moduleSummary.businessLiveCount}
+                </span>
               </div>
               <div className="flex items-center justify-between gap-3">
-                <span className="text-muted-foreground">Need setup or attention</span>
+                <span className="text-muted-foreground">
+                  Need setup or attention
+                </span>
                 <span className="font-medium">
-                  {overview.moduleSummary.businessNeedsSetupCount + overview.moduleSummary.businessIssueCount}
+                  {overview.moduleSummary.businessNeedsSetupCount +
+                    overview.moduleSummary.businessIssueCount}
                 </span>
               </div>
               <div className="flex items-center justify-between gap-3">
                 <span className="text-muted-foreground">Successful sends</span>
-                <span className="font-medium">{overview.moduleSummary.sentCount}</span>
+                <span className="font-medium">
+                  {overview.moduleSummary.sentCount}
+                </span>
               </div>
               <div className="flex items-center justify-between gap-3">
                 <span className="text-muted-foreground">Pending due now</span>
-                <span className="font-medium">{overview.moduleSummary.pendingDueCount}</span>
+                <span className="font-medium">
+                  {overview.moduleSummary.pendingDueCount}
+                </span>
               </div>
               <div className="flex items-center justify-between gap-3">
-                <span className="text-muted-foreground">Conversation review queue</span>
-                <span className="font-medium">{overview.moduleSummary.conversationReviewOpenCount}</span>
+                <span className="text-muted-foreground">
+                  Conversation review queue
+                </span>
+                <span className="font-medium">
+                  {overview.moduleSummary.conversationReviewOpenCount}
+                </span>
               </div>
             </div>
             <div className="mt-4 text-xs text-muted-foreground">
@@ -204,22 +280,43 @@ export default async function AutoresponderPage({
           <Card>
             <CardHeader className="pb-3">
               <CardTitle>Tenant defaults</CardTitle>
-              <CardDescription>Operators can monitor the live policy here. Only admins can change it.</CardDescription>
+              <CardDescription>
+                Operators can monitor the live policy here. Only admins can
+                change it.
+              </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-3 text-sm md:grid-cols-2">
-              <div className="rounded-xl bg-muted/10 p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Primary channel</div>
-                <div className="mt-2 font-medium">{overview.operatingMode.primaryChannel}</div>
-                <div className="mt-1 text-xs text-muted-foreground">{overview.operatingMode.scopePolicy}</div>
+              <div className="rounded-lg bg-muted/10 p-4">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  Primary channel
+                </div>
+                <div className="mt-2 font-medium">
+                  {overview.operatingMode.primaryChannel}
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {overview.operatingMode.scopePolicy}
+                </div>
               </div>
-              <div className="rounded-xl bg-muted/10 p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Fallback + AI</div>
-                <div className="mt-2 font-medium">{overview.aiAssist.enabled ? "AI assist enabled" : "AI assist disabled"}</div>
-                <div className="mt-1 text-xs text-muted-foreground">{overview.operatingMode.fallbackPolicy}</div>
+              <div className="rounded-lg bg-muted/10 p-4">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  Fallback + AI
+                </div>
+                <div className="mt-2 font-medium">
+                  {overview.aiAssist.enabled
+                    ? "AI assist enabled"
+                    : "AI assist disabled"}
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {overview.operatingMode.fallbackPolicy}
+                </div>
               </div>
-              <div className="rounded-xl bg-muted/10 p-4 md:col-span-2">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Conversation policy</div>
-                <div className="mt-2 font-medium">{overview.operatingMode.conversationPolicy}</div>
+              <div className="rounded-lg bg-muted/10 p-4 md:col-span-2">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  Conversation policy
+                </div>
+                <div className="mt-2 font-medium">
+                  {overview.operatingMode.conversationPolicy}
+                </div>
                 <div className="mt-1 text-xs text-muted-foreground">
                   {overview.moduleSummary.conversationGlobalPauseEnabled
                     ? "Tenant pause is on. Saved conversation settings resume when the pause is lifted."
@@ -235,12 +332,17 @@ export default async function AutoresponderPage({
         <Card>
           <CardHeader className="pb-3">
             <CardTitle>Business delivery status</CardTitle>
-            <CardDescription>Check which businesses are off, live, syncing, or blocked.</CardDescription>
+            <CardDescription>
+              Check which businesses are off, live, syncing, or blocked.
+            </CardDescription>
           </CardHeader>
           <CardContent className="p-0">
             {overview.businessHealth.length === 0 ? (
               <div className="p-4">
-                <EmptyState title="No Yelp businesses connected yet" description="Connected businesses appear here once tenant defaults or overrides can cover them." />
+                <EmptyState
+                  title="No Yelp businesses connected yet"
+                  description="Connected businesses appear here once tenant defaults or overrides can cover them."
+                />
               </div>
             ) : (
               <Table>
@@ -258,10 +360,21 @@ export default async function AutoresponderPage({
                   {overview.businessHealth.map((business) => (
                     <TableRow key={business.businessId}>
                       <TableCell>
-                        <div className="font-medium">{business.businessName}</div>
-                        <div className="text-xs text-muted-foreground">{business.yelpBusinessId ?? "Yelp business ID missing"}</div>
+                        <div className="font-medium">
+                          {business.businessName}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {business.yelpBusinessId ??
+                            "Yelp business ID missing"}
+                        </div>
                         <div className="mt-2">
-                          <Badge variant={business.isEnabled ? "secondary" : "outline"}>{business.coverageLabel}</Badge>
+                          <Badge
+                            variant={
+                              business.isEnabled ? "secondary" : "outline"
+                            }
+                          >
+                            {business.coverageLabel}
+                          </Badge>
                         </div>
                       </TableCell>
                       <TableCell>
@@ -273,45 +386,69 @@ export default async function AutoresponderPage({
                           {business.yelpConnectionLabel} • {business.syncLabel}
                         </div>
                         <div className="mt-1 text-xs text-muted-foreground">
-                          {business.leadCount} lead{business.leadCount === 1 ? "" : "s"}
-                          {business.pendingSyncCount > 0 ? ` • ${business.pendingSyncCount} pending` : ""}
+                          {business.leadCount} lead
+                          {business.leadCount === 1 ? "" : "s"}
+                          {business.pendingSyncCount > 0
+                            ? ` • ${business.pendingSyncCount} pending`
+                            : ""}
                         </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <StatusChip status={business.healthStatus} />
-                          <span className="text-sm text-muted-foreground">{business.healthLabel}</span>
+                          <span className="text-sm text-muted-foreground">
+                            {business.healthLabel}
+                          </span>
                         </div>
                         <div className="mt-1 text-xs text-muted-foreground">
                           {business.automationPostureLabel}
                         </div>
                         <div className="mt-1 text-xs text-muted-foreground">
-                          {business.followUpLabel} • AI {business.aiAssistEnabled ? "on" : "off"}
+                          {business.followUpLabel} • AI{" "}
+                          {business.aiAssistEnabled ? "on" : "off"}
                         </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap items-center gap-2">
                           <StatusChip status={business.conversationStatus} />
-                          <span className="text-sm text-muted-foreground">{business.conversationLabel}</span>
+                          <span className="text-sm text-muted-foreground">
+                            {business.conversationLabel}
+                          </span>
                         </div>
-                        <div className="mt-1 text-xs text-muted-foreground">{business.conversationDetail}</div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          {business.conversationDetail}
+                        </div>
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         <div>
-                          Send: {business.lastSuccessfulAt ? formatDateTime(business.lastSuccessfulAt) : "none yet"}
+                          Send:{" "}
+                          {business.lastSuccessfulAt
+                            ? formatDateTime(business.lastSuccessfulAt)
+                            : "none yet"}
                         </div>
                         <div className="text-xs">
-                          Webhook: {business.lastWebhookReceivedAt ? formatDateTime(business.lastWebhookReceivedAt) : "none yet"}
+                          Webhook:{" "}
+                          {business.lastWebhookReceivedAt
+                            ? formatDateTime(business.lastWebhookReceivedAt)
+                            : "none yet"}
                         </div>
                         <div className="text-xs">
-                          Sync: {business.lastSyncAt ? formatDateTime(business.lastSyncAt) : "none yet"}
+                          Sync:{" "}
+                          {business.lastSyncAt
+                            ? formatDateTime(business.lastSyncAt)
+                            : "none yet"}
                         </div>
                       </TableCell>
                       <TableCell className="max-w-[18rem] text-sm text-muted-foreground">
                         <div>{business.detail}</div>
-                        <div className="mt-1 text-xs">{business.syncDetail}</div>
-                        {business.healthStatus === "FAILED" || business.healthStatus === "UNRESOLVED" ? (
-                          <div className="mt-1 text-xs">{business.yelpConnectionDetail}</div>
+                        <div className="mt-1 text-xs">
+                          {business.syncDetail}
+                        </div>
+                        {business.healthStatus === "FAILED" ||
+                        business.healthStatus === "UNRESOLVED" ? (
+                          <div className="mt-1 text-xs">
+                            {business.yelpConnectionDetail}
+                          </div>
                         ) : null}
                       </TableCell>
                     </TableRow>
@@ -325,12 +462,18 @@ export default async function AutoresponderPage({
         <Card>
           <CardHeader className="pb-3">
             <CardTitle>Business overrides</CardTitle>
-            <CardDescription>Use overrides only where a business should behave differently from the tenant default.</CardDescription>
+            <CardDescription>
+              Use overrides only where a business should behave differently from
+              the tenant default.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6 p-0">
             {overview.businessOverrides.length === 0 ? (
               <div className="p-4">
-                <EmptyState title="No business overrides yet" description="Businesses without an override follow the current tenant coverage policy." />
+                <EmptyState
+                  title="No business overrides yet"
+                  description="Businesses without an override follow the current tenant coverage policy."
+                />
               </div>
             ) : (
               <Table>
@@ -347,14 +490,28 @@ export default async function AutoresponderPage({
                   {overview.businessOverrides.map((override) => (
                     <TableRow key={override.businessId}>
                       <TableCell>
-                        <div className="font-medium">{override.businessName}</div>
-                        <div className="text-xs text-muted-foreground">{override.yelpBusinessId ?? "Yelp business ID missing"}</div>
+                        <div className="font-medium">
+                          {override.businessName}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {override.yelpBusinessId ??
+                            "Yelp business ID missing"}
+                        </div>
                       </TableCell>
                       <TableCell>
-                        <div>{override.isEnabled ? channelLabel(override.defaultChannel) : "Disabled"}</div>
+                        <div>
+                          {override.isEnabled
+                            ? channelLabel(override.defaultChannel)
+                            : "Disabled"}
+                        </div>
                         <div className="text-xs text-muted-foreground">
-                          {override.followUp24hEnabled ? `24h after ${override.followUp24hDelayHours}h` : "24h off"} •{" "}
-                          {override.followUp7dEnabled ? `week-later after ${override.followUp7dDelayDays}d` : "week-later off"}
+                          {override.followUp24hEnabled
+                            ? `24h after ${override.followUp24hDelayHours}h`
+                            : "24h off"}{" "}
+                          •{" "}
+                          {override.followUp7dEnabled
+                            ? `week-later after ${override.followUp7dDelayDays}d`
+                            : "week-later off"}
                         </div>
                         <div className="mt-1 text-xs text-muted-foreground">
                           {override.conversationAutomationEnabled
@@ -363,17 +520,29 @@ export default async function AutoresponderPage({
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div>{override.aiAssistEnabled ? "AI assist on" : "AI assist off"}</div>
+                        <div>
+                          {override.aiAssistEnabled
+                            ? "AI assist on"
+                            : "AI assist off"}
+                        </div>
                         <div className="text-xs text-muted-foreground">
                           {override.aiModelLabel}
-                          {override.conversationAutomationEnabled ? ` • ${override.conversationAllowedIntentLabels}` : ""}
+                          {override.conversationAutomationEnabled
+                            ? ` • ${override.conversationAllowedIntentLabels}`
+                            : ""}
                         </div>
                       </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{formatDateTime(override.updatedAt)}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {formatDateTime(override.updatedAt)}
+                      </TableCell>
                       {canManage ? (
                         <TableCell className="text-right">
                           <Button asChild size="sm" variant="ghost">
-                            <Link href={`/autoresponder?overrideBusinessId=${override.businessId}`}>Edit</Link>
+                            <Link
+                              href={`/autoresponder?overrideBusinessId=${override.businessId}`}
+                            >
+                              Edit
+                            </Link>
                           </Button>
                         </TableCell>
                       ) : null}
@@ -395,20 +564,31 @@ export default async function AutoresponderPage({
                       ? {
                           businessId: selectedOverride.businessId,
                           isEnabled: selectedOverride.isEnabled,
-                          defaultChannel: normalizeAutomationChannel(selectedOverride.defaultChannel),
-                          emailFallbackEnabled: selectedOverride.emailFallbackEnabled,
-                          followUp24hEnabled: selectedOverride.followUp24hEnabled,
-                          followUp24hDelayHours: selectedOverride.followUp24hDelayHours,
+                          defaultChannel: normalizeAutomationChannel(
+                            selectedOverride.defaultChannel,
+                          ),
+                          emailFallbackEnabled:
+                            selectedOverride.emailFallbackEnabled,
+                          followUp24hEnabled:
+                            selectedOverride.followUp24hEnabled,
+                          followUp24hDelayHours:
+                            selectedOverride.followUp24hDelayHours,
                           followUp7dEnabled: selectedOverride.followUp7dEnabled,
-                          followUp7dDelayDays: selectedOverride.followUp7dDelayDays,
+                          followUp7dDelayDays:
+                            selectedOverride.followUp7dDelayDays,
                           aiAssistEnabled: selectedOverride.aiAssistEnabled,
                           aiModel: selectedOverride.aiModel,
-                          conversationAutomationEnabled: selectedOverride.conversationAutomationEnabled,
+                          conversationAutomationEnabled:
+                            selectedOverride.conversationAutomationEnabled,
                           conversationMode: selectedOverride.conversationMode,
-                          conversationAllowedIntents: selectedOverride.conversationAllowedIntents,
-                          conversationMaxAutomatedTurns: selectedOverride.conversationMaxAutomatedTurns,
-                          conversationReviewFallbackEnabled: selectedOverride.conversationReviewFallbackEnabled,
-                          conversationEscalateToIssueQueue: selectedOverride.conversationEscalateToIssueQueue
+                          conversationAllowedIntents:
+                            selectedOverride.conversationAllowedIntents,
+                          conversationMaxAutomatedTurns:
+                            selectedOverride.conversationMaxAutomatedTurns,
+                          conversationReviewFallbackEnabled:
+                            selectedOverride.conversationReviewFallbackEnabled,
+                          conversationEscalateToIssueQueue:
+                            selectedOverride.conversationEscalateToIssueQueue,
                         }
                       : null
                   }
@@ -422,12 +602,17 @@ export default async function AutoresponderPage({
         <Card>
           <CardHeader className="pb-3">
             <CardTitle>Templates</CardTitle>
-            <CardDescription>Live copy for first responses and later follow-ups.</CardDescription>
+            <CardDescription>
+              Live copy for first responses and later follow-ups.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6 p-0">
             {overview.templates.length === 0 ? (
               <div className="p-4">
-                <EmptyState title="No templates yet" description="Create a template before enabling a live rule." />
+                <EmptyState
+                  title="No templates yet"
+                  description="Create a template before enabling a live rule."
+                />
               </div>
             ) : (
               <Table>
@@ -445,17 +630,29 @@ export default async function AutoresponderPage({
                     <TableRow key={template.id}>
                       <TableCell>
                         <div className="font-medium">{template.name}</div>
-                        <div className="text-xs text-muted-foreground">{getTemplateKindLabel(template.metadataJson)}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {getTemplateKindLabel(template.metadataJson)}
+                        </div>
                       </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{template.business?.name ?? "All businesses"}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{channelLabel(template.channel)}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {template.business?.name ?? "All businesses"}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {channelLabel(template.channel)}
+                      </TableCell>
                       <TableCell>
-                        <StatusChip status={template.isEnabled ? "ACTIVE" : "INACTIVE"} />
+                        <StatusChip
+                          status={template.isEnabled ? "ACTIVE" : "INACTIVE"}
+                        />
                       </TableCell>
                       {canManage ? (
                         <TableCell className="text-right">
                           <Button asChild size="sm" variant="ghost">
-                            <Link href={`/autoresponder?templateId=${template.id}`}>Edit</Link>
+                            <Link
+                              href={`/autoresponder?templateId=${template.id}`}
+                            >
+                              Edit
+                            </Link>
                           </Button>
                         </TableCell>
                       ) : null}
@@ -475,13 +672,22 @@ export default async function AutoresponderPage({
                       ? {
                           name: selectedTemplate.name,
                           businessId: selectedTemplate.businessId ?? "",
-                          channel: normalizeAutomationChannel(selectedTemplate.channel),
-                          templateKind: getTemplateKindValue(selectedTemplate.metadataJson),
-                          renderMode: getTemplateRenderModeValue(selectedTemplate.metadataJson),
-                          aiPrompt: getTemplateAiPromptValue(selectedTemplate.metadataJson),
+                          channel: normalizeAutomationChannel(
+                            selectedTemplate.channel,
+                          ),
+                          templateKind: getTemplateKindValue(
+                            selectedTemplate.metadataJson,
+                          ),
+                          renderMode: getTemplateRenderModeValue(
+                            selectedTemplate.metadataJson,
+                          ),
+                          aiPrompt: getTemplateAiPromptValue(
+                            selectedTemplate.metadataJson,
+                          ),
                           isEnabled: selectedTemplate.isEnabled,
-                          subjectTemplate: selectedTemplate.subjectTemplate ?? "",
-                          bodyTemplate: selectedTemplate.bodyTemplate
+                          subjectTemplate:
+                            selectedTemplate.subjectTemplate ?? "",
+                          bodyTemplate: selectedTemplate.bodyTemplate,
                         }
                       : null
                   }
@@ -496,12 +702,17 @@ export default async function AutoresponderPage({
         <Card>
           <CardHeader className="pb-3">
             <CardTitle>Rules</CardTitle>
-            <CardDescription>Choose which template is eligible for each cadence and scope.</CardDescription>
+            <CardDescription>
+              Choose which template is eligible for each cadence and scope.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6 p-0">
             {overview.rules.length === 0 ? (
               <div className="p-4">
-                <EmptyState title="No rules yet" description="Nothing sends until a live rule matches." />
+                <EmptyState
+                  title="No rules yet"
+                  description="Nothing sends until a live rule matches."
+                />
               </div>
             ) : (
               <Table>
@@ -520,23 +731,31 @@ export default async function AutoresponderPage({
                       <TableCell>
                         <div className="font-medium">{rule.name}</div>
                         <div className="text-xs text-muted-foreground">
-                          {rule.cadenceLabel} • Priority {rule.priority} • {rule.template.name}
+                          {rule.cadenceLabel} • Priority {rule.priority} •{" "}
+                          {rule.template.name}
                         </div>
                       </TableCell>
                       <TableCell>
                         <div>{rule.business?.name ?? "All businesses"}</div>
                         <div className="text-xs text-muted-foreground">
-                          {rule.location?.name ?? "All locations"} • {rule.serviceCategory?.name ?? "All services"}
+                          {rule.location?.name ?? "All locations"} •{" "}
+                          {rule.serviceCategory?.name ?? "All services"}
                         </div>
                       </TableCell>
-                      <TableCell className="max-w-[16rem] text-xs text-muted-foreground">{rule.workingHoursLabel}</TableCell>
+                      <TableCell className="max-w-[16rem] text-xs text-muted-foreground">
+                        {rule.workingHoursLabel}
+                      </TableCell>
                       <TableCell>
-                        <StatusChip status={rule.isEnabled ? "ACTIVE" : "INACTIVE"} />
+                        <StatusChip
+                          status={rule.isEnabled ? "ACTIVE" : "INACTIVE"}
+                        />
                       </TableCell>
                       {canManage ? (
                         <TableCell className="text-right">
                           <Button asChild size="sm" variant="ghost">
-                            <Link href={`/autoresponder?ruleId=${rule.id}`}>Edit</Link>
+                            <Link href={`/autoresponder?ruleId=${rule.id}`}>
+                              Edit
+                            </Link>
                           </Button>
                         </TableCell>
                       ) : null}
@@ -549,7 +768,10 @@ export default async function AutoresponderPage({
             {canManage ? (
               <div className="border-t border-border/70 p-6 pt-6">
                 {overview.templates.length === 0 ? (
-                  <EmptyState title="Template required first" description="Create a template before adding a rule." />
+                  <EmptyState
+                    title="Template required first"
+                    description="Create a template before adding a rule."
+                  />
                 ) : (
                   <LeadAutomationRuleForm
                     canDelete={Boolean(selectedRule)}
@@ -560,16 +782,20 @@ export default async function AutoresponderPage({
                             templateId: selectedRule.templateId,
                             businessId: selectedRule.businessId ?? "",
                             cadence: selectedRule.cadence,
-                            channel: normalizeAutomationChannel(selectedRule.channel),
+                            channel: normalizeAutomationChannel(
+                              selectedRule.channel,
+                            ),
                             isEnabled: selectedRule.isEnabled,
                             priority: selectedRule.priority,
                             locationId: selectedRule.locationId ?? "",
-                            serviceCategoryId: selectedRule.serviceCategoryId ?? "",
-                            onlyDuringWorkingHours: selectedRule.onlyDuringWorkingHours,
+                            serviceCategoryId:
+                              selectedRule.serviceCategoryId ?? "",
+                            onlyDuringWorkingHours:
+                              selectedRule.onlyDuringWorkingHours,
                             timezone: selectedRule.timezone ?? "",
                             workingDays: selectedRule.workingDays,
                             startMinute: selectedRule.startMinute ?? undefined,
-                            endMinute: selectedRule.endMinute ?? undefined
+                            endMinute: selectedRule.endMinute ?? undefined,
                           }
                         : null
                     }
@@ -583,7 +809,7 @@ export default async function AutoresponderPage({
                       isEnabled: template.isEnabled,
                       channel: normalizeAutomationChannel(template.channel),
                       businessId: template.businessId ?? null,
-                      businessName: template.business?.name ?? null
+                      businessName: template.business?.name ?? null,
                     }))}
                     returnPath="/autoresponder"
                   />
@@ -596,48 +822,82 @@ export default async function AutoresponderPage({
         <Card>
           <CardHeader className="pb-3">
             <CardTitle>Conversation operations</CardTitle>
-            <CardDescription>Monitor bounded conversation automation, auto-replies, and handoffs.</CardDescription>
+            <CardDescription>
+              Monitor bounded conversation automation, auto-replies, and
+              handoffs.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant={overview.moduleSummary.conversationGlobalPauseEnabled ? "warning" : "secondary"}>
+              <Badge
+                variant={
+                  overview.moduleSummary.conversationGlobalPauseEnabled
+                    ? "warning"
+                    : "secondary"
+                }
+              >
                 {overview.moduleSummary.conversationRolloutLabel}
               </Badge>
-              <Badge variant="outline">{overview.moduleSummary.conversationAllowedIntentLabels}</Badge>
+              <Badge variant="outline">
+                {overview.moduleSummary.conversationAllowedIntentLabels}
+              </Badge>
             </div>
-            <div className="text-sm text-muted-foreground">{overview.moduleSummary.conversationRolloutDescription}</div>
+            <div className="text-sm text-muted-foreground">
+              {overview.moduleSummary.conversationRolloutDescription}
+            </div>
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              <div className="rounded-xl bg-muted/10 px-4 py-3">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Auto replies</div>
-                <div className="mt-2 text-xl font-semibold tracking-tight">{overview.conversationMetrics.automatedReplyCount}</div>
-                <div className="text-xs text-muted-foreground">{overview.conversationMetrics.replyAfterAutomationRate}% replied after automation</div>
-              </div>
-              <div className="rounded-xl bg-muted/10 px-4 py-3">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Review + handoff</div>
+              <div className="rounded-lg bg-muted/10 px-4 py-3">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  Auto replies
+                </div>
                 <div className="mt-2 text-xl font-semibold tracking-tight">
-                  {overview.conversationMetrics.reviewOnlyCount + overview.conversationMetrics.humanHandoffCount}
+                  {overview.conversationMetrics.automatedReplyCount}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {overview.conversationMetrics.reviewOnlyCount} review-only • {overview.conversationMetrics.humanHandoffCount} handoff
+                  {overview.conversationMetrics.replyAfterAutomationRate}%
+                  replied after automation
                 </div>
               </div>
-              <div className="rounded-xl bg-muted/10 px-4 py-3">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Safety stops</div>
+              <div className="rounded-lg bg-muted/10 px-4 py-3">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  Review + handoff
+                </div>
+                <div className="mt-2 text-xl font-semibold tracking-tight">
+                  {overview.conversationMetrics.reviewOnlyCount +
+                    overview.conversationMetrics.humanHandoffCount}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {overview.conversationMetrics.reviewOnlyCount} review-only •{" "}
+                  {overview.conversationMetrics.humanHandoffCount} handoff
+                </div>
+              </div>
+              <div className="rounded-lg bg-muted/10 px-4 py-3">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  Safety stops
+                </div>
                 <div className="mt-2 text-xl font-semibold tracking-tight">
                   {overview.conversationMetrics.lowConfidenceCount +
                     overview.conversationMetrics.maxTurnLimitCount +
                     overview.conversationMetrics.sendFailureCount}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  Low confidence {overview.conversationMetrics.lowConfidenceCount} • Max turns {overview.conversationMetrics.maxTurnLimitCount}
+                  Low confidence{" "}
+                  {overview.conversationMetrics.lowConfidenceCount} • Max turns{" "}
+                  {overview.conversationMetrics.maxTurnLimitCount}
                 </div>
               </div>
-              <div className="rounded-xl bg-muted/10 px-4 py-3">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Operator takeovers</div>
-                <div className="mt-2 text-xl font-semibold tracking-tight">{overview.conversationMetrics.operatorTakeoverCount}</div>
+              <div className="rounded-lg bg-muted/10 px-4 py-3">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  Operator takeovers
+                </div>
+                <div className="mt-2 text-xl font-semibold tracking-tight">
+                  {overview.conversationMetrics.operatorTakeoverCount}
+                </div>
                 <div className="text-xs text-muted-foreground">
-                  Pricing risk {overview.conversationMetrics.pricingRiskCount} • Availability risk {overview.conversationMetrics.availabilityRiskCount}
+                  Pricing risk {overview.conversationMetrics.pricingRiskCount} •
+                  Availability risk{" "}
+                  {overview.conversationMetrics.availabilityRiskCount}
                 </div>
               </div>
             </div>
@@ -646,12 +906,18 @@ export default async function AutoresponderPage({
               <div className="space-y-3">
                 <div>
                   <div className="text-sm font-semibold">Review queue</div>
-                  <div className="text-xs text-muted-foreground">Blocked or review-only turns stay here until an operator handles them.</div>
+                  <div className="text-xs text-muted-foreground">
+                    Blocked or review-only turns stay here until an operator
+                    handles them.
+                  </div>
                 </div>
                 {overview.conversationReviewQueue.items.length === 0 ? (
-                  <EmptyState title="No conversation reviews open" description="New blocked or review-only turns appear here until a person handles the thread." />
+                  <EmptyState
+                    title="No conversation reviews open"
+                    description="New blocked or review-only turns appear here until a person handles the thread."
+                  />
                 ) : (
-                  <div className="overflow-hidden rounded-2xl border border-border/70">
+                  <div className="overflow-hidden rounded-lg border border-border/70">
                     <Table>
                       <TableHeader>
                         <TableRow>
@@ -665,28 +931,42 @@ export default async function AutoresponderPage({
                       <TableBody>
                         {overview.conversationReviewQueue.items.map((item) => (
                           <TableRow key={item.id}>
-                            <TableCell className="text-xs text-muted-foreground">{formatDateTime(item.createdAt)}</TableCell>
+                            <TableCell className="text-xs text-muted-foreground">
+                              {formatDateTime(item.createdAt)}
+                            </TableCell>
                             <TableCell>
-                              <div className="font-medium">{item.customerName ?? item.externalLeadId}</div>
-                              <div className="text-xs text-muted-foreground">{item.businessName}</div>
+                              <div className="font-medium">
+                                {item.customerName ?? item.externalLeadId}
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                {item.businessName}
+                              </div>
                             </TableCell>
                             <TableCell>
                               <div className="flex flex-wrap items-center gap-2">
                                 <StatusChip status={item.decision} />
-                                <Badge variant="outline">{item.intentLabel}</Badge>
+                                <Badge variant="outline">
+                                  {item.intentLabel}
+                                </Badge>
                               </div>
                             </TableCell>
                             <TableCell>
                               <div className="text-sm text-muted-foreground">
-                                {item.stopReasonLabel ?? item.errorSummary ?? "Waiting for operator review."}
+                                {item.stopReasonLabel ??
+                                  item.errorSummary ??
+                                  "Waiting for operator review."}
                               </div>
                               {item.linkedIssue ? (
-                                <div className="mt-1 text-xs text-muted-foreground">Linked issue: {item.linkedIssue.summary}</div>
+                                <div className="mt-1 text-xs text-muted-foreground">
+                                  Linked issue: {item.linkedIssue.summary}
+                                </div>
                               ) : null}
                             </TableCell>
                             <TableCell className="text-right">
                               <Button asChild size="sm" variant="ghost">
-                                <Link href={`/leads/${item.leadId}`}>Review</Link>
+                                <Link href={`/leads/${item.leadId}`}>
+                                  Review
+                                </Link>
                               </Button>
                             </TableCell>
                           </TableRow>
@@ -701,12 +981,17 @@ export default async function AutoresponderPage({
                 <div className="space-y-3">
                   <div>
                     <div className="text-sm font-semibold">Recent activity</div>
-                    <div className="text-xs text-muted-foreground">Latest sends, skips, failures, and AI usage.</div>
+                    <div className="text-xs text-muted-foreground">
+                      Latest sends, skips, failures, and AI usage.
+                    </div>
                   </div>
                   {overview.recentActivity.length === 0 ? (
-                    <EmptyState title="No activity yet" description="Activity appears here after the first send, skip, failure, or AI action." />
+                    <EmptyState
+                      title="No activity yet"
+                      description="Activity appears here after the first send, skip, failure, or AI action."
+                    />
                   ) : (
-                    <div className="overflow-hidden rounded-2xl border border-border/70">
+                    <div className="overflow-hidden rounded-lg border border-border/70">
                       <Table>
                         <TableHeader>
                           <TableRow>
@@ -718,17 +1003,25 @@ export default async function AutoresponderPage({
                         <TableBody>
                           {overview.recentActivity.map((item) => (
                             <TableRow key={item.id}>
-                              <TableCell className="text-xs text-muted-foreground">{formatDateTime(item.createdAt)}</TableCell>
+                              <TableCell className="text-xs text-muted-foreground">
+                                {formatDateTime(item.createdAt)}
+                              </TableCell>
                               <TableCell>
                                 <div className="flex flex-wrap items-center gap-2">
                                   <StatusChip status={item.status} />
-                                  <span className="font-medium">{item.actionLabel}</span>
+                                  <span className="font-medium">
+                                    {item.actionLabel}
+                                  </span>
                                 </div>
-                                <div className="mt-1 text-xs text-muted-foreground">{item.detail}</div>
+                                <div className="mt-1 text-xs text-muted-foreground">
+                                  {item.detail}
+                                </div>
                               </TableCell>
                               <TableCell>
                                 <div>{item.targetLabel}</div>
-                                <div className="text-xs text-muted-foreground">{item.businessName} • {item.channelLabel}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  {item.businessName} • {item.channelLabel}
+                                </div>
                               </TableCell>
                             </TableRow>
                           ))}
@@ -741,12 +1034,18 @@ export default async function AutoresponderPage({
                 <div className="space-y-3">
                   <div>
                     <div className="text-sm font-semibold">Linked failures</div>
-                    <div className="text-xs text-muted-foreground">Open issue-queue items tied to autoresponder delivery or policy problems.</div>
+                    <div className="text-xs text-muted-foreground">
+                      Open issue-queue items tied to autoresponder delivery or
+                      policy problems.
+                    </div>
                   </div>
                   {overview.openIssues.length === 0 ? (
-                    <EmptyState title="No open failures" description="New failures appear here until they are resolved or ignored." />
+                    <EmptyState
+                      title="No open failures"
+                      description="New failures appear here until they are resolved or ignored."
+                    />
                   ) : (
-                    <div className="overflow-hidden rounded-2xl border border-border/70">
+                    <div className="overflow-hidden rounded-lg border border-border/70">
                       <Table>
                         <TableHeader>
                           <TableRow>
@@ -763,13 +1062,21 @@ export default async function AutoresponderPage({
                                 <StatusChip status={issue.severity} />
                               </TableCell>
                               <TableCell>
-                                <div className="font-medium">{issue.summary}</div>
-                                <div className="text-xs text-muted-foreground">{issue.targetLabel}</div>
+                                <div className="font-medium">
+                                  {issue.summary}
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  {issue.targetLabel}
+                                </div>
                               </TableCell>
-                              <TableCell className="text-xs text-muted-foreground">{formatDateTime(issue.lastDetectedAt)}</TableCell>
+                              <TableCell className="text-xs text-muted-foreground">
+                                {formatDateTime(issue.lastDetectedAt)}
+                              </TableCell>
                               <TableCell className="text-right">
                                 <Button asChild size="sm" variant="ghost">
-                                  <Link href={`/audit/issues/${issue.id}`}>Review</Link>
+                                  <Link href={`/audit/issues/${issue.id}`}>
+                                    Review
+                                  </Link>
                                 </Button>
                               </TableCell>
                             </TableRow>
@@ -783,7 +1090,8 @@ export default async function AutoresponderPage({
             </div>
 
             <div className="text-xs text-muted-foreground">
-              Rolling {overview.conversationMetrics.windowDays}-day window. This is operational signal, not a BI report.
+              Rolling {overview.conversationMetrics.windowDays}-day window. This
+              is operational signal, not a BI report.
             </div>
           </CardContent>
         </Card>

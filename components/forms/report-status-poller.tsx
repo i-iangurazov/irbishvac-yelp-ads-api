@@ -3,15 +3,27 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { StatusChip } from "@/components/shared/status-chip";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { apiFetch } from "@/lib/utils/client-api";
 
 export function ReportStatusPoller({ reportId }: { reportId: string }) {
   const query = useQuery({
     queryKey: ["report", reportId],
-    queryFn: () => apiFetch<{ status: string; upstream?: unknown }>(`/api/reports/${reportId}?poll=true`),
+    queryFn: () =>
+      apiFetch<{ status: string; upstream?: unknown }>(
+        `/api/reports/${reportId}?poll=true`,
+      ),
     refetchInterval: (queryData) =>
-      queryData.state.data?.status === "REQUESTED" || queryData.state.data?.status === "PROCESSING" ? 5_000 : false
+      queryData.state.data?.status === "REQUESTED" ||
+      queryData.state.data?.status === "PROCESSING"
+        ? 5_000
+        : false,
   });
 
   if (!query.data) {
@@ -22,7 +34,9 @@ export function ReportStatusPoller({ reportId }: { reportId: string }) {
     <Card>
       <CardHeader>
         <CardTitle>Report generation</CardTitle>
-        <CardDescription>Refreshes while Yelp finishes the delayed batch request.</CardDescription>
+        <CardDescription>
+          Refreshes while Yelp finishes the delayed batch request.
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         <StatusChip status={query.data.status} />

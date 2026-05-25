@@ -8,14 +8,18 @@ import { getBusinessesIndex } from "@/features/businesses/service";
 import { requireUser } from "@/lib/auth/service";
 
 export default async function NewProgramPage({
-  searchParams
+  searchParams,
 }: {
   searchParams: Promise<{ businessId?: string }>;
 }) {
   const user = await requireUser();
   const query = await searchParams;
   const businesses = await getBusinessesIndex(user.tenantId);
-  const initialBusinessId = businesses.some((business) => business.id === query.businessId) ? query.businessId : undefined;
+  const initialBusinessId = businesses.some(
+    (business) => business.id === query.businessId,
+  )
+    ? query.businessId
+    : undefined;
 
   return (
     <div>
@@ -41,10 +45,10 @@ export default async function NewProgramPage({
             id: business.id,
             name: business.name,
             categories: business.categories,
-            readiness: business.readiness
+            readiness: business.readiness,
           }))}
           initialValues={{
-            businessId: initialBusinessId
+            businessId: initialBusinessId,
           }}
         />
       )}

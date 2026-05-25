@@ -6,20 +6,20 @@ export const DEFAULT_YELP_ENDPOINTS = {
     jobStatus: "/v1/reseller/status/{jobId}",
     listPrograms: "/v1/programs/list/{businessId}",
     getProgramInfo: "/v1/programs/info/{programId}",
-    testConnection: ""
+    testConnection: "",
   },
   features: {
     getProgramFeatures: "/ads/programs/{programId}/features",
     updateProgramFeatures: "/ads/programs/{programId}/features",
     deleteProgramFeatures: "/ads/programs/{programId}/features/{featureType}",
-    testConnection: "/"
+    testConnection: "/",
   },
   reporting: {
     requestDailyReport: "/reporting/daily",
     getDailyReport: "/reporting/daily/{reportId}",
     requestMonthlyReport: "/reporting/monthly",
     getMonthlyReport: "/reporting/monthly/{reportId}",
-    testConnection: "/"
+    testConnection: "/",
   },
   leads: {
     getLead: "/v3/leads/{leadId}",
@@ -28,24 +28,28 @@ export const DEFAULT_YELP_ENDPOINTS = {
     markLeadEventAsRead: "/v3/leads/{leadId}/events/mark_as_read",
     markLeadAsReplied: "/v3/leads/{leadId}/mark_as_replied",
     getBusinessLeadIds: "/v3/businesses/{businessId}/lead_ids",
-    businessSubscriptions: "/v3/businesses/subscriptions"
+    businessSubscriptions: "/v3/businesses/subscriptions",
   },
   businessMatch: {
     matchBusiness: "/businesses/match",
-    testConnection: "/"
+    testConnection: "/",
+  },
+  partnerSupport: {
+    businessMigrationInfo: "/v1/business_migration_info/{businessIds}",
   },
   dataIngestion: {
     patchBusinessReadinessFields: "/businesses/{encryptedBusinessId}",
-    testConnection: "/"
-  }
+    testConnection: "/",
+  },
 } as const;
 
 export function resolveEndpoint(
   template: string,
-  params: Record<string, string | number | undefined> = {}
+  params: Record<string, string | number | undefined> = {},
 ) {
   return Object.entries(params).reduce(
-    (path, [key, value]) => path.replace(`{${key}}`, value === undefined ? "" : String(value)),
-    template
+    (path, [key, value]) =>
+      path.replace(`{${key}}`, value === undefined ? "" : String(value)),
+    template,
   );
 }
