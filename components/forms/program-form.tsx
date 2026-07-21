@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -34,7 +34,15 @@ import {
   type EditProgramFormValues,
 } from "@/features/ads-programs/schemas";
 import { apiFetch } from "@/lib/utils/client-api";
-import { formatInteger, parseCurrencyToCents } from "@/lib/utils/format";
+import {
+  formatCurrency,
+  formatInteger,
+  parseCurrencyToCents,
+} from "@/lib/utils/format";
+import {
+  monthlyBudgetDollarsFromDailyInput,
+  monthlyBudgetDollarsToDailyBudgetDollars,
+} from "@/lib/yelp/budget";
 import type { YelpCategoryOption } from "@/lib/yelp/categories";
 
 type BusinessOption = {
@@ -118,6 +126,17 @@ export function ProgramForm(props: ProgramFormProps) {
     scheduledBudgetDollars: props.initialValues?.scheduledBudgetDollars ?? "",
     notes: props.initialValues?.notes ?? "",
   } satisfies CreateProgramFormValues;
+  const [dailyBudgetDollars, setDailyBudgetDollars] = useState(() =>
+    monthlyBudgetDollarsToDailyBudgetDollars(
+      defaultValues.monthlyBudgetDollars,
+    ),
+  );
+  const [scheduledDailyBudgetDollars, setScheduledDailyBudgetDollars] =
+    useState(() =>
+      monthlyBudgetDollarsToDailyBudgetDollars(
+        defaultValues.scheduledBudgetDollars,
+      ),
+    );
 
   const schema =
     props.mode === "create" ? createProgramFormSchema : editProgramFormSchema;
@@ -140,6 +159,9 @@ export function ProgramForm(props: ProgramFormProps) {
   );
   const programType = watch("programType");
   const isAutobid = watch("isAutobid");
+  const currency = watch("currency");
+  const monthlyBudgetDollars = watch("monthlyBudgetDollars");
+  const scheduledBudgetDollars = watch("scheduledBudgetDollars");
   const watchedCategoryAliases = watch("adCategories");
   const selectedCategoryAliases = useMemo(
     () => watchedCategoryAliases ?? [],
@@ -182,13 +204,23 @@ export function ProgramForm(props: ProgramFormProps) {
 
   const centsPreview = useMemo(() => {
     try {
-      return watch("monthlyBudgetDollars")
-        ? parseCurrencyToCents(watch("monthlyBudgetDollars")!)
+      return monthlyBudgetDollars
+        ? parseCurrencyToCents(monthlyBudgetDollars)
         : 0;
     } catch {
       return 0;
     }
-  }, [watch]);
+  }, [monthlyBudgetDollars]);
+
+  const scheduledCentsPreview = useMemo(() => {
+    try {
+      return scheduledBudgetDollars
+        ? parseCurrencyToCents(scheduledBudgetDollars)
+        : 0;
+    } catch {
+      return 0;
+    }
+  }, [scheduledBudgetDollars]);
 
   const onSubmit = handleSubmit(async (values) => {
     try {
@@ -299,12 +331,25 @@ export function ProgramForm(props: ProgramFormProps) {
             <Label>Program type</Label>
             <Select
               defaultValue={watch("programType")}
-              onValueChange={(value: string) =>
+              onValueChange={(value: string) => {
+                if (value === "CPC" && programType !== "CPC") {
+                  setDailyBudgetDollars(
+                    monthlyBudgetDollarsToDailyBudgetDollars(
+                      monthlyBudgetDollars,
+                    ),
+                  );
+                  setScheduledDailyBudgetDollars(
+                    monthlyBudgetDollarsToDailyBudgetDollars(
+                      scheduledBudgetDollars,
+                    ),
+                  );
+                }
+
                 setValue(
                   "programType",
                   value as CreateProgramFormValues["programType"],
-                )
-              }
+                );
+              }}
             >
               <SelectTrigger>
                 <SelectValue />
@@ -330,17 +375,49 @@ export function ProgramForm(props: ProgramFormProps) {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="monthlyBudgetDollars">
-              Monthly budget (dollars)
-            </Label>
-            <Input
-              id="monthlyBudgetDollars"
-              placeholder="500.00"
-              {...register("monthlyBudgetDollars")}
-            />
-            <p className="text-xs text-muted-foreground">
-              Exact payload preview: {formatInteger(centsPreview)} cents
-            </p>
+            {programType === "CPC" ? (
+              <>
+                <Label htmlFor="dailyBudgetDollars">
+                  Daily budget (dollars)
+                </Label>
+                <Input
+                  id="dailyBudgetDollars"
+                  inputMode="decimal"
+                  placeholder="100.00"
+                  value={dailyBudgetDollars}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setDailyBudgetDollars(value);
+                    setValue(
+                      "monthlyBudgetDollars",
+                      monthlyBudgetDollarsFromDailyInput(value),
+                      { shouldDirty: true, shouldValidate: true },
+                    );
+                  }}
+                />
+                <input type="hidden" {...register("monthlyBudgetDollars")} />
+                <p className="text-xs text-muted-foreground">
+                  Estimated monthly spend:{" "}
+                  {formatCurrency(centsPreview, currency)} (30 × daily budget).
+                  Yelp monthly payload: {formatInteger(centsPreview)}
+                  cents.
+                </p>
+              </>
+            ) : (
+              <>
+                <Label htmlFor="monthlyBudgetDollars">
+                  Monthly budget (dollars)
+                </Label>
+                <Input
+                  id="monthlyBudgetDollars"
+                  placeholder="500.00"
+                  {...register("monthlyBudgetDollars")}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Exact payload preview: {formatInteger(centsPreview)} cents
+                </p>
+              </>
+            )}
             {errors.monthlyBudgetDollars ? (
               <p className="text-sm text-destructive">
                 {errors.monthlyBudgetDollars.message}
@@ -516,15 +593,51 @@ export function ProgramForm(props: ProgramFormProps) {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="scheduledBudgetDollars">
-              Future budget (dollars)
-            </Label>
-            <Input
-              id="scheduledBudgetDollars"
-              placeholder="650.00"
-              disabled={props.mode === "create"}
-              {...register("scheduledBudgetDollars")}
-            />
+            {programType === "CPC" ? (
+              <>
+                <Label htmlFor="scheduledDailyBudgetDollars">
+                  Future daily budget (dollars)
+                </Label>
+                <Input
+                  id="scheduledDailyBudgetDollars"
+                  inputMode="decimal"
+                  placeholder="125.00"
+                  disabled={props.mode === "create"}
+                  value={scheduledDailyBudgetDollars}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setScheduledDailyBudgetDollars(value);
+                    setValue(
+                      "scheduledBudgetDollars",
+                      monthlyBudgetDollarsFromDailyInput(value),
+                      { shouldDirty: true, shouldValidate: true },
+                    );
+                  }}
+                />
+                <input type="hidden" {...register("scheduledBudgetDollars")} />
+                <p className="text-xs text-muted-foreground">
+                  Estimated monthly spend:{" "}
+                  {formatCurrency(scheduledCentsPreview, currency)}.
+                </p>
+              </>
+            ) : (
+              <>
+                <Label htmlFor="scheduledBudgetDollars">
+                  Future monthly budget (dollars)
+                </Label>
+                <Input
+                  id="scheduledBudgetDollars"
+                  placeholder="650.00"
+                  disabled={props.mode === "create"}
+                  {...register("scheduledBudgetDollars")}
+                />
+              </>
+            )}
+            {errors.scheduledBudgetDollars ? (
+              <p className="text-sm text-destructive">
+                {errors.scheduledBudgetDollars.message}
+              </p>
+            ) : null}
           </div>
 
           <div className="space-y-2 lg:col-span-2">
@@ -550,7 +663,12 @@ export function ProgramForm(props: ProgramFormProps) {
               <div>
                 Business: {selectedBusiness?.name ?? "Select a business"}
               </div>
-              <div>Budget payload: {formatInteger(centsPreview)} cents</div>
+              <div>
+                {programType === "CPC" ? "Est. monthly spend" : "Budget"}:{" "}
+                {formatCurrency(centsPreview, currency)} (
+                {formatInteger(centsPreview)}
+                -cent Yelp payload)
+              </div>
               <div>
                 Ad categories payload:{" "}
                 {selectedCategoryAliases.length > 0

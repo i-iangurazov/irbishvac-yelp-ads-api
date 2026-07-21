@@ -9,6 +9,7 @@ import { AuditTimeline } from "@/components/shared/audit-timeline";
 import { JsonViewer } from "@/components/shared/json-viewer";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusChip } from "@/components/shared/status-chip";
+import { YelpBudgetDisplay } from "@/components/shared/yelp-budget-display";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,7 +22,13 @@ import {
 import { getProgramDetail } from "@/features/ads-programs/service";
 import { getBusinessesIndex } from "@/features/businesses/service";
 import { requireUser } from "@/lib/auth/service";
-import { formatCurrency, formatDateTime, titleCase } from "@/lib/utils/format";
+import {
+  formatCurrency,
+  formatDateTime,
+  parseCurrencyToCents,
+  titleCase,
+} from "@/lib/utils/format";
+import { monthlyBudgetCentsToDailyBudgetCents } from "@/lib/yelp/budget";
 import { getCapabilityFlags } from "@/lib/yelp/runtime";
 
 function normalizePacingMethod(value?: string) {
@@ -46,6 +53,18 @@ function normalizeFeePeriod(value?: string) {
   }
 
   return value === "ROLLING_MONTH" ? "ROLLING_MONTH" : "CALENDAR_MONTH";
+}
+
+function parseBudgetCents(value: string | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    return parseCurrencyToCents(value);
+  } catch {
+    return null;
+  }
 }
 
 export default async function ProgramDetailPage({
@@ -76,6 +95,7 @@ export default async function ProgramDetailPage({
     typeof configuration.scheduledBudgetEffectiveDate === "string"
       ? configuration.scheduledBudgetEffectiveDate
       : undefined;
+  const scheduledBudgetCents = parseBudgetCents(scheduledBudgetDollars);
   const latestJob = program.jobs[0];
   const activeFeatureSnapshots = program.featureSnapshots.filter(
     (snapshot) => !snapshot.isDeleted,
@@ -113,10 +133,18 @@ export default async function ProgramDetailPage({
         : program.budgetCents
           ? "READY"
           : "UNKNOWN",
-      value: formatCurrency(program.budgetCents, program.currency),
+      value:
+        program.type === "CPC" ? (
+          <YelpBudgetDisplay
+            monthlyBudgetCents={program.budgetCents}
+            currency={program.currency}
+          />
+        ) : (
+          formatCurrency(program.budgetCents, program.currency)
+        ),
       detail:
-        scheduledBudgetDollars && scheduledBudgetEffectiveDate
-          ? `${scheduledBudgetDollars} scheduled for ${scheduledBudgetEffectiveDate}.`
+        scheduledBudgetCents != null && scheduledBudgetEffectiveDate
+          ? `${formatCurrency(monthlyBudgetCentsToDailyBudgetCents(scheduledBudgetCents), program.currency)} / day avg (est. ${formatCurrency(scheduledBudgetCents, program.currency)} / month max) scheduled for ${scheduledBudgetEffectiveDate}.`
           : program.type === "CPC"
             ? `${program.isAutobid ? "Autobid" : "Manual bid"}; max bid ${formatCurrency(program.maxBidCents, program.currency)}.`
             : "Budget controls are not available for this program type.",
@@ -344,9 +372,16 @@ export default async function ProgramDetailPage({
               </div>
               <div>
                 <div className="text-muted-foreground">Budget</div>
-                <div>
-                  {formatCurrency(program.budgetCents, program.currency)}
-                </div>
+                {program.type === "CPC" ? (
+                  <YelpBudgetDisplay
+                    monthlyBudgetCents={program.budgetCents}
+                    currency={program.currency}
+                  />
+                ) : (
+                  <div>
+                    {formatCurrency(program.budgetCents, program.currency)}
+                  </div>
+                )}
               </div>
               <div>
                 <div className="text-muted-foreground">Max bid</div>
@@ -385,8 +420,8 @@ export default async function ProgramDetailPage({
               <div>
                 <div className="text-muted-foreground">Scheduled budget</div>
                 <div>
-                  {scheduledBudgetDollars && scheduledBudgetEffectiveDate
-                    ? `${scheduledBudgetDollars} effective ${scheduledBudgetEffectiveDate}`
+                  {scheduledBudgetCents != null && scheduledBudgetEffectiveDate
+                    ? `${formatCurrency(monthlyBudgetCentsToDailyBudgetCents(scheduledBudgetCents), program.currency)} / day avg · est. ${formatCurrency(scheduledBudgetCents, program.currency)} / month max · effective ${scheduledBudgetEffectiveDate}`
                     : "None scheduled"}
                 </div>
               </div>

@@ -298,26 +298,27 @@ Inputs:
 - `Program type`: one of `BP`, `EP`, `CPC`, `RCA`, `CTA`, `SLIDESHOW`, `BH`, `VL`, `LOGO`, `PORTFOLIO`
 - `Start date`
 - `Currency`
-- `Monthly budget (dollars)`: human-friendly currency input, converted to cents server-side
+- `Daily budget (dollars)` for CPC programs: converted with Yelp's 30-day convention into the monthly API budget
+- `Monthly budget (dollars)` for non-CPC programs
 - `Ad categories`: optional alias-backed checkboxes loaded from the selected business
 - `Use Yelp autobid`
 - `Max bid (dollars)`: enabled only when autobid is off
 - `Pacing method`: `paced` or `unpaced`
 - `Fee period`: `CALENDAR_MONTH` or `ROLLING_MONTH`
 - `Future budget change date`: create mode shows helper copy only; future budget changes are edit-only
-- `Future budget (dollars)`: create mode shows helper copy only
+- `Future daily budget (dollars)` for CPC: create mode shows helper copy only
 - `Operator notes`
 
 Additional UI outputs in the form:
 
 - CPC readiness warning
 - ad eligibility badge for the selected business
-- exact cents payload preview
+- estimated monthly spend and exact monthly cents payload preview
 - ad categories alias payload preview
 
 Validation:
 
-- CPC monthly budget minimum: `$25.00`
+- CPC estimated monthly spend minimum: `$25.00`
 - max bid minimum when autobid is off: `$0.50`
 - category aliases must be whitespace-free alias strings, not human labels
 - scheduled budget changes are blocked in create mode
@@ -328,13 +329,18 @@ Internal route:
 
 Internal payload example:
 
+The UI accepts the CPC daily amount, but the internal form payload keeps the
+existing monthly field so the Yelp mapper and persisted budget remain backward
+compatible. In this example, the operator entered `$21.67` per day, producing
+an estimated `$650.10` monthly maximum.
+
 ```json
 {
   "businessId": "cm123",
   "programType": "CPC",
   "currency": "USD",
   "startDate": "2026-03-20",
-  "monthlyBudgetDollars": "650.50",
+  "monthlyBudgetDollars": "650.10",
   "isAutobid": false,
   "maxBidDollars": "24.75",
   "pacingMethod": "paced",
@@ -354,7 +360,7 @@ Yelp Ads payload produced by the mapper:
   "program_name": "CPC",
   "start": "2026-03-20",
   "currency": "USD",
-  "budget": 65050,
+  "budget": 65010,
   "is_autobid": false,
   "max_bid": 2475,
   "pacing_method": "paced",
@@ -371,7 +377,7 @@ When no categories are selected, the console omits `ad_categories` entirely:
   "program_name": "CPC",
   "start": "2026-03-20",
   "currency": "USD",
-  "budget": 65050,
+  "budget": 65010,
   "is_autobid": false,
   "max_bid": 2475,
   "pacing_method": "paced",
@@ -415,7 +421,7 @@ Internal payload example:
   "programType": "CPC",
   "currency": "USD",
   "startDate": "2026-03-20",
-  "monthlyBudgetDollars": "700.00",
+  "monthlyBudgetDollars": "699.90",
   "isAutobid": true,
   "maxBidDollars": "",
   "pacingMethod": "paced",
@@ -476,10 +482,10 @@ Only shown for `CPC` programs.
 Tabs and inputs:
 
 - `Current budget`
-  - `New monthly budget`
+  - `New daily budget`
   - `Internal note`
 - `Schedule budget`
-  - `Future monthly budget`
+  - `Future daily budget`
   - `Effective date`
   - `Internal note`
 - `Bid and pacing`
@@ -489,7 +495,8 @@ Tabs and inputs:
 
 Purpose of each input:
 
-- budget fields update current or future monthly budget
+- daily budget fields show an estimated monthly maximum using `daily × 30`
+- the converted monthly value updates the current or future Yelp budget
 - effective date schedules the future budget change
 - pacing and max bid let operators change bidding behavior without using the full edit form
 - internal note is audit-only context, not sent to Yelp
@@ -500,10 +507,13 @@ Internal route:
 
 Internal payload examples:
 
+These internal values are the computed monthly amounts. For example, a `$10.00`
+daily budget becomes `$300.00` in the monthly payload below.
+
 ```json
 {
   "operation": "CURRENT_BUDGET",
-  "currentBudgetDollars": "325.00",
+  "currentBudgetDollars": "300.00",
   "internalNote": "Lower spend for April"
 }
 ```
@@ -511,7 +521,7 @@ Internal payload examples:
 ```json
 {
   "operation": "SCHEDULED_BUDGET",
-  "scheduledBudgetDollars": "425.00",
+  "scheduledBudgetDollars": "450.00",
   "scheduledBudgetEffectiveDate": "2026-04-01",
   "internalNote": "Seasonal increase"
 }
@@ -528,8 +538,8 @@ Internal payload examples:
 
 Yelp edit payloads produced:
 
-- current budget: `{ "budget": 32500 }`
-- scheduled budget: `{ "budget": 42500, "future_budget_date": "2026-04-01" }`
+- current budget: `{ "budget": 30000 }`
+- scheduled budget: `{ "budget": 45000, "future_budget_date": "2026-04-01" }`
 - bid/pacing: `{ "pacing_method": "paced", "max_bid": 1250 }`
 
 Output:

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createProgramFormSchema, currentBudgetOperationSchema, scheduledBudgetOperationSchema } from "@/features/ads-programs/schemas";
 import { deleteBusinessFormSchema } from "@/features/businesses/schemas";
 import { reportRequestFormSchema } from "@/features/reporting/schemas";
+import { monthlyBudgetDollarsFromDailyInput } from "@/lib/yelp/budget";
 
 describe("validation", () => {
   it("rejects CPC requests under the minimum budget", () => {
@@ -56,6 +57,20 @@ describe("validation", () => {
     });
 
     expect(result.success).toBe(false);
+  });
+
+  it("applies the CPC minimum to the estimated monthly spend from daily input", () => {
+    const belowMinimum = currentBudgetOperationSchema.safeParse({
+      operation: "CURRENT_BUDGET",
+      currentBudgetDollars: monthlyBudgetDollarsFromDailyInput("0.83")
+    });
+    const atMinimum = currentBudgetOperationSchema.safeParse({
+      operation: "CURRENT_BUDGET",
+      currentBudgetDollars: monthlyBudgetDollarsFromDailyInput("0.84")
+    });
+
+    expect(belowMinimum.success).toBe(false);
+    expect(atMinimum.success).toBe(true);
   });
 
   it("rejects scheduled budget changes in the past", () => {

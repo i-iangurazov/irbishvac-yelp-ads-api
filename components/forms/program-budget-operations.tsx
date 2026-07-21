@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -21,6 +22,12 @@ import {
   parseCurrencyToCents,
   titleCase,
 } from "@/lib/utils/format";
+import {
+  monthlyBudgetCentsToDailyBudgetCents,
+  monthlyBudgetCentsToDailyBudgetDollars,
+  monthlyBudgetDollarsFromDailyInput,
+  monthlyBudgetDollarsToDailyBudgetDollars,
+} from "@/lib/yelp/budget";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -47,6 +54,18 @@ function centsPreview(value: string | undefined) {
   }
 }
 
+function parseBudgetCents(value: string | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    return parseCurrencyToCents(value);
+  } catch {
+    return null;
+  }
+}
+
 export function ProgramBudgetOperations({
   programId,
   currency,
@@ -67,6 +86,13 @@ export function ProgramBudgetOperations({
   scheduledBudgetEffectiveDate?: string;
 }) {
   const router = useRouter();
+  const [currentDailyBudgetDollars, setCurrentDailyBudgetDollars] = useState(
+    () => monthlyBudgetCentsToDailyBudgetDollars(currentBudgetCents),
+  );
+  const [scheduledDailyBudgetDollars, setScheduledDailyBudgetDollars] =
+    useState(() =>
+      monthlyBudgetDollarsToDailyBudgetDollars(scheduledBudgetDollars),
+    );
   const currentBudgetForm = useForm<CurrentBudgetOperationValues>({
     resolver: zodResolver(currentBudgetOperationSchema),
     defaultValues: {
@@ -132,6 +158,7 @@ export function ProgramBudgetOperations({
   );
   const bidPacingValue = bidStrategyForm.watch("pacingMethod");
   const bidMaxValue = bidStrategyForm.watch("maxBidDollars");
+  const existingScheduledBudgetCents = parseBudgetCents(scheduledBudgetDollars);
 
   return (
     <Card id="budget-operations">
@@ -147,7 +174,12 @@ export function ProgramBudgetOperations({
           <div className="rounded-lg border border-border p-4">
             <div className="text-sm text-muted-foreground">Current budget</div>
             <div className="mt-1 text-lg font-semibold">
-              {formatCurrency(currentBudgetCents, currency)}
+              {typeof currentBudgetCents === "number"
+                ? `${formatCurrency(monthlyBudgetCentsToDailyBudgetCents(currentBudgetCents), currency)} / day avg`
+                : "Not set"}
+            </div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              Est. {formatCurrency(currentBudgetCents, currency)} / month max
             </div>
           </div>
           <div className="rounded-lg border border-border p-4">
@@ -165,16 +197,21 @@ export function ProgramBudgetOperations({
             <div className="text-sm text-muted-foreground">
               Scheduled budget
             </div>
-            {scheduledBudgetDollars && scheduledBudgetEffectiveDate ? (
+            {existingScheduledBudgetCents != null &&
+            scheduledBudgetEffectiveDate ? (
               <>
                 <div className="mt-1 text-lg font-semibold">
                   {formatCurrency(
-                    parseCurrencyToCents(scheduledBudgetDollars),
+                    monthlyBudgetCentsToDailyBudgetCents(
+                      existingScheduledBudgetCents,
+                    ),
                     currency,
-                  )}
+                  )}{" "}
+                  / day avg
                 </div>
                 <div className="mt-1 text-xs text-muted-foreground">
-                  Effective{" "}
+                  Est. {formatCurrency(existingScheduledBudgetCents, currency)}{" "}
+                  / month max · Effective{" "}
                   {formatDateTime(scheduledBudgetEffectiveDate, "MMM d, yyyy")}
                 </div>
               </>
@@ -198,16 +235,35 @@ export function ProgramBudgetOperations({
             >
               <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
                 <div className="space-y-2">
-                  <Label htmlFor="currentBudgetDollars">
-                    New monthly budget
+                  <Label htmlFor="currentDailyBudgetDollars">
+                    New daily budget
                   </Label>
                   <Input
-                    id="currentBudgetDollars"
-                    placeholder="325.00"
+                    id="currentDailyBudgetDollars"
+                    inputMode="decimal"
+                    placeholder="100.00"
+                    value={currentDailyBudgetDollars}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      setCurrentDailyBudgetDollars(value);
+                      currentBudgetForm.setValue(
+                        "currentBudgetDollars",
+                        monthlyBudgetDollarsFromDailyInput(value),
+                        { shouldDirty: true, shouldValidate: true },
+                      );
+                    }}
+                  />
+                  <input
+                    type="hidden"
                     {...currentBudgetForm.register("currentBudgetDollars")}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Yelp payload: `budget={centsPreview(currentBudgetValue)}`
+                    Estimated monthly spend:{" "}
+                    {formatCurrency(
+                      parseBudgetCents(currentBudgetValue),
+                      currency,
+                    )}
+                    . Yelp monthly payload: {centsPreview(currentBudgetValue)}
                     cents.
                   </p>
                   {currentBudgetForm.formState.errors.currentBudgetDollars ? (
@@ -222,14 +278,29 @@ export function ProgramBudgetOperations({
                 <div className="rounded-lg border border-border bg-muted/40 p-4">
                   <div className="font-medium">Diff preview</div>
                   <div className="mt-2 text-sm text-muted-foreground">
-                    Current: {formatCurrency(currentBudgetCents, currency)}
+                    Current:{" "}
+                    {typeof currentBudgetCents === "number"
+                      ? formatCurrency(
+                          monthlyBudgetCentsToDailyBudgetCents(
+                            currentBudgetCents,
+                          ),
+                          currency,
+                        )
+                      : "Not set"}{" "}
+                    / day avg
                   </div>
                   <div className="text-sm text-muted-foreground">
                     Proposed:{" "}
                     {formatCurrency(
-                      currentBudgetValue
-                        ? parseCurrencyToCents(currentBudgetValue)
-                        : null,
+                      parseBudgetCents(currentDailyBudgetDollars),
+                      currency,
+                    )}{" "}
+                    / day avg
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    Est. monthly max:{" "}
+                    {formatCurrency(
+                      parseBudgetCents(currentBudgetValue),
                       currency,
                     )}
                   </div>
@@ -261,16 +332,35 @@ export function ProgramBudgetOperations({
             >
               <div className="grid gap-4 lg:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="scheduledBudgetDollars">
-                    Future monthly budget
+                  <Label htmlFor="scheduledDailyBudgetDollars">
+                    Future daily budget
                   </Label>
                   <Input
-                    id="scheduledBudgetDollars"
-                    placeholder="425.00"
+                    id="scheduledDailyBudgetDollars"
+                    inputMode="decimal"
+                    placeholder="125.00"
+                    value={scheduledDailyBudgetDollars}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      setScheduledDailyBudgetDollars(value);
+                      scheduledBudgetForm.setValue(
+                        "scheduledBudgetDollars",
+                        monthlyBudgetDollarsFromDailyInput(value),
+                        { shouldDirty: true, shouldValidate: true },
+                      );
+                    }}
+                  />
+                  <input
+                    type="hidden"
                     {...scheduledBudgetForm.register("scheduledBudgetDollars")}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Yelp budget payload: {centsPreview(scheduledBudgetValue)}{" "}
+                    Estimated monthly spend:{" "}
+                    {formatCurrency(
+                      parseBudgetCents(scheduledBudgetValue),
+                      currency,
+                    )}
+                    . Yelp monthly payload: {centsPreview(scheduledBudgetValue)}
                     cents.
                   </p>
                   {scheduledBudgetForm.formState.errors
@@ -311,14 +401,27 @@ export function ProgramBudgetOperations({
               <div className="rounded-lg border border-border bg-muted/40 p-4">
                 <div className="font-medium">Diff preview</div>
                 <div className="mt-2 text-sm text-muted-foreground">
-                  Current budget: {formatCurrency(currentBudgetCents, currency)}
+                  Current daily budget:{" "}
+                  {typeof currentBudgetCents === "number"
+                    ? formatCurrency(
+                        monthlyBudgetCentsToDailyBudgetCents(
+                          currentBudgetCents,
+                        ),
+                        currency,
+                      )
+                    : "Not set"}
                 </div>
                 <div className="text-sm text-muted-foreground">
-                  Scheduled budget:{" "}
+                  Scheduled daily budget:{" "}
                   {formatCurrency(
-                    scheduledBudgetValue
-                      ? parseCurrencyToCents(scheduledBudgetValue)
-                      : null,
+                    parseBudgetCents(scheduledDailyBudgetDollars),
+                    currency,
+                  )}
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  Est. monthly max:{" "}
+                  {formatCurrency(
+                    parseBudgetCents(scheduledBudgetValue),
                     currency,
                   )}
                 </div>

@@ -8,6 +8,7 @@ import { YelpSyncButton } from "@/components/forms/yelp-sync-button";
 import { AuditTimeline } from "@/components/shared/audit-timeline";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusChip } from "@/components/shared/status-chip";
+import { YelpBudgetDisplay } from "@/components/shared/yelp-budget-display";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -452,14 +453,28 @@ export default async function BusinessDetailPage({
                         </TableCell>
                         <TableCell className="space-y-1 text-sm">
                           <div>
-                            {program.program_metrics?.budget != null
-                              ? formatCurrency(
+                            {program.program_metrics?.budget != null ? (
+                              program.program_type === "CPC" ? (
+                                <YelpBudgetDisplay
+                                  monthlyBudgetCents={
+                                    program.program_metrics.budget
+                                  }
+                                  currency={
+                                    program.program_metrics.currency ?? "USD"
+                                  }
+                                />
+                              ) : (
+                                formatCurrency(
                                   program.program_metrics.budget,
                                   program.program_metrics.currency ?? "USD",
                                 )
-                              : program.page_upgrade_info?.monthly_rate != null
-                                ? `${formatCurrency(Math.round(program.page_upgrade_info.monthly_rate * 100), "USD")} / mo`
-                                : "Not set"}
+                              )
+                            ) : program.page_upgrade_info?.monthly_rate !=
+                              null ? (
+                              `${formatCurrency(Math.round(program.page_upgrade_info.monthly_rate * 100), "USD")} / mo`
+                            ) : (
+                              "Not set"
+                            )}
                           </div>
                           <div className="text-xs text-muted-foreground">
                             {program.ad_categories.length > 0

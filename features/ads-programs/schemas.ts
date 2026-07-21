@@ -65,7 +65,7 @@ function validateProgramForm(
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["monthlyBudgetDollars"],
-          message: "CPC monthly budget must be at least $25.00."
+          message: "Estimated monthly spend must be at least $25.00."
         });
       }
 
@@ -121,7 +121,7 @@ function validateMinimumBudget(path: string[], value: string | undefined, ctx: z
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path,
-      message: "Budget must be at least $25.00."
+      message: "Estimated monthly spend must be at least $25.00."
     });
   }
 }

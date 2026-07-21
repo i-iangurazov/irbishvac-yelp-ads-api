@@ -4,6 +4,7 @@ import { CapabilityState } from "@/components/shared/capability-state";
 import { EmptyState } from "@/components/shared/empty-state";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusChip } from "@/components/shared/status-chip";
+import { YelpBudgetDisplay } from "@/components/shared/yelp-budget-display";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -89,7 +90,14 @@ export default async function ProgramFeaturesIndexPage() {
                       <StatusChip status={program.status} />
                     </TableCell>
                     <TableCell>
-                      {formatCurrency(program.budgetCents, program.currency)}
+                      {program.type === "CPC" ? (
+                        <YelpBudgetDisplay
+                          monthlyBudgetCents={program.budgetCents}
+                          currency={program.currency}
+                        />
+                      ) : (
+                        formatCurrency(program.budgetCents, program.currency)
+                      )}
                     </TableCell>
                     <TableCell>
                       <Button asChild size="sm" variant="outline">

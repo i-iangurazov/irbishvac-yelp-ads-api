@@ -3,6 +3,7 @@ import Link from "next/link";
 import { MetricCard } from "@/components/shared/metric-card";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusChip } from "@/components/shared/status-chip";
+import { YelpBudgetDisplay } from "@/components/shared/yelp-budget-display";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -126,7 +127,14 @@ export default async function ProgramsPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        {formatCurrency(program.budgetCents, program.currency)}
+                        {program.type === "CPC" ? (
+                          <YelpBudgetDisplay
+                            monthlyBudgetCents={program.budgetCents}
+                            currency={program.currency}
+                          />
+                        ) : (
+                          formatCurrency(program.budgetCents, program.currency)
+                        )}
                       </TableCell>
                       <TableCell>
                         {latestJob ? (
