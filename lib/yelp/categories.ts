@@ -3,6 +3,10 @@ export type YelpCategoryOption = {
   alias?: string;
 };
 
+const knownYelpCategoryLabels = new Map([
+  ["waterheaterinstallrepair", "Water Heater Installation/Repair"]
+]);
+
 function normalizeText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -73,6 +77,27 @@ export function normalizeYelpCategories(input: unknown): YelpCategoryOption[] {
 
 export function formatYelpCategory(option: YelpCategoryOption) {
   return option.alias ? `${option.label} (${option.alias})` : option.label;
+}
+
+export function getYelpCategoryDisplayLabel(
+  option: YelpCategoryOption,
+  catalog: YelpCategoryOption[] = []
+) {
+  if (!option.alias) {
+    return option.label;
+  }
+
+  const catalogMatch = catalog.find((category) => category.alias === option.alias);
+
+  if (catalogMatch && catalogMatch.label !== catalogMatch.alias) {
+    return catalogMatch.label;
+  }
+
+  if (option.label !== option.alias) {
+    return option.label;
+  }
+
+  return knownYelpCategoryLabels.get(option.alias) ?? option.label;
 }
 
 export function extractYelpCategoryAliases(input: unknown) {

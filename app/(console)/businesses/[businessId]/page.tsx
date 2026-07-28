@@ -7,6 +7,7 @@ import { BusinessYelpSubscriptionActions } from "@/components/forms/business-yel
 import { YelpSyncButton } from "@/components/forms/yelp-sync-button";
 import { AuditTimeline } from "@/components/shared/audit-timeline";
 import { PageHeader } from "@/components/shared/page-header";
+import { ProgramCategoryList } from "@/components/shared/program-category-list";
 import { StatusChip } from "@/components/shared/status-chip";
 import { YelpBudgetDisplay } from "@/components/shared/yelp-budget-display";
 import { Badge } from "@/components/ui/badge";
@@ -417,7 +418,7 @@ export default async function BusinessDetailPage({
               <CardTitle>Live Yelp inventory</CardTitle>
               <CardDescription>
                 {business.liveProgramInventory.message ??
-                  "Yelp-native inventory. Local console records stay separate below."}
+                  `All ${business.liveProgramInventory.programs.length} current Yelp ${business.liveProgramInventory.programs.length === 1 ? "program" : "programs"}. Local console records stay separate below.`}
               </CardDescription>
             </CardHeader>
             <CardContent className="p-0">
@@ -476,11 +477,10 @@ export default async function BusinessDetailPage({
                               "Not set"
                             )}
                           </div>
-                          <div className="text-xs text-muted-foreground">
-                            {program.ad_categories.length > 0
-                              ? program.ad_categories.join(", ")
-                              : "No ad categories"}
-                          </div>
+                          <ProgramCategoryList
+                            categories={program.ad_categories}
+                            categoryCatalog={business.categories}
+                          />
                         </TableCell>
                         <TableCell className="space-y-2">
                           <div className="flex flex-wrap gap-1">
@@ -549,7 +549,9 @@ export default async function BusinessDetailPage({
             <CardHeader>
               <CardTitle>Local console records</CardTitle>
               <CardDescription>
-                Programs the console is actively tracking for this business.
+                All {business.currentPrograms.length} current console{" "}
+                {business.currentPrograms.length === 1 ? "record" : "records"}{" "}
+                for this business.
               </CardDescription>
             </CardHeader>
             <CardContent className="p-0">
@@ -565,7 +567,15 @@ export default async function BusinessDetailPage({
                   <TableBody>
                     {business.currentPrograms.map((program) => (
                       <TableRow key={program.id}>
-                        <TableCell>{program.type}</TableCell>
+                        <TableCell>
+                          <div className="space-y-2">
+                            <div>{program.type}</div>
+                            <ProgramCategoryList
+                              categories={program.adCategoriesJson}
+                              categoryCatalog={business.categories}
+                            />
+                          </div>
+                        </TableCell>
                         <TableCell>
                           <StatusChip status={program.status} />
                         </TableCell>

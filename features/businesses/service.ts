@@ -104,7 +104,6 @@ type YelpConnectionProof = {
   occurredAt: Date | null;
 };
 
-const LIVE_PROGRAM_DISPLAY_LIMIT = 10;
 const YELP_WEBHOOK_SUBSCRIPTION_TYPE = "WEBHOOK" as const;
 const YELP_BUSINESS_SYNC_BATCH_SIZE = 200;
 const liveProgramStatusOrder = new Map([
@@ -902,19 +901,15 @@ export async function getBusinessDetail(tenantId: string, businessId: string) {
             ? upstreamPrograms.length > 0
               ? "No active Yelp programs."
               : null
-            : currentUpstreamPrograms.length > LIVE_PROGRAM_DISPLAY_LIMIT
-              ? `Showing the latest ${LIVE_PROGRAM_DISPLAY_LIMIT} of ${currentUpstreamPrograms.length} active Yelp programs.`
-              : null,
-        programs: currentUpstreamPrograms
-          .slice(0, LIVE_PROGRAM_DISPLAY_LIMIT)
-          .map((program) => {
-            const localProgram = localProgramMap.get(program.program_id);
-            return {
-              ...program,
-              localProgramId: localProgram?.id ?? null,
-              localProgramStatus: localProgram?.status ?? null,
-            };
-          }),
+            : null,
+        programs: currentUpstreamPrograms.map((program) => {
+          const localProgram = localProgramMap.get(program.program_id);
+          return {
+            ...program,
+            localProgramId: localProgram?.id ?? null,
+            localProgramStatus: localProgram?.status ?? null,
+          };
+        }),
       };
     } catch (error) {
       const normalized = normalizeUnknownError(error);

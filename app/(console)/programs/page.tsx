@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { MetricCard } from "@/components/shared/metric-card";
 import { PageHeader } from "@/components/shared/page-header";
+import { ProgramCategoryList } from "@/components/shared/program-category-list";
 import { StatusChip } from "@/components/shared/status-chip";
 import { YelpBudgetDisplay } from "@/components/shared/yelp-budget-display";
 import { Badge } from "@/components/ui/badge";
@@ -89,8 +90,9 @@ export default async function ProgramsPage() {
         <CardHeader>
           <CardTitle>Program inventory</CardTitle>
           <CardDescription>
-            Scan local status, the last Yelp job, and upstream confirmation from
-            one table.
+            All {programs.length} current{" "}
+            {programs.length === 1 ? "program" : "programs"}, with local status,
+            the latest Yelp job, and upstream confirmation.
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
@@ -100,6 +102,7 @@ export default async function ProgramsPage() {
                 <TableRow>
                   <TableHead>Business</TableHead>
                   <TableHead>Program</TableHead>
+                  <TableHead>Ad categories</TableHead>
                   <TableHead>Budget</TableHead>
                   <TableHead>Latest Yelp job</TableHead>
                   <TableHead>Yelp ID</TableHead>
@@ -125,6 +128,12 @@ export default async function ProgramsPage() {
                         <div className="mt-2">
                           <StatusChip status={program.status} />
                         </div>
+                      </TableCell>
+                      <TableCell className="max-w-sm">
+                        <ProgramCategoryList
+                          categories={program.adCategoriesJson}
+                          categoryCatalog={program.business.categoriesJson}
+                        />
                       </TableCell>
                       <TableCell>
                         {program.type === "CPC" ? (
