@@ -3,7 +3,10 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 
 import { findConflictingCpcPrograms, normalizeProgramCategoryAliases } from "@/features/ads-programs/conflicts";
-import { isCurrentLocalProgramStatus } from "@/features/ads-programs/status";
+import {
+  isBusinessEligibleForProgramInventory,
+  isCurrentLocalProgramStatus
+} from "@/features/ads-programs/status";
 import {
   buildSynchronizedProgramConfiguration,
   parseSynchronizedProgramDate,
@@ -174,7 +177,11 @@ function assertProgramCanBeMutated(program: Awaited<ReturnType<typeof getProgram
 
 export async function getProgramsIndex(tenantId: string) {
   const programs = await listPrograms(tenantId);
-  return programs.filter((program) => isCurrentLocalProgramStatus(program.status));
+  return programs.filter(
+    (program) =>
+      isCurrentLocalProgramStatus(program.status) &&
+      isBusinessEligibleForProgramInventory(program.business)
+  );
 }
 
 export async function getProgramDetail(tenantId: string, programId: string) {
