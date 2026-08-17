@@ -16,12 +16,11 @@ test("create CPC flow", async ({ page }) => {
   await expect(page).toHaveURL(/\/programs\//);
 });
 
-test("edit budget and bid flow", async ({ page }) => {
+test("current budget operation flow", async ({ page }) => {
   await login(page);
   await page.goto("/programs/demo-program-cpc");
-  await page.getByLabel("Daily budget (dollars)").fill("23.33");
-  await page.getByLabel("Max bid (dollars)").fill("25.00");
-  await page.getByRole("button", { name: "Submit update" }).click();
+  await page.getByLabel("New daily budget").fill("23.33");
+  await page.getByRole("button", { name: "Submit budget change" }).click();
   await expect(page).toHaveURL(/jobId=/);
 });
 

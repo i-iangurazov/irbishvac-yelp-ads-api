@@ -2,10 +2,13 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 
-import { findConflictingCpcPrograms, normalizeProgramCategoryAliases } from "@/features/ads-programs/conflicts";
+import {
+  findConflictingCpcPrograms,
+  normalizeProgramCategoryAliases,
+} from "@/features/ads-programs/conflicts";
 import {
   isBusinessEligibleForProgramInventory,
-  isCurrentLocalProgramStatus
+  isCurrentLocalProgramStatus,
 } from "@/features/ads-programs/status";
 import {
   buildSynchronizedProgramConfiguration,
@@ -14,13 +17,15 @@ import {
   resolveSynchronizedIsAutobid,
   resolveSynchronizedMaxBidCents,
   resolveSynchronizedProgramStatus,
-  resolveSynchronizedProgramType
+  resolveSynchronizedProgramType,
 } from "@/features/ads-programs/sync";
+import { analyzeBusinessCpcTargeting } from "@/features/ads-programs/targeting";
 import {
   createProgramFormSchema,
   editProgramFormSchema,
   programBudgetOperationSchema,
-  terminateProgramFormSchema
+  programCategoryTargetingOperationSchema,
+  terminateProgramFormSchema,
 } from "@/features/ads-programs/schemas";
 import { recordAuditEvent } from "@/features/audit/service";
 import { getBusinessById } from "@/lib/db/businesses-repository";
@@ -34,94 +39,168 @@ import {
   listPendingProgramJobs,
   listPrograms,
   updateProgramJob,
-  updateProgramRecord
+  updateProgramRecord,
 } from "@/lib/db/programs-repository";
 import {
   mapCreateProgramFormToDto,
   mapEditProgramFormToDto,
   mapSubmittedYelpJob,
   mapTerminateProgramFormToDto,
-  mapYelpJobStatusReceipt
+  mapYelpJobStatusReceipt,
 } from "@/lib/yelp/mappers";
 import { ensureYelpAccess, getCapabilityFlags } from "@/lib/yelp/runtime";
 import { YelpAdsClient } from "@/lib/yelp/ads-client";
 import {
   normalizeUnknownError,
   YelpMissingAccessError,
-  YelpValidationError
+  YelpValidationError,
 } from "@/lib/yelp/errors";
 import { summarizeYelpJobIssue } from "@/lib/yelp/job-status";
 import { parseCurrencyToCents } from "@/lib/utils/format";
 import { pollUntil } from "@/lib/utils/polling";
 import { extractYelpCategoryAliases } from "@/lib/yelp/categories";
 
-function mergeConfigurationJson(existing: unknown, patch: Record<string, unknown>) {
-  const current = typeof existing === "object" && existing !== null ? (existing as Record<string, unknown>) : {};
+function mergeConfigurationJson(
+  existing: unknown,
+  patch: Record<string, unknown>,
+) {
+  const current =
+    typeof existing === "object" && existing !== null
+      ? (existing as Record<string, unknown>)
+      : {};
   return {
     ...current,
-    ...patch
+    ...patch,
   };
 }
 
-function deriveProgramUpdateFromEditRequest(requestJson: unknown, currentConfigurationJson: unknown) {
-  const request = typeof requestJson === "object" && requestJson !== null ? (requestJson as Record<string, unknown>) : {};
+function deriveProgramUpdateFromEditRequest(
+  requestJson: unknown,
+  currentConfigurationJson: unknown,
+) {
+  const request =
+    typeof requestJson === "object" && requestJson !== null
+      ? (requestJson as Record<string, unknown>)
+      : {};
   const nextConfiguration = mergeConfigurationJson(currentConfigurationJson, {
     ...(typeof request.start === "string" ? { startDate: request.start } : {}),
-    ...(typeof request.budget === "number" && typeof request.future_budget_date !== "string"
+    ...(typeof request.budget === "number" &&
+    typeof request.future_budget_date !== "string"
       ? { monthlyBudgetDollars: String(request.budget / 100) }
       : {}),
-    ...(typeof request.future_budget_date === "string" && typeof request.budget === "number"
+    ...(typeof request.future_budget_date === "string" &&
+    typeof request.budget === "number"
       ? {
           scheduledBudgetEffectiveDate: request.future_budget_date,
-          scheduledBudgetDollars: String(request.budget / 100)
+          scheduledBudgetDollars: String(request.budget / 100),
         }
       : {}),
-    ...(typeof request.max_bid === "number" ? { maxBidDollars: String(request.max_bid / 100) } : {}),
-    ...(typeof request.pacing_method === "string" ? { pacingMethod: request.pacing_method } : {}),
-    ...(Array.isArray(request.ad_categories) ? { adCategories: request.ad_categories } : {})
+    ...(typeof request.max_bid === "number"
+      ? { maxBidDollars: String(request.max_bid / 100) }
+      : {}),
+    ...(typeof request.pacing_method === "string"
+      ? { pacingMethod: request.pacing_method }
+      : {}),
+    ...(Array.isArray(request.ad_categories)
+      ? { adCategories: request.ad_categories }
+      : {}),
   });
 
   return {
-    ...(typeof request.start === "string" ? { startDate: new Date(request.start) } : {}),
-    ...(typeof request.end === "string" ? { endDate: new Date(request.end) } : {}),
-    ...(typeof request.budget === "number" && typeof request.future_budget_date !== "string" ? { budgetCents: request.budget } : {}),
-    ...(typeof request.max_bid === "number" ? { maxBidCents: request.max_bid } : {}),
-    ...(typeof request.pacing_method === "string" ? { pacingMethod: request.pacing_method } : {}),
-    ...(Array.isArray(request.ad_categories) ? { adCategoriesJson: request.ad_categories } : {}),
-    configurationJson: nextConfiguration
+    ...(typeof request.start === "string"
+      ? { startDate: new Date(request.start) }
+      : {}),
+    ...(typeof request.end === "string"
+      ? { endDate: new Date(request.end) }
+      : {}),
+    ...(typeof request.budget === "number" &&
+    typeof request.future_budget_date !== "string"
+      ? { budgetCents: request.budget }
+      : {}),
+    ...(typeof request.max_bid === "number"
+      ? { maxBidCents: request.max_bid }
+      : {}),
+    ...(typeof request.pacing_method === "string"
+      ? { pacingMethod: request.pacing_method }
+      : {}),
+    ...(Array.isArray(request.ad_categories)
+      ? { adCategoriesJson: request.ad_categories }
+      : {}),
+    configurationJson: nextConfiguration,
   };
 }
 
 function isRetryableStatusPollFailure(errorJson: unknown) {
-  return typeof errorJson === "object" && errorJson !== null && (errorJson as { source?: unknown }).source === "status_poll";
+  return (
+    typeof errorJson === "object" &&
+    errorJson !== null &&
+    (errorJson as { source?: unknown }).source === "status_poll"
+  );
 }
 
-function mergeBusinessReadinessJson(existing: unknown, patch: Record<string, unknown>) {
-  const current = typeof existing === "object" && existing !== null ? (existing as Record<string, unknown>) : {};
+function mergeBusinessReadinessJson(
+  existing: unknown,
+  patch: Record<string, unknown>,
+) {
+  const current =
+    typeof existing === "object" && existing !== null
+      ? (existing as Record<string, unknown>)
+      : {};
   return {
     ...current,
-    ...patch
+    ...patch,
   };
 }
 
-function isDemoAdsMode(capabilities: Awaited<ReturnType<typeof getCapabilityFlags>>) {
+function sameNormalizedAliases(left: unknown, right: unknown) {
+  const leftAliases = normalizeProgramCategoryAliases(left);
+  const rightAliases = normalizeProgramCategoryAliases(right);
+
+  return (
+    leftAliases.length === rightAliases.length &&
+    leftAliases.every((alias) => rightAliases.includes(alias))
+  );
+}
+
+function normalizeStoredPacingMethod(value: string | null) {
+  if (value === "STANDARD") {
+    return "paced";
+  }
+
+  if (value === "ACCELERATED") {
+    return "unpaced";
+  }
+
+  return value;
+}
+
+function isDemoAdsMode(
+  capabilities: Awaited<ReturnType<typeof getCapabilityFlags>>,
+) {
   return capabilities.demoModeEnabled && !capabilities.adsApiEnabled;
 }
 
 function describeCategoryScope(categories: unknown) {
   const aliases = normalizeProgramCategoryAliases(categories);
-  return aliases.length > 0 ? aliases.join(", ") : "all categories inferred by Yelp";
+  return aliases.length > 0
+    ? aliases.join(", ")
+    : "all categories inferred by Yelp";
 }
 
 function assertNoConflictingCpcPrograms(
   programs: Awaited<ReturnType<typeof listPrograms>>,
   requestedCategories: unknown,
   listingCategoryAliases: unknown,
-  excludeProgramId?: string
+  excludeProgramId?: string,
 ) {
-  const conflicts = findConflictingCpcPrograms(programs, requestedCategories, excludeProgramId, {
-    listingCategoryAliases
-  });
+  const conflicts = findConflictingCpcPrograms(
+    programs,
+    requestedCategories,
+    excludeProgramId,
+    {
+      listingCategoryAliases,
+    },
+  );
 
   if (conflicts.length === 0) {
     return;
@@ -135,40 +214,66 @@ function assertNoConflictingCpcPrograms(
     .join(", ");
 
   throw new YelpValidationError(
-    `A CPC program already exists for this business with overlapping category targeting. Existing program(s): ${conflictReferences}. Edit the existing program or terminate it before creating another.`
+    `A CPC program already exists for this business with overlapping category targeting. Existing program(s): ${conflictReferences}. Edit the existing program or terminate it before creating another.`,
   );
 }
 
-function assertProgramCanBeTerminated(program: Awaited<ReturnType<typeof getProgramById>>) {
+function assertProgramCanBeTerminated(
+  program: Awaited<ReturnType<typeof getProgramById>>,
+) {
   if (program.status === "ENDED") {
     throw new YelpValidationError("This program is already ended.");
   }
 
-  if (program.status === "QUEUED" || program.status === "PROCESSING") {
-    throw new YelpValidationError("Wait for the current Yelp job to finish before submitting termination.");
+  if (
+    program.status === "QUEUED" ||
+    program.status === "PROCESSING" ||
+    program.jobs?.some(
+      (job) => job.status === "QUEUED" || job.status === "PROCESSING",
+    )
+  ) {
+    throw new YelpValidationError(
+      "Wait for the current Yelp job to finish before submitting termination.",
+    );
   }
 
   if (!program.upstreamProgramId) {
     throw new YelpValidationError(
-      "This program has no confirmed Yelp program ID yet. Its create job never completed successfully on Yelp, so there is nothing upstream to terminate."
+      "This program has no confirmed Yelp program ID yet. Its create job never completed successfully on Yelp, so there is nothing upstream to terminate.",
     );
   }
 
   return program.upstreamProgramId;
 }
 
-function assertProgramCanBeMutated(program: Awaited<ReturnType<typeof getProgramById>>, actionLabel: string) {
+function assertProgramCanBeMutated(
+  program: Awaited<ReturnType<typeof getProgramById>>,
+  actionLabel: string,
+) {
   if (program.status === "ENDED") {
-    throw new YelpValidationError(`This program is already ended and cannot be used for ${actionLabel}.`);
+    throw new YelpValidationError(
+      `This program is already ended and cannot be used for ${actionLabel}.`,
+    );
   }
 
   if (program.status === "QUEUED" || program.status === "PROCESSING") {
-    throw new YelpValidationError(`Wait for the current Yelp job to finish before ${actionLabel}.`);
+    throw new YelpValidationError(
+      `Wait for the current Yelp job to finish before ${actionLabel}.`,
+    );
+  }
+
+  const pendingJob = program.jobs?.find(
+    (job) => job.status === "QUEUED" || job.status === "PROCESSING",
+  );
+  if (pendingJob) {
+    throw new YelpValidationError(
+      `Wait for the current Yelp job to finish before ${actionLabel}.`,
+    );
   }
 
   if (!program.upstreamProgramId) {
     throw new YelpValidationError(
-      `This program has no confirmed Yelp program ID yet. Its create job never completed successfully on Yelp, so ${actionLabel} is not possible upstream.`
+      `This program has no confirmed Yelp program ID yet. Its create job never completed successfully on Yelp, so ${actionLabel} is not possible upstream.`,
     );
   }
 
@@ -180,7 +285,7 @@ export async function getProgramsIndex(tenantId: string) {
   return programs.filter(
     (program) =>
       isCurrentLocalProgramStatus(program.status) &&
-      isBusinessEligibleForProgramInventory(program.business)
+      isBusinessEligibleForProgramInventory(program.business),
   );
 }
 
@@ -188,47 +293,73 @@ export async function getProgramDetail(tenantId: string, programId: string) {
   return getProgramById(programId, tenantId);
 }
 
-export async function syncBusinessProgramsFromYelpWorkflow(tenantId: string, actorId: string, businessId: string) {
-  const [business, capabilities] = await Promise.all([getBusinessById(businessId, tenantId), getCapabilityFlags(tenantId)]);
+export async function syncBusinessProgramsFromYelpWorkflow(
+  tenantId: string,
+  actorId: string,
+  businessId: string,
+) {
+  const [business, capabilities] = await Promise.all([
+    getBusinessById(businessId, tenantId),
+    getCapabilityFlags(tenantId),
+  ]);
 
   if (isDemoAdsMode(capabilities)) {
-    throw new YelpValidationError("Program sync is unavailable while Yelp Ads is running in demo mode.");
+    throw new YelpValidationError(
+      "Program sync is unavailable while Yelp Ads is running in demo mode.",
+    );
   }
 
   const { credential } = await ensureYelpAccess({
     tenantId,
     capabilityKey: "adsApiEnabled",
-    credentialKind: "ADS_BASIC_AUTH"
+    credentialKind: "ADS_BASIC_AUTH",
   });
   const client = new YelpAdsClient(credential);
   const response = await client.listPrograms(business.encryptedYelpBusinessId);
   const upstreamPrograms =
     response.data.businesses.find(
-      (entry: (typeof response.data.businesses)[number]) => entry.yelp_business_id === business.encryptedYelpBusinessId
+      (entry: (typeof response.data.businesses)[number]) =>
+        entry.yelp_business_id === business.encryptedYelpBusinessId,
     )?.programs ?? [];
   const syncedAt = new Date();
   const existingProgramsByUpstreamId = new Map(
     business.programs
       .filter((program) => Boolean(program.upstreamProgramId))
-      .map((program) => [program.upstreamProgramId as string, program])
+      .map((program) => [program.upstreamProgramId as string, program]),
   );
   let createdPrograms = 0;
   let updatedPrograms = 0;
   let skippedPrograms = 0;
 
   for (const upstreamProgram of upstreamPrograms) {
-    const programType = resolveSynchronizedProgramType(upstreamProgram.program_type);
+    const programType = resolveSynchronizedProgramType(
+      upstreamProgram.program_type,
+    );
 
     if (!programType) {
       skippedPrograms += 1;
       continue;
     }
 
-    const existingProgram = existingProgramsByUpstreamId.get(upstreamProgram.program_id);
-    const budgetCents = resolveSynchronizedBudgetCents(upstreamProgram) ?? existingProgram?.budgetCents ?? null;
-    const maxBidCents = resolveSynchronizedMaxBidCents(upstreamProgram) ?? existingProgram?.maxBidCents ?? null;
-    const isAutobid = resolveSynchronizedIsAutobid(upstreamProgram) ?? existingProgram?.isAutobid ?? null;
-    const feePeriod = upstreamProgram.program_metrics?.fee_period ?? existingProgram?.feePeriod ?? null;
+    const existingProgram = existingProgramsByUpstreamId.get(
+      upstreamProgram.program_id,
+    );
+    const budgetCents =
+      resolveSynchronizedBudgetCents(upstreamProgram) ??
+      existingProgram?.budgetCents ??
+      null;
+    const maxBidCents =
+      resolveSynchronizedMaxBidCents(upstreamProgram) ??
+      existingProgram?.maxBidCents ??
+      null;
+    const isAutobid =
+      resolveSynchronizedIsAutobid(upstreamProgram) ??
+      existingProgram?.isAutobid ??
+      null;
+    const feePeriod =
+      upstreamProgram.program_metrics?.fee_period ??
+      existingProgram?.feePeriod ??
+      null;
     const nextConfiguration = buildSynchronizedProgramConfiguration(
       upstreamProgram,
       existingProgram?.configurationJson,
@@ -237,34 +368,48 @@ export async function syncBusinessProgramsFromYelpWorkflow(tenantId: string, act
         maxBidCents,
         isAutobid,
         feePeriod,
-        syncedAt
-      }
+        syncedAt,
+      },
     );
     const synchronizedProgramData = {
       type: programType,
       status: resolveSynchronizedProgramStatus(upstreamProgram.program_status),
       upstreamProgramId: upstreamProgram.program_id,
-      currency: upstreamProgram.program_metrics?.currency ?? existingProgram?.currency ?? "USD",
+      currency:
+        upstreamProgram.program_metrics?.currency ??
+        existingProgram?.currency ??
+        "USD",
       budgetCents,
       maxBidCents,
       isAutobid,
       pacingMethod: existingProgram?.pacingMethod ?? null,
       feePeriod,
-      startDate: parseSynchronizedProgramDate(upstreamProgram.start_date) ?? existingProgram?.startDate ?? null,
+      startDate:
+        parseSynchronizedProgramDate(upstreamProgram.start_date) ??
+        existingProgram?.startDate ??
+        null,
       endDate: parseSynchronizedProgramDate(upstreamProgram.end_date),
       adCategoriesJson: toJsonValue(upstreamProgram.ad_categories),
       configurationJson: toJsonValue(nextConfiguration),
       summaryJson: toJsonValue(upstreamProgram),
-      lastSyncedAt: syncedAt
+      lastSyncedAt: syncedAt,
     };
 
     if (existingProgram) {
-      await updateProgramRecord(existingProgram.id, tenantId, synchronizedProgramData);
+      await updateProgramRecord(
+        existingProgram.id,
+        tenantId,
+        synchronizedProgramData,
+      );
       updatedPrograms += 1;
       continue;
     }
 
-    const createdProgram = await createProgramRecord(tenantId, business.id, synchronizedProgramData);
+    const createdProgram = await createProgramRecord(
+      tenantId,
+      business.id,
+      synchronizedProgramData,
+    );
     createdPrograms += 1;
 
     await recordAuditEvent({
@@ -277,36 +422,49 @@ export async function syncBusinessProgramsFromYelpWorkflow(tenantId: string, act
       upstreamReference: upstreamProgram.program_id,
       requestSummary: toJsonValue({
         source: "yelp_program_list",
-        businessId: business.encryptedYelpBusinessId
+        businessId: business.encryptedYelpBusinessId,
       }),
       responseSummary: toJsonValue({
         programType: upstreamProgram.program_type,
-        programStatus: upstreamProgram.program_status
+        programStatus: upstreamProgram.program_status,
       }),
-      after: synchronizedProgramData as never
+      after: synchronizedProgramData as never,
     });
   }
 
   const nextRawSnapshot =
-    typeof business.rawSnapshotJson === "object" && business.rawSnapshotJson !== null
+    typeof business.rawSnapshotJson === "object" &&
+    business.rawSnapshotJson !== null
       ? {
           ...(business.rawSnapshotJson as Record<string, unknown>),
           liveProgramSync: {
             syncedAt: syncedAt.toISOString(),
             upstreamProgramCount: upstreamPrograms.length,
-            programs: upstreamPrograms
-          }
+            programs: upstreamPrograms,
+          },
         }
       : {
           liveProgramSync: {
             syncedAt: syncedAt.toISOString(),
             upstreamProgramCount: upstreamPrograms.length,
-            programs: upstreamPrograms
-          }
+            programs: upstreamPrograms,
+          },
         };
 
+  const refreshedPrograms = await listPrograms(tenantId, business.id);
+  const targetingIssues = analyzeBusinessCpcTargeting(
+    refreshedPrograms,
+    business.categoriesJson,
+  );
+
   await updateBusinessRecord(business.id, tenantId, {
-    rawSnapshotJson: nextRawSnapshot
+    rawSnapshotJson: nextRawSnapshot,
+    readinessJson: mergeBusinessReadinessJson(business.readinessJson, {
+      cpcTargetingStatus:
+        targetingIssues.length > 0 ? "NEEDS_REVIEW" : "HEALTHY",
+      cpcTargetingIssueCodes: targetingIssues.map((issue) => issue.code),
+      cpcTargetingCheckedAt: syncedAt.toISOString(),
+    }),
   });
 
   await recordAuditEvent({
@@ -317,15 +475,20 @@ export async function syncBusinessProgramsFromYelpWorkflow(tenantId: string, act
     status: "SUCCESS",
     requestSummary: toJsonValue({
       source: "yelp_program_list",
-      businessId: business.encryptedYelpBusinessId
+      businessId: business.encryptedYelpBusinessId,
     }),
     responseSummary: toJsonValue({
       createdPrograms,
       updatedPrograms,
       skippedPrograms,
-      totalPrograms: upstreamPrograms.length
+      totalPrograms: upstreamPrograms.length,
+      targetingIssues: targetingIssues.map((issue) => ({
+        code: issue.code,
+        title: issue.title,
+        programIds: issue.programIds,
+      })),
     }),
-    after: nextRawSnapshot as never
+    after: nextRawSnapshot as never,
   });
 
   return {
@@ -334,21 +497,36 @@ export async function syncBusinessProgramsFromYelpWorkflow(tenantId: string, act
     updatedPrograms,
     skippedPrograms,
     totalPrograms: upstreamPrograms.length,
+    targetingIssues,
     syncedAt: syncedAt.toISOString(),
-    message: `Imported ${createdPrograms} and refreshed ${updatedPrograms} Yelp programs for this business.`
+    message:
+      targetingIssues.length > 0
+        ? `Imported ${createdPrograms} and refreshed ${updatedPrograms} Yelp programs. Targeting review required: ${targetingIssues.map((issue) => issue.title).join("; ")}.`
+        : `Imported ${createdPrograms} and refreshed ${updatedPrograms} Yelp programs. CPC targeting checks passed.`,
   };
 }
 
-export async function createProgramWorkflow(tenantId: string, actorId: string, input: unknown) {
+export async function createProgramWorkflow(
+  tenantId: string,
+  actorId: string,
+  input: unknown,
+) {
   const values = createProgramFormSchema.parse(input);
   const business = await getBusinessById(values.businessId, tenantId);
 
   if (values.programType === "CPC") {
     const existingPrograms = await listPrograms(tenantId, business.id);
-    assertNoConflictingCpcPrograms(existingPrograms, values.adCategories, extractYelpCategoryAliases(business.categoriesJson));
+    assertNoConflictingCpcPrograms(
+      existingPrograms,
+      values.adCategories,
+      extractYelpCategoryAliases(business.categoriesJson),
+    );
   }
 
-  const requestPayload = mapCreateProgramFormToDto(values, business.encryptedYelpBusinessId);
+  const requestPayload = mapCreateProgramFormToDto(
+    values,
+    business.encryptedYelpBusinessId,
+  );
   const draftProgram = await createProgramRecord(tenantId, business.id, {
     type: values.programType,
     status: "QUEUED",
@@ -360,7 +538,7 @@ export async function createProgramWorkflow(tenantId: string, actorId: string, i
     feePeriod: values.feePeriod,
     adCategoriesJson: values.adCategories,
     configurationJson: values,
-    startDate: values.startDate ? new Date(values.startDate) : null
+    startDate: values.startDate ? new Date(values.startDate) : null,
   });
 
   const correlationId = randomUUID();
@@ -370,7 +548,7 @@ export async function createProgramWorkflow(tenantId: string, actorId: string, i
     type: "CREATE_PROGRAM",
     status: "QUEUED",
     correlationId,
-    requestJson: toJsonValue(requestPayload)
+    requestJson: toJsonValue(requestPayload),
   });
 
   try {
@@ -381,11 +559,13 @@ export async function createProgramWorkflow(tenantId: string, actorId: string, i
         status: "COMPLETED",
         responseJson: toJsonValue({
           job_id: `demo-${job.id}`,
-          status: "COMPLETED"
+          status: "COMPLETED",
         }),
-        completedAt: new Date()
+        completedAt: new Date(),
       });
-      await updateProgramRecord(draftProgram.id, tenantId, { status: "ACTIVE" });
+      await updateProgramRecord(draftProgram.id, tenantId, {
+        status: "ACTIVE",
+      });
 
       await recordAuditEvent({
         tenantId,
@@ -397,7 +577,7 @@ export async function createProgramWorkflow(tenantId: string, actorId: string, i
         correlationId,
         requestSummary: toJsonValue(requestPayload),
         responseSummary: toJsonValue({ mode: "demo" }),
-        after: draftProgram as never
+        after: draftProgram as never,
       });
 
       return { programId: draftProgram.id, jobId: job.id };
@@ -406,7 +586,7 @@ export async function createProgramWorkflow(tenantId: string, actorId: string, i
     const { credential } = await ensureYelpAccess({
       tenantId,
       capabilityKey: "adsApiEnabled",
-      credentialKind: "ADS_BASIC_AUTH"
+      credentialKind: "ADS_BASIC_AUTH",
     });
     const client = new YelpAdsClient(credential);
     const response = await client.createProgram(requestPayload);
@@ -416,7 +596,7 @@ export async function createProgramWorkflow(tenantId: string, actorId: string, i
       upstreamJobId: response.data.job_id,
       status: mapped.jobStatus,
       responseJson: toJsonValue(response.data),
-      completedAt: null
+      completedAt: null,
     });
 
     await recordAuditEvent({
@@ -432,8 +612,8 @@ export async function createProgramWorkflow(tenantId: string, actorId: string, i
       responseSummary: toJsonValue(response.data),
       after: {
         ...draftProgram,
-        status: mapped.programStatus
-      } as never
+        status: mapped.programStatus,
+      } as never,
     });
 
     return { programId: draftProgram.id, jobId: job.id };
@@ -443,10 +623,10 @@ export async function createProgramWorkflow(tenantId: string, actorId: string, i
     await updateProgramJob(job.id, {
       status: "FAILED",
       errorJson: normalized.details as never,
-      completedAt: new Date()
+      completedAt: new Date(),
     });
     await updateProgramRecord(draftProgram.id, tenantId, {
-      status: "FAILED"
+      status: "FAILED",
     });
 
     await recordAuditEvent({
@@ -459,29 +639,84 @@ export async function createProgramWorkflow(tenantId: string, actorId: string, i
       correlationId,
       requestSummary: toJsonValue(requestPayload),
       responseSummary: toJsonValue({ message: normalized.message }),
-      rawPayloadSummary: normalized.details as never
+      rawPayloadSummary: normalized.details as never,
     });
 
     throw normalized;
   }
 }
 
-export async function editProgramWorkflow(tenantId: string, actorId: string, input: unknown) {
+export async function editProgramWorkflow(
+  tenantId: string,
+  actorId: string,
+  input: unknown,
+) {
   const values = editProgramFormSchema.parse(input);
   const program = await getProgramById(values.programId, tenantId);
+  const upstreamProgramId = assertProgramCanBeMutated(
+    program,
+    "editing this program",
+  );
   const business = await getBusinessById(program.businessId, tenantId);
+  const mappedRequest = mapEditProgramFormToDto(values);
+  const requestedCategories = normalizeProgramCategoryAliases(
+    values.adCategories,
+  );
+  const categoriesChanged = !sameNormalizedAliases(
+    requestedCategories,
+    program.adCategoriesJson,
+  );
 
-  if (values.programType === "CPC") {
+  if (values.programType === "CPC" && categoriesChanged) {
+    if (requestedCategories.length === 0) {
+      throw new YelpValidationError(
+        "Clearing categories on an existing Yelp program is ambiguous because an empty query is omitted. Use the focused category-targeting operation and select explicit listing categories.",
+      );
+    }
+
     const existingPrograms = await listPrograms(tenantId, business.id);
     assertNoConflictingCpcPrograms(
       existingPrograms,
-      values.adCategories,
+      requestedCategories,
       extractYelpCategoryAliases(business.categoriesJson),
-      program.id
+      program.id,
     );
   }
 
-  const requestPayload = mapEditProgramFormToDto(values);
+  const currentStartDate = program.startDate
+    ? program.startDate.toISOString().slice(0, 10)
+    : undefined;
+  const requestPayload = {
+    ...(program.status !== "ACTIVE" &&
+    mappedRequest.start &&
+    mappedRequest.start !== currentStartDate
+      ? { start: mappedRequest.start }
+      : {}),
+    ...(mappedRequest.budget != null &&
+    mappedRequest.budget !== program.budgetCents
+      ? { budget: mappedRequest.budget }
+      : {}),
+    ...(mappedRequest.future_budget_date
+      ? { future_budget_date: mappedRequest.future_budget_date }
+      : {}),
+    ...(mappedRequest.max_bid != null &&
+    mappedRequest.max_bid !== program.maxBidCents
+      ? { max_bid: mappedRequest.max_bid }
+      : {}),
+    ...(mappedRequest.pacing_method &&
+    mappedRequest.pacing_method !==
+      normalizeStoredPacingMethod(program.pacingMethod)
+      ? { pacing_method: mappedRequest.pacing_method }
+      : {}),
+    ...(categoriesChanged ? { ad_categories: requestedCategories } : {}),
+  };
+
+  if (Object.keys(requestPayload).length === 0) {
+    throw new YelpValidationError(
+      "No upstream program fields changed. Use the focused budget or category-targeting controls for live updates.",
+    );
+  }
+
   const correlationId = randomUUID();
 
   const job = await createProgramJob(tenantId, business.id, {
@@ -489,29 +724,31 @@ export async function editProgramWorkflow(tenantId: string, actorId: string, inp
     type: "EDIT_PROGRAM",
     status: "QUEUED",
     correlationId,
-    requestJson: toJsonValue(requestPayload)
+    requestJson: toJsonValue(requestPayload),
   });
 
   try {
-    const upstreamProgramId = assertProgramCanBeMutated(program, "editing this program");
     const { credential } = await ensureYelpAccess({
       tenantId,
       capabilityKey: "adsApiEnabled",
-      credentialKind: "ADS_BASIC_AUTH"
+      credentialKind: "ADS_BASIC_AUTH",
     });
     const client = new YelpAdsClient(credential);
-    const response = await client.editProgram(upstreamProgramId, requestPayload);
+    const response = await client.editProgram(
+      upstreamProgramId,
+      requestPayload,
+    );
     const mapped = mapSubmittedYelpJob(response.data);
 
     await updateProgramJob(job.id, {
       upstreamJobId: response.data.job_id,
       status: mapped.jobStatus,
       responseJson: toJsonValue(response.data),
-      completedAt: null
+      completedAt: null,
     });
 
     await updateProgramRecord(program.id, tenantId, {
-      status: mapped.programStatus
+      status: mapped.programStatus,
     });
 
     await recordAuditEvent({
@@ -526,7 +763,7 @@ export async function editProgramWorkflow(tenantId: string, actorId: string, inp
       requestSummary: toJsonValue(requestPayload),
       responseSummary: toJsonValue(response.data),
       before: program.configurationJson as never,
-      after: values as never
+      after: values as never,
     });
 
     return { programId: program.id, jobId: job.id };
@@ -536,7 +773,7 @@ export async function editProgramWorkflow(tenantId: string, actorId: string, inp
     await updateProgramJob(job.id, {
       status: "FAILED",
       errorJson: normalized.details as never,
-      completedAt: new Date()
+      completedAt: new Date(),
     });
 
     await recordAuditEvent({
@@ -548,43 +785,49 @@ export async function editProgramWorkflow(tenantId: string, actorId: string, inp
       status: "FAILED",
       requestSummary: toJsonValue(requestPayload),
       responseSummary: toJsonValue({ message: normalized.message }),
-      rawPayloadSummary: normalized.details as never
+      rawPayloadSummary: normalized.details as never,
     });
 
     throw normalized;
   }
 }
 
-export async function terminateProgramWorkflow(tenantId: string, actorId: string, input: unknown) {
+export async function terminateProgramWorkflow(
+  tenantId: string,
+  actorId: string,
+  input: unknown,
+) {
   const values = terminateProgramFormSchema.parse(input);
   const program = await getProgramById(values.programId, tenantId);
   const requestPayload = mapTerminateProgramFormToDto(values);
   const correlationId = randomUUID();
+  const capabilities = await getCapabilityFlags(tenantId);
+  const upstreamProgramId = isDemoAdsMode(capabilities)
+    ? null
+    : assertProgramCanBeTerminated(program);
 
   const job = await createProgramJob(tenantId, program.businessId, {
     programId: program.id,
     type: "END_PROGRAM",
     status: "QUEUED",
     correlationId,
-    requestJson: toJsonValue(requestPayload)
+    requestJson: toJsonValue(requestPayload),
   });
 
   try {
-    const capabilities = await getCapabilityFlags(tenantId);
-
     if (isDemoAdsMode(capabilities)) {
       await updateProgramJob(job.id, {
         status: "COMPLETED",
         responseJson: toJsonValue({
           job_id: `demo-${job.id}`,
-          status: "COMPLETED"
+          status: "COMPLETED",
         }),
-        completedAt: new Date()
+        completedAt: new Date(),
       });
 
       await updateProgramRecord(program.id, tenantId, {
         status: "ENDED",
-        endDate: values.endDate ? new Date(values.endDate) : new Date()
+        endDate: values.endDate ? new Date(values.endDate) : new Date(),
       });
 
       await recordAuditEvent({
@@ -602,28 +845,30 @@ export async function terminateProgramWorkflow(tenantId: string, actorId: string
         after: {
           ...program,
           status: "ENDED",
-          endDate: values.endDate ? new Date(values.endDate) : new Date()
-        } as never
+          endDate: values.endDate ? new Date(values.endDate) : new Date(),
+        } as never,
       });
 
       return { programId: program.id, jobId: job.id };
     }
 
-    const upstreamProgramId = assertProgramCanBeTerminated(program);
     const { credential } = await ensureYelpAccess({
       tenantId,
       capabilityKey: "adsApiEnabled",
-      credentialKind: "ADS_BASIC_AUTH"
+      credentialKind: "ADS_BASIC_AUTH",
     });
     const client = new YelpAdsClient(credential);
-    const response = await client.endProgram(upstreamProgramId, requestPayload);
+    const response = await client.endProgram(
+      upstreamProgramId!,
+      requestPayload,
+    );
     const mapped = mapSubmittedYelpJob(response.data);
 
     await updateProgramJob(job.id, {
       upstreamJobId: response.data.job_id,
       status: mapped.jobStatus,
       responseJson: toJsonValue(response.data),
-      completedAt: null
+      completedAt: null,
     });
 
     await recordAuditEvent({
@@ -640,8 +885,8 @@ export async function terminateProgramWorkflow(tenantId: string, actorId: string
       before: program as never,
       after: {
         ...program,
-        status: mapped.programStatus
-      } as never
+        status: mapped.programStatus,
+      } as never,
     });
 
     return { programId: program.id, jobId: job.id };
@@ -651,7 +896,7 @@ export async function terminateProgramWorkflow(tenantId: string, actorId: string
     await updateProgramJob(job.id, {
       status: "FAILED",
       errorJson: normalized.details as never,
-      completedAt: new Date()
+      completedAt: new Date(),
     });
 
     await recordAuditEvent({
@@ -663,20 +908,32 @@ export async function terminateProgramWorkflow(tenantId: string, actorId: string
       status: "FAILED",
       requestSummary: toJsonValue(requestPayload),
       responseSummary: toJsonValue({ message: normalized.message }),
-      rawPayloadSummary: normalized.details as never
+      rawPayloadSummary: normalized.details as never,
     });
 
     throw normalized;
   }
 }
 
-export async function updateProgramBudgetWorkflow(tenantId: string, actorId: string, programId: string, input: unknown) {
+export async function updateProgramBudgetWorkflow(
+  tenantId: string,
+  actorId: string,
+  programId: string,
+  input: unknown,
+) {
   const values = programBudgetOperationSchema.parse(input);
   const program = await getProgramById(programId, tenantId);
 
   if (program.type !== "CPC") {
-    throw new YelpValidationError("Budget operations are currently limited to CPC programs.");
+    throw new YelpValidationError(
+      "Budget operations are currently limited to CPC programs.",
+    );
   }
+
+  const upstreamProgramId = assertProgramCanBeMutated(
+    program,
+    "updating budget or bid settings",
+  );
 
   const correlationId = randomUUID();
   let requestPayload: ReturnType<typeof mapEditProgramFormToDto> | null = null;
@@ -685,10 +942,10 @@ export async function updateProgramBudgetWorkflow(tenantId: string, actorId: str
 
   if (values.operation === "CURRENT_BUDGET") {
     requestPayload = {
-      budget: parseCurrencyToCents(values.currentBudgetDollars)
+      budget: parseCurrencyToCents(values.currentBudgetDollars),
     };
     afterConfiguration = mergeConfigurationJson(program.configurationJson, {
-      monthlyBudgetDollars: values.currentBudgetDollars
+      monthlyBudgetDollars: values.currentBudgetDollars,
     });
     actionType = "program.budget.current.update";
   }
@@ -696,27 +953,31 @@ export async function updateProgramBudgetWorkflow(tenantId: string, actorId: str
   if (values.operation === "SCHEDULED_BUDGET") {
     requestPayload = {
       budget: parseCurrencyToCents(values.scheduledBudgetDollars),
-      future_budget_date: values.scheduledBudgetEffectiveDate
+      future_budget_date: values.scheduledBudgetEffectiveDate,
     };
     afterConfiguration = mergeConfigurationJson(program.configurationJson, {
       scheduledBudgetDollars: values.scheduledBudgetDollars,
-      scheduledBudgetEffectiveDate: values.scheduledBudgetEffectiveDate
+      scheduledBudgetEffectiveDate: values.scheduledBudgetEffectiveDate,
     });
     actionType = "program.budget.schedule.update";
   }
 
   if (values.operation === "BID_STRATEGY") {
     if (program.isAutobid && values.maxBidDollars) {
-      throw new YelpValidationError("This program is currently using Yelp autobid, so max bid cannot be changed directly.");
+      throw new YelpValidationError(
+        "This program is currently using Yelp autobid, so max bid cannot be changed directly.",
+      );
     }
 
     requestPayload = {
       pacing_method: values.pacingMethod,
-      ...(values.maxBidDollars ? { max_bid: parseCurrencyToCents(values.maxBidDollars) } : {})
+      ...(values.maxBidDollars
+        ? { max_bid: parseCurrencyToCents(values.maxBidDollars) }
+        : {}),
     };
     afterConfiguration = mergeConfigurationJson(program.configurationJson, {
       pacingMethod: values.pacingMethod,
-      ...(values.maxBidDollars ? { maxBidDollars: values.maxBidDollars } : {})
+      ...(values.maxBidDollars ? { maxBidDollars: values.maxBidDollars } : {}),
     });
     actionType = "program.bid-strategy.update";
   }
@@ -729,24 +990,26 @@ export async function updateProgramBudgetWorkflow(tenantId: string, actorId: str
     requestJson: toJsonValue({
       ...requestPayload,
       _operation: values.operation,
-      _internalNote: values.internalNote
-    })
+      _internalNote: values.internalNote,
+    }),
   });
 
   try {
-    const upstreamProgramId = assertProgramCanBeMutated(program, "updating budget or bid settings");
     const { credential } = await ensureYelpAccess({
       tenantId,
       capabilityKey: "adsApiEnabled",
-      credentialKind: "ADS_BASIC_AUTH"
+      credentialKind: "ADS_BASIC_AUTH",
     });
     const client = new YelpAdsClient(credential);
-    const response = await client.editProgram(upstreamProgramId, requestPayload!);
+    const response = await client.editProgram(
+      upstreamProgramId,
+      requestPayload!,
+    );
 
     await updateProgramJob(job.id, {
       upstreamJobId: response.data.job_id,
       status: "QUEUED",
-      responseJson: toJsonValue(response.data)
+      responseJson: toJsonValue(response.data),
     });
 
     await recordAuditEvent({
@@ -761,11 +1024,11 @@ export async function updateProgramBudgetWorkflow(tenantId: string, actorId: str
       requestSummary: toJsonValue({
         operation: values.operation,
         payload: requestPayload,
-        internalNote: values.internalNote
+        internalNote: values.internalNote,
       }),
       responseSummary: toJsonValue(response.data),
       before: program.configurationJson as never,
-      after: afterConfiguration as never
+      after: afterConfiguration as never,
     });
 
     return { programId: program.id, jobId: job.id };
@@ -775,7 +1038,7 @@ export async function updateProgramBudgetWorkflow(tenantId: string, actorId: str
     await updateProgramJob(job.id, {
       status: "FAILED",
       errorJson: normalized.details as never,
-      completedAt: new Date()
+      completedAt: new Date(),
     });
 
     await recordAuditEvent({
@@ -789,10 +1052,147 @@ export async function updateProgramBudgetWorkflow(tenantId: string, actorId: str
       requestSummary: toJsonValue({
         operation: values.operation,
         payload: requestPayload,
-        internalNote: values.internalNote
+        internalNote: values.internalNote,
       }),
       responseSummary: toJsonValue({ message: normalized.message }),
-      rawPayloadSummary: normalized.details as never
+      rawPayloadSummary: normalized.details as never,
+    });
+
+    throw normalized;
+  }
+}
+
+export async function updateProgramCategoryTargetingWorkflow(
+  tenantId: string,
+  actorId: string,
+  programId: string,
+  input: unknown,
+) {
+  const values = programCategoryTargetingOperationSchema.parse(input);
+  const program = await getProgramById(programId, tenantId);
+
+  if (program.type !== "CPC") {
+    throw new YelpValidationError(
+      "Category targeting operations are available for CPC programs only.",
+    );
+  }
+
+  const upstreamProgramId = assertProgramCanBeMutated(
+    program,
+    "updating category targeting",
+  );
+
+  const listingAliases = extractYelpCategoryAliases(
+    program.business.categoriesJson,
+  );
+  const requestedAliases = normalizeProgramCategoryAliases(values.adCategories);
+  const unknownAliases = requestedAliases.filter(
+    (alias) => !listingAliases.includes(alias),
+  );
+
+  if (listingAliases.length === 0) {
+    throw new YelpValidationError(
+      "This business has no saved Yelp category aliases. Sync or correct the business listing before changing campaign targeting.",
+    );
+  }
+
+  if (unknownAliases.length > 0) {
+    throw new YelpValidationError(
+      `These categories are not present on the saved Yelp business listing: ${unknownAliases.join(", ")}.`,
+    );
+  }
+
+  const existingPrograms = await listPrograms(tenantId, program.businessId);
+  assertNoConflictingCpcPrograms(
+    existingPrograms,
+    requestedAliases,
+    listingAliases,
+    program.id,
+  );
+
+  const correlationId = randomUUID();
+  const requestPayload = {
+    ad_categories: requestedAliases,
+  };
+  const afterConfiguration = mergeConfigurationJson(program.configurationJson, {
+    adCategories: requestedAliases,
+    categoryTargetingUpdatedAt: new Date().toISOString(),
+    categoryTargetingInternalNote: values.internalNote ?? "",
+  });
+  const job = await createProgramJob(tenantId, program.businessId, {
+    programId: program.id,
+    type: "EDIT_PROGRAM",
+    status: "QUEUED",
+    correlationId,
+    requestJson: toJsonValue({
+      ...requestPayload,
+      _operation: "CATEGORY_TARGETING",
+      _internalNote: values.internalNote ?? "",
+    }),
+  });
+
+  try {
+    const { credential } = await ensureYelpAccess({
+      tenantId,
+      capabilityKey: "adsApiEnabled",
+      credentialKind: "ADS_BASIC_AUTH",
+    });
+    const client = new YelpAdsClient(credential);
+    const response = await client.editProgram(
+      upstreamProgramId,
+      requestPayload,
+    );
+
+    await updateProgramJob(job.id, {
+      upstreamJobId: response.data.job_id,
+      status: "QUEUED",
+      responseJson: toJsonValue(response.data),
+    });
+
+    await recordAuditEvent({
+      tenantId,
+      actorId,
+      businessId: program.businessId,
+      programId: program.id,
+      actionType: "program.category-targeting.update",
+      status: "SUCCESS",
+      correlationId: response.correlationId,
+      upstreamReference: response.data.job_id,
+      requestSummary: toJsonValue({
+        operation: "CATEGORY_TARGETING",
+        payload: requestPayload,
+        internalNote: values.internalNote ?? "",
+      }),
+      responseSummary: toJsonValue(response.data),
+      before: program.configurationJson as never,
+      after: afterConfiguration as never,
+    });
+
+    return { programId: program.id, jobId: job.id };
+  } catch (error) {
+    const normalized = normalizeUnknownError(error);
+
+    await updateProgramJob(job.id, {
+      status: "FAILED",
+      errorJson: normalized.details as never,
+      completedAt: new Date(),
+    });
+
+    await recordAuditEvent({
+      tenantId,
+      actorId,
+      businessId: program.businessId,
+      programId: program.id,
+      actionType: "program.category-targeting.update",
+      status: "FAILED",
+      correlationId,
+      requestSummary: toJsonValue({
+        operation: "CATEGORY_TARGETING",
+        payload: requestPayload,
+        internalNote: values.internalNote ?? "",
+      }),
+      responseSummary: toJsonValue({ message: normalized.message }),
+      rawPayloadSummary: normalized.details as never,
     });
 
     throw normalized;
@@ -802,9 +1202,18 @@ export async function updateProgramBudgetWorkflow(tenantId: string, actorId: str
 export async function pollProgramJobWorkflow(tenantId: string, jobId: string) {
   const job = await getProgramJob(jobId, tenantId);
   const capabilities = await getCapabilityFlags(tenantId);
-  const shouldRetryFailedPoll = job.status === "FAILED" && job.upstreamJobId && isRetryableStatusPollFailure(job.errorJson);
+  const shouldRetryFailedPoll =
+    job.status === "FAILED" &&
+    job.upstreamJobId &&
+    isRetryableStatusPollFailure(job.errorJson);
 
-  if (!shouldRetryFailedPoll && (job.completedAt || job.status === "COMPLETED" || job.status === "PARTIAL" || job.status === "FAILED")) {
+  if (
+    !shouldRetryFailedPoll &&
+    (job.completedAt ||
+      job.status === "COMPLETED" ||
+      job.status === "PARTIAL" ||
+      job.status === "FAILED")
+  ) {
     return job;
   }
 
@@ -813,14 +1222,16 @@ export async function pollProgramJobWorkflow(tenantId: string, jobId: string) {
   }
 
   if (!job.upstreamJobId) {
-    throw new YelpMissingAccessError("The selected job does not have an upstream job ID yet.");
+    throw new YelpMissingAccessError(
+      "The selected job does not have an upstream job ID yet.",
+    );
   }
 
   try {
     const { credential } = await ensureYelpAccess({
       tenantId,
       capabilityKey: "adsApiEnabled",
-      credentialKind: "ADS_BASIC_AUTH"
+      credentialKind: "ADS_BASIC_AUTH",
     });
     const client = new YelpAdsClient(credential);
 
@@ -831,8 +1242,14 @@ export async function pollProgramJobWorkflow(tenantId: string, jobId: string) {
         const response = await client.getJobStatus(job.upstreamJobId!);
         const mapped = mapYelpJobStatusReceipt(
           response.data,
-          job.type === "CREATE_PROGRAM" ? "CREATE_PROGRAM" : job.type === "EDIT_PROGRAM" ? "EDIT_PROGRAM" : "END_PROGRAM",
-          job.program?.startDate ? job.program.startDate.toISOString().slice(0, 10) : undefined
+          job.type === "CREATE_PROGRAM"
+            ? "CREATE_PROGRAM"
+            : job.type === "EDIT_PROGRAM"
+              ? "EDIT_PROGRAM"
+              : "END_PROGRAM",
+          job.program?.startDate
+            ? job.program.startDate.toISOString().slice(0, 10)
+            : undefined,
         );
         const issue = summarizeYelpJobIssue(response.data);
 
@@ -841,50 +1258,61 @@ export async function pollProgramJobWorkflow(tenantId: string, jobId: string) {
           responseJson: toJsonValue(response.data),
           errorJson: issue ? toJsonValue(issue) : undefined,
           lastPolledAt: new Date(),
-          completedAt: mapped.isTerminal ? new Date() : null
+          completedAt: mapped.isTerminal ? new Date() : null,
         });
 
         if (issue?.code === "UNSUPPORTED_CATEGORIES") {
           await updateBusinessRecord(job.businessId, tenantId, {
-            readinessJson: mergeBusinessReadinessJson(job.business?.readinessJson, {
-              adsEligibilityBlocked: true,
-              adsEligibilityStatus: "INELIGIBLE",
-              adsEligibilityCode: issue.code,
-              adsEligibilityMessage: issue.rawMessage ?? issue.description,
-              adsEligibilityDetectedAt: new Date().toISOString()
-            })
+            readinessJson: mergeBusinessReadinessJson(
+              job.business?.readinessJson,
+              {
+                adsEligibilityBlocked: true,
+                adsEligibilityStatus: "INELIGIBLE",
+                adsEligibilityCode: issue.code,
+                adsEligibilityMessage: issue.rawMessage ?? issue.description,
+                adsEligibilityDetectedAt: new Date().toISOString(),
+              },
+            ),
           });
         } else if (mapped.jobStatus === "COMPLETED") {
           await updateBusinessRecord(job.businessId, tenantId, {
-            readinessJson: mergeBusinessReadinessJson(job.business?.readinessJson, {
-              adsEligibilityBlocked: false,
-              adsEligibilityStatus: "ELIGIBLE",
-              adsEligibilityCode: null,
-              adsEligibilityMessage: null,
-              adsEligibilityDetectedAt: new Date().toISOString()
-            })
+            readinessJson: mergeBusinessReadinessJson(
+              job.business?.readinessJson,
+              {
+                adsEligibilityBlocked: false,
+                adsEligibilityStatus: "ELIGIBLE",
+                adsEligibilityCode: null,
+                adsEligibilityMessage: null,
+                adsEligibilityDetectedAt: new Date().toISOString(),
+              },
+            ),
           });
         }
 
         if (job.programId) {
           const derivedProgramPatch = mapped.isTerminal
-            ? deriveProgramUpdateFromEditRequest(job.requestJson, job.program?.configurationJson)
+            ? deriveProgramUpdateFromEditRequest(
+                job.requestJson,
+                job.program?.configurationJson,
+              )
             : {};
 
           await updateProgramRecord(job.programId, tenantId, {
             status: mapped.programStatus,
             upstreamProgramId: mapped.upstreamProgramId ?? undefined,
-            ...(mapped.programStatus === "ENDED" ? { endDate: new Date() } : {}),
-            ...(job.type === "EDIT_PROGRAM" ? derivedProgramPatch : {})
+            ...(mapped.programStatus === "ENDED"
+              ? { endDate: new Date() }
+              : {}),
+            ...(job.type === "EDIT_PROGRAM" ? derivedProgramPatch : {}),
           });
         }
 
         return {
           ...response.data,
-          mapped
+          mapped,
         };
       },
-      isComplete: (value) => value.mapped.isTerminal
+      isComplete: (value) => value.mapped.isTerminal,
     });
 
     void result;
@@ -893,22 +1321,18 @@ export async function pollProgramJobWorkflow(tenantId: string, jobId: string) {
     const normalized = normalizeUnknownError(error);
 
     await updateProgramJob(job.id, {
-      status: "FAILED",
+      // A failed status lookup does not mean Yelp rejected the underlying
+      // mutation. Keep the job reconcilable and preserve the live program.
+      status: "PROCESSING",
       errorJson: toJsonValue({
         source: "status_poll",
         code: normalized.code,
         message: normalized.message,
-        details: normalized.details ?? null
+        details: normalized.details ?? null,
       }),
       lastPolledAt: new Date(),
-      completedAt: new Date()
+      completedAt: null,
     });
-
-    if (job.programId) {
-      await updateProgramRecord(job.programId, tenantId, {
-        status: "FAILED"
-      });
-    }
 
     return getProgramJob(jobId, tenantId);
   }
@@ -924,7 +1348,7 @@ export async function reconcilePendingProgramJobs(limit = 25) {
       results.push({
         jobId: job.id,
         tenantId: job.tenantId,
-        status: reconciled.status
+        status: reconciled.status,
       });
     } catch (error) {
       const normalized = normalizeUnknownError(error);
@@ -933,7 +1357,7 @@ export async function reconcilePendingProgramJobs(limit = 25) {
         tenantId: job.tenantId,
         status: "FAILED",
         code: normalized.code,
-        message: normalized.message
+        message: normalized.message,
       });
     }
   }

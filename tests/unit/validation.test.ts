@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { createProgramFormSchema, currentBudgetOperationSchema, scheduledBudgetOperationSchema } from "@/features/ads-programs/schemas";
+import {
+  createProgramFormSchema,
+  currentBudgetOperationSchema,
+  programCategoryTargetingOperationSchema,
+  scheduledBudgetOperationSchema,
+} from "@/features/ads-programs/schemas";
 import { deleteBusinessFormSchema } from "@/features/businesses/schemas";
 import { reportRequestFormSchema } from "@/features/reporting/schemas";
 import { monthlyBudgetDollarsFromDailyInput } from "@/lib/yelp/budget";
@@ -16,7 +21,7 @@ describe("validation", () => {
       maxBidDollars: "",
       pacingMethod: "paced",
       feePeriod: "CALENDAR_MONTH",
-      adCategories: ["HVAC"]
+      adCategories: ["HVAC"],
     });
 
     expect(result.success).toBe(false);
@@ -32,7 +37,7 @@ describe("validation", () => {
       maxBidDollars: "",
       pacingMethod: "paced",
       feePeriod: "CALENDAR_MONTH",
-      adCategories: []
+      adCategories: [],
     });
 
     expect(result.success).toBe(true);
@@ -44,7 +49,7 @@ describe("validation", () => {
       businessIds: ["business_1"],
       startDate: "2026-01-01",
       endDate: "2026-02-15",
-      metrics: ["impressions"]
+      metrics: ["impressions"],
     });
 
     expect(result.success).toBe(false);
@@ -53,7 +58,7 @@ describe("validation", () => {
   it("rejects budget operations below the CPC minimum", () => {
     const result = currentBudgetOperationSchema.safeParse({
       operation: "CURRENT_BUDGET",
-      currentBudgetDollars: "20.00"
+      currentBudgetDollars: "20.00",
     });
 
     expect(result.success).toBe(false);
@@ -62,11 +67,11 @@ describe("validation", () => {
   it("applies the CPC minimum to the estimated monthly spend from daily input", () => {
     const belowMinimum = currentBudgetOperationSchema.safeParse({
       operation: "CURRENT_BUDGET",
-      currentBudgetDollars: monthlyBudgetDollarsFromDailyInput("0.83")
+      currentBudgetDollars: monthlyBudgetDollarsFromDailyInput("0.83"),
     });
     const atMinimum = currentBudgetOperationSchema.safeParse({
       operation: "CURRENT_BUDGET",
-      currentBudgetDollars: monthlyBudgetDollarsFromDailyInput("0.84")
+      currentBudgetDollars: monthlyBudgetDollarsFromDailyInput("0.84"),
     });
 
     expect(belowMinimum.success).toBe(false);
@@ -77,16 +82,30 @@ describe("validation", () => {
     const result = scheduledBudgetOperationSchema.safeParse({
       operation: "SCHEDULED_BUDGET",
       scheduledBudgetDollars: "30.00",
-      scheduledBudgetEffectiveDate: "2026-03-01"
+      scheduledBudgetEffectiveDate: "2026-03-01",
     });
 
     expect(result.success).toBe(false);
   });
 
+  it("requires explicit aliases for category-targeting edits", () => {
+    expect(
+      programCategoryTargetingOperationSchema.safeParse({
+        adCategories: [],
+      }).success,
+    ).toBe(false);
+    expect(
+      programCategoryTargetingOperationSchema.safeParse({
+        adCategories: ["hvac", "plumbing", "waterheaterinstallrepair"],
+        internalNote: "Restore listing-wide targeting.",
+      }).success,
+    ).toBe(true);
+  });
+
   it("requires confirmation text for business deletion", () => {
     const result = deleteBusinessFormSchema.safeParse({
       businessId: "business_1",
-      confirmationText: ""
+      confirmationText: "",
     });
 
     expect(result.success).toBe(false);

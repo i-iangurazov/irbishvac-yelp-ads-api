@@ -2,12 +2,13 @@ import Link from "next/link";
 import type { Route } from "next";
 
 import { ProgramBudgetOperations } from "@/components/forms/program-budget-operations";
+import { ProgramCategoryTargetingOperations } from "@/components/forms/program-category-targeting-operations";
 import { JobStatusPoller } from "@/components/forms/job-status-poller";
-import { ProgramForm } from "@/components/forms/program-form";
 import { ProgramTerminateForm } from "@/components/forms/program-terminate-form";
 import { AuditTimeline } from "@/components/shared/audit-timeline";
 import { JsonViewer } from "@/components/shared/json-viewer";
 import { PageHeader } from "@/components/shared/page-header";
+import { ProgramCategoryList } from "@/components/shared/program-category-list";
 import { StatusChip } from "@/components/shared/status-chip";
 import { YelpBudgetDisplay } from "@/components/shared/yelp-budget-display";
 import { Badge } from "@/components/ui/badge";
@@ -20,7 +21,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { getProgramDetail } from "@/features/ads-programs/service";
-import { getBusinessesIndex } from "@/features/businesses/service";
+import { programTypeLabels } from "@/features/ads-programs/schemas";
+import { resolveProgramCategoryScope } from "@/features/ads-programs/targeting";
 import { requireUser } from "@/lib/auth/service";
 import {
   formatCurrency,
@@ -30,30 +32,6 @@ import {
 } from "@/lib/utils/format";
 import { monthlyBudgetCentsToDailyBudgetCents } from "@/lib/yelp/budget";
 import { getCapabilityFlags } from "@/lib/yelp/runtime";
-
-function normalizePacingMethod(value?: string) {
-  if (value === "STANDARD") {
-    return "paced" as const;
-  }
-
-  if (value === "ACCELERATED") {
-    return "unpaced" as const;
-  }
-
-  return value === "unpaced" ? "unpaced" : "paced";
-}
-
-function normalizeFeePeriod(value?: string) {
-  if (value === "MONTHLY") {
-    return "CALENDAR_MONTH" as const;
-  }
-
-  if (value === "WEEKLY") {
-    return "ROLLING_MONTH" as const;
-  }
-
-  return value === "ROLLING_MONTH" ? "ROLLING_MONTH" : "CALENDAR_MONTH";
-}
 
 function parseBudgetCents(value: string | undefined) {
   if (!value) {
@@ -77,9 +55,8 @@ export default async function ProgramDetailPage({
   const user = await requireUser();
   const { programId } = await params;
   const query = await searchParams;
-  const [program, businesses, capabilities] = await Promise.all([
+  const [program, capabilities] = await Promise.all([
     getProgramDetail(user.tenantId, programId),
-    getBusinessesIndex(user.tenantId),
     getCapabilityFlags(user.tenantId),
   ]);
   const configuration =
@@ -97,6 +74,12 @@ export default async function ProgramDetailPage({
       : undefined;
   const scheduledBudgetCents = parseBudgetCents(scheduledBudgetDollars);
   const latestJob = program.jobs[0];
+  const categoryScope = resolveProgramCategoryScope(
+    program.type,
+    program.adCategoriesJson,
+    program.business.categoriesJson,
+  );
+  const importedFromYelp = configuration.syncImportedFromYelp === true;
   const activeFeatureSnapshots = program.featureSnapshots.filter(
     (snapshot) => !snapshot.isDeleted,
   );
@@ -148,6 +131,45 @@ export default async function ProgramDetailPage({
           : program.type === "CPC"
             ? `${program.isAutobid ? "Autobid" : "Manual bid"}; max bid ${formatCurrency(program.maxBidCents, program.currency)}.`
             : "Budget controls are not available for this program type.",
+    },
+    {
+      id: "category-targeting",
+      label: "Category targeting",
+      status:
+        categoryScope.kind === "LISTING_WIDE_EXPLICIT" ||
+        categoryScope.kind === "LISTING_WIDE_INFERRED"
+          ? "READY"
+          : categoryScope.kind === "CATEGORY_SPECIFIC"
+            ? "SCOPED"
+            : "INACTIVE",
+      value:
+        categoryScope.kind === "LISTING_WIDE_EXPLICIT"
+          ? "Listing-wide"
+          : categoryScope.kind === "LISTING_WIDE_INFERRED"
+            ? "Yelp inferred"
+            : categoryScope.kind === "CATEGORY_SPECIFIC"
+              ? "Category-specific"
+              : "Not applicable",
+      detail:
+        categoryScope.kind === "CATEGORY_SPECIFIC"
+          ? `Explicit aliases: ${categoryScope.aliases.join(", ")}.`
+          : categoryScope.kind === "LISTING_WIDE_EXPLICIT"
+            ? `Explicitly covers every saved listing category: ${categoryScope.aliases.join(", ")}.`
+            : categoryScope.kind === "LISTING_WIDE_INFERRED"
+              ? "No explicit aliases were returned; Yelp derives targeting from the listing."
+              : "Only CPC programs use ad-category targeting.",
+      href: program.type === "CPC" ? "#category-targeting" : undefined,
+    },
+    {
+      id: "record-origin",
+      label: "Record origin",
+      status: importedFromYelp ? "EXTERNAL" : "READY",
+      value: importedFromYelp ? "Imported from Yelp" : "Managed here",
+      detail: importedFromYelp
+        ? program.jobs.length > 0
+          ? "The original create happened outside this console; later Yelp operations are recorded here."
+          : "No originating create or edit job exists in this console."
+        : "At least one originating Yelp operation is recorded in this console.",
     },
     {
       id: "features",
@@ -251,12 +273,23 @@ export default async function ProgramDetailPage({
           },
         ]
       : []),
+    ...(program.type === "CPC" && importedFromYelp
+      ? [
+          {
+            id: "external-program-origin",
+            status: "EXTERNAL",
+            title: "Program was created outside this console",
+            detail:
+              "The console can read and manage it now, but it cannot identify the original external actor or job.",
+          },
+        ]
+      : []),
   ];
 
   return (
     <div>
       <PageHeader
-        title={`${program.type} program`}
+        title={`${programTypeLabels[program.type]} program`}
         description="Check local status, Yelp confirmation, budget, features, business mapping, and automation posture."
         actions={
           <div className="flex flex-wrap gap-3">
@@ -394,6 +427,16 @@ export default async function ProgramDetailPage({
                 <div>{program.pacingMethod ?? "Not set"}</div>
               </div>
               <div>
+                <div className="text-muted-foreground">Category targeting</div>
+                <div className="mt-1">
+                  <ProgramCategoryList
+                    categories={program.adCategoriesJson}
+                    categoryCatalog={program.business.categoriesJson}
+                    programType={program.type}
+                  />
+                </div>
+              </div>
+              <div>
                 <div className="text-muted-foreground">Yelp program ID</div>
                 <div>{program.upstreamProgramId ?? "Not assigned yet"}</div>
               </div>
@@ -435,16 +478,23 @@ export default async function ProgramDetailPage({
           </Card>
 
           {program.type === "CPC" ? (
-            <ProgramBudgetOperations
-              programId={program.id}
-              currency={program.currency}
-              currentBudgetCents={program.budgetCents}
-              currentMaxBidCents={program.maxBidCents}
-              currentPacingMethod={program.pacingMethod}
-              isAutobid={program.isAutobid}
-              scheduledBudgetDollars={scheduledBudgetDollars}
-              scheduledBudgetEffectiveDate={scheduledBudgetEffectiveDate}
-            />
+            <>
+              <ProgramCategoryTargetingOperations
+                programId={program.id}
+                currentCategories={program.adCategoriesJson}
+                listingCategories={program.business.categoriesJson}
+              />
+              <ProgramBudgetOperations
+                programId={program.id}
+                currency={program.currency}
+                currentBudgetCents={program.budgetCents}
+                currentMaxBidCents={program.maxBidCents}
+                currentPacingMethod={program.pacingMethod}
+                isAutobid={program.isAutobid}
+                scheduledBudgetDollars={scheduledBudgetDollars}
+                scheduledBudgetEffectiveDate={scheduledBudgetEffectiveDate}
+              />
+            </>
           ) : (
             <Card>
               <CardHeader>
@@ -457,45 +507,6 @@ export default async function ProgramDetailPage({
               </CardContent>
             </Card>
           )}
-
-          <ProgramForm
-            mode="edit"
-            programId={program.id}
-            businesses={businesses.map((business) => ({
-              id: business.id,
-              name: business.name,
-              categories: business.categories,
-              readiness: business.readiness,
-            }))}
-            initialValues={{
-              businessId: program.businessId,
-              programType: program.type,
-              currency: program.currency,
-              monthlyBudgetDollars: program.budgetCents
-                ? String(program.budgetCents / 100)
-                : "",
-              maxBidDollars: program.maxBidCents
-                ? String(program.maxBidCents / 100)
-                : "",
-              isAutobid: program.isAutobid ?? true,
-              pacingMethod: normalizePacingMethod(
-                program.pacingMethod ?? undefined,
-              ),
-              feePeriod: normalizeFeePeriod(program.feePeriod ?? undefined),
-              adCategories: Array.isArray(program.adCategoriesJson)
-                ? (program.adCategoriesJson as string[])
-                : [],
-              notes:
-                typeof program.configurationJson === "object" &&
-                program.configurationJson !== null &&
-                "notes" in program.configurationJson
-                  ? String(
-                      (program.configurationJson as Record<string, unknown>)
-                        .notes ?? "",
-                    )
-                  : "",
-            }}
-          />
 
           <Card>
             <CardHeader>

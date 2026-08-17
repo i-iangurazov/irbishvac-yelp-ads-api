@@ -27,6 +27,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { programTypeLabels } from "@/features/ads-programs/schemas";
+import { analyzeBusinessCpcTargeting } from "@/features/ads-programs/targeting";
 import { getBusinessDetail } from "@/features/businesses/service";
 import { requireUser } from "@/lib/auth/service";
 import { hasPermission } from "@/lib/permissions";
@@ -53,6 +55,10 @@ export default async function BusinessDetailPage({
   const user = await requireUser();
   const { businessId } = await params;
   const business = await getBusinessDetail(user.tenantId, businessId);
+  const targetingIssues = analyzeBusinessCpcTargeting(
+    business.currentPrograms,
+    business.categories,
+  );
   const canManageBusinesses = hasPermission(user.role.code, "businesses:write");
   const hasBlockingPrograms = business.programs.some((program) =>
     ["ACTIVE", "SCHEDULED", "QUEUED", "PROCESSING"].includes(program.status),
@@ -169,6 +175,36 @@ export default async function BusinessDetailPage({
 
       <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
         <div className="space-y-6">
+          {targetingIssues.length > 0 ? (
+            <Card className="border-destructive/35 bg-destructive/5">
+              <CardHeader>
+                <CardTitle className="text-destructive">
+                  CPC targeting requires immediate review
+                </CardTitle>
+                <CardDescription>
+                  Current CPC programs do not match the expected listing-wide
+                  plus category-specific structure.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {targetingIssues.map((issue, index) => (
+                  <div
+                    className="rounded-lg border border-destructive/20 bg-background/80 p-3"
+                    key={`${issue.code}-${index}`}
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="destructive">{issue.code}</Badge>
+                      <span className="font-medium">{issue.title}</span>
+                    </div>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      {issue.description}
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          ) : null}
+
           <Card>
             <CardHeader>
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -438,7 +474,17 @@ export default async function BusinessDetailPage({
                       <TableRow key={program.program_id}>
                         <TableCell>
                           <div className="font-medium">
-                            {program.program_type}
+                            {program.program_type in programTypeLabels
+                              ? programTypeLabels[
+                                  program.program_type as keyof typeof programTypeLabels
+                                ]
+                              : program.program_type}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {program.program_type} ·{" "}
+                            {program.program_type === "CPC"
+                              ? "Advertising campaign"
+                              : "Profile product"}
                           </div>
                           <div className="font-mono text-xs text-muted-foreground">
                             {program.program_id}
@@ -480,6 +526,7 @@ export default async function BusinessDetailPage({
                           <ProgramCategoryList
                             categories={program.ad_categories}
                             categoryCatalog={business.categories}
+                            programType={program.program_type}
                           />
                         </TableCell>
                         <TableCell className="space-y-2">
@@ -569,9 +616,21 @@ export default async function BusinessDetailPage({
                       <TableRow key={program.id}>
                         <TableCell>
                           <div className="space-y-2">
-                            <div>{program.type}</div>
+                            <div>{programTypeLabels[program.type]}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {program.type} ·{" "}
+                              {typeof program.configurationJson === "object" &&
+                              program.configurationJson !== null &&
+                              "syncImportedFromYelp" in
+                                program.configurationJson &&
+                              program.configurationJson.syncImportedFromYelp ===
+                                true
+                                ? "Imported from Yelp"
+                                : "Managed in this console"}
+                            </div>
                             <ProgramCategoryList
                               categories={program.adCategoriesJson}
+                              programType={program.type}
                               categoryCatalog={business.categories}
                             />
                           </div>

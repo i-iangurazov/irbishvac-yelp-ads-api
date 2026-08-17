@@ -23,6 +23,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { getProgramsIndex } from "@/features/ads-programs/service";
+import { programTypeLabels } from "@/features/ads-programs/schemas";
+import { analyzeBusinessCpcTargeting } from "@/features/ads-programs/targeting";
 import { requireUser } from "@/lib/auth/service";
 import { formatCurrency, formatDateTime, titleCase } from "@/lib/utils/format";
 
@@ -42,6 +44,25 @@ export default async function ProgramsPage() {
     program.jobs.some(
       (job) => job.status === "FAILED" || job.status === "PARTIAL",
     ),
+  );
+  const programsByBusiness = new Map<string, (typeof programs)[number][]>();
+
+  for (const program of programs) {
+    const existing = programsByBusiness.get(program.businessId) ?? [];
+    existing.push(program);
+    programsByBusiness.set(program.businessId, existing);
+  }
+
+  const targetingIssues = [...programsByBusiness.values()].flatMap(
+    (businessPrograms) =>
+      analyzeBusinessCpcTargeting(
+        businessPrograms,
+        businessPrograms[0]?.business.categoriesJson,
+      ).map((issue) => ({
+        ...issue,
+        businessId: businessPrograms[0]!.businessId,
+        businessName: businessPrograms[0]!.business.name,
+      })),
   );
 
   return (
@@ -74,8 +95,12 @@ export default async function ProgramsPage() {
         />
         <MetricCard
           title="Needs review"
-          value={recentFailures.length + unsyncedPrograms.length}
-          description="Programs with failed jobs or without a confirmed Yelp program ID."
+          value={
+            recentFailures.length +
+            unsyncedPrograms.length +
+            targetingIssues.length
+          }
+          description="Failed jobs, missing Yelp IDs, or targeting integrity problems."
         />
       </div>
 
@@ -85,6 +110,41 @@ export default async function ProgramsPage() {
         <Badge variant="outline">Confirmed Yelp ID</Badge>
         <span>Read all three together when a program is still in flight.</span>
       </div>
+
+      {targetingIssues.length > 0 ? (
+        <div className="mt-6 rounded-lg border border-destructive/35 bg-destructive/5 p-4">
+          <div className="font-semibold text-destructive">
+            CPC targeting requires immediate review
+          </div>
+          <div className="mt-1 text-sm text-muted-foreground">
+            These checks compare every current CPC program with the saved Yelp
+            listing categories, including programs imported from outside this
+            console.
+          </div>
+          <div className="mt-4 grid gap-3 lg:grid-cols-2">
+            {targetingIssues.map((issue, index) => (
+              <div
+                className="rounded-lg border border-destructive/20 bg-background/80 p-3"
+                key={`${issue.businessId}-${issue.code}-${index}`}
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="destructive">{issue.code}</Badge>
+                  <Link
+                    className="font-medium hover:underline"
+                    href={`/businesses/${issue.businessId}`}
+                  >
+                    {issue.businessName}
+                  </Link>
+                </div>
+                <div className="mt-2 text-sm font-medium">{issue.title}</div>
+                <div className="mt-1 text-sm text-muted-foreground">
+                  {issue.description}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       <Card className="mt-6">
         <CardHeader>
@@ -112,6 +172,13 @@ export default async function ProgramsPage() {
               <TableBody>
                 {programs.map((program) => {
                   const latestJob = program.jobs[0];
+                  const configuration =
+                    typeof program.configurationJson === "object" &&
+                    program.configurationJson !== null
+                      ? (program.configurationJson as Record<string, unknown>)
+                      : {};
+                  const importedFromYelp =
+                    configuration.syncImportedFromYelp === true;
 
                   return (
                     <TableRow key={program.id}>
@@ -124,15 +191,31 @@ export default async function ProgramsPage() {
                         </Link>
                       </TableCell>
                       <TableCell>
-                        <div className="font-medium">{program.type}</div>
+                        <div className="font-medium">
+                          {programTypeLabels[program.type]}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {program.type} ·{" "}
+                          {program.type === "CPC"
+                            ? "Advertising campaign"
+                            : "Profile product"}
+                        </div>
                         <div className="mt-2">
                           <StatusChip status={program.status} />
+                        </div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          {importedFromYelp
+                            ? program.jobs.length > 0
+                              ? "Imported from Yelp · now managed here"
+                              : "Imported from Yelp · no originating job here"
+                            : "Managed in this console"}
                         </div>
                       </TableCell>
                       <TableCell className="max-w-sm">
                         <ProgramCategoryList
                           categories={program.adCategoriesJson}
                           categoryCatalog={program.business.categoriesJson}
+                          programType={program.type}
                         />
                       </TableCell>
                       <TableCell>
