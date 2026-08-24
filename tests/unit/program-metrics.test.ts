@@ -37,6 +37,79 @@ describe("Yelp program metrics", () => {
     );
   });
 
+  it("derives forward MTD only when daily snapshots include a prior-month baseline", () => {
+    const program = {
+      budgetCents: 6_000_000,
+      configurationJson: {
+        programSpendDailySnapshots: [
+          {
+            observedDate: "2026-07-31",
+            observedAt: "2026-08-01T06:30:00.000Z",
+            amountCents: 900_000,
+            currency: "USD",
+            feePeriod: "Calendar Month",
+          },
+          {
+            observedDate: "2026-08-01",
+            observedAt: "2026-08-02T06:30:00.000Z",
+            amountCents: 25_000,
+            currency: "USD",
+            feePeriod: "Calendar Month",
+          },
+          {
+            observedDate: "2026-08-24",
+            observedAt: "2026-08-24T17:00:00.000Z",
+            amountCents: 986_760,
+            currency: "USD",
+            feePeriod: "Calendar Month",
+          },
+        ],
+      },
+      summaryJson: {},
+      currency: "USD",
+    };
+
+    expect(getProgramSpendState(program, augustNow)).toMatchObject({
+      amountCents: 986_760,
+      mtdAmountCents: 986_760,
+      periodStart: "2026-08-01",
+      periodEnd: "2026-08-24",
+      source: "Derived from daily Yelp Program List billing-period snapshots",
+      status: "current",
+    });
+  });
+
+  it("does not derive historical MTD without a prior-month snapshot", () => {
+    const program = {
+      budgetCents: 6_000_000,
+      configurationJson: {
+        programSpendDailySnapshots: [
+          {
+            observedDate: "2026-08-24",
+            observedAt: "2026-08-24T17:00:00.000Z",
+            amountCents: 986_760,
+            currency: "USD",
+            feePeriod: "Calendar Month",
+          },
+        ],
+      },
+      summaryJson: {
+        program_metrics: {
+          ad_cost: 986_760,
+          currency: "USD",
+          fee_period: "Calendar Month",
+        },
+      },
+      currency: "USD",
+    };
+
+    expect(getProgramSpendState(program, augustNow)).toMatchObject({
+      amountCents: 986_760,
+      mtdAmountCents: null,
+      periodLabel: "Yelp fee period: Calendar Month",
+    });
+  });
+
   it("accepts explicit date-bounded evidence for the current Pacific MTD range", () => {
     const program = {
       budgetCents: 600_000,

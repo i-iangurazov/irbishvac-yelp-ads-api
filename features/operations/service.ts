@@ -1,8 +1,9 @@
 import "server-only";
 
-import type { CredentialKind, SyncRunType } from "@prisma/client";
+import type { CredentialKind, RoleCode, SyncRunType } from "@prisma/client";
 
 import { getProgramsIndex } from "@/features/ads-programs/service";
+import { recordAuditEvent } from "@/features/audit/service";
 import { getBusinessesIndex } from "@/features/businesses/service";
 import {
   countSyncErrors,
@@ -12,23 +13,45 @@ import {
   listRecentLocations,
   listRecentServiceCategories,
   listRecentSyncRuns,
-  listRecentWebhookEvents
+  listRecentWebhookEvents,
 } from "@/lib/db/operations-repository";
-import { getWorkerJobOverview } from "@/lib/db/worker-jobs-repository";
+import {
+  getWorkerJobOverview,
+  requeueDeadLetteredWorkerJob,
+} from "@/lib/db/worker-jobs-repository";
 import { listCredentialSets } from "@/lib/db/credentials-repository";
 import { getReportingIndex } from "@/features/reporting/service";
 import { getCredentialHealthViewModel } from "@/features/settings/view-models";
 import { getCapabilityFlags } from "@/lib/yelp/runtime";
+import { YelpValidationError } from "@/lib/yelp/errors";
 
-const leadSyncTypes: SyncRunType[] = ["YELP_LEADS_WEBHOOK", "YELP_LEADS_BACKFILL", "CRM_LEAD_ENRICHMENT"];
-const reportingSyncTypes: SyncRunType[] = ["YELP_REPORTING_REQUEST", "YELP_REPORTING_POLL"];
-const crmSyncTypes: SyncRunType[] = ["CRM_LEAD_ENRICHMENT", "LOCATION_MAPPING", "SERVICE_MAPPING"];
+const leadSyncTypes: SyncRunType[] = [
+  "YELP_LEADS_WEBHOOK",
+  "YELP_LEADS_BACKFILL",
+  "CRM_LEAD_ENRICHMENT",
+];
+const reportingSyncTypes: SyncRunType[] = [
+  "YELP_REPORTING_REQUEST",
+  "YELP_REPORTING_POLL",
+];
+const crmSyncTypes: SyncRunType[] = [
+  "CRM_LEAD_ENRICHMENT",
+  "LOCATION_MAPPING",
+  "SERVICE_MAPPING",
+];
 
-function getCapabilityMessage(enabled: boolean, enabledMessage: string, disabledMessage: string) {
+function getCapabilityMessage(
+  enabled: boolean,
+  enabledMessage: string,
+  disabledMessage: string,
+) {
   return enabled ? enabledMessage : disabledMessage;
 }
 
-function findCredential(kind: CredentialKind, credentials: Awaited<ReturnType<typeof listCredentialSets>>) {
+function findCredential(
+  kind: CredentialKind,
+  credentials: Awaited<ReturnType<typeof listCredentialSets>>,
+) {
   return credentials.find((credential) => credential.kind === kind) ?? null;
 }
 
@@ -37,24 +60,25 @@ export async function getAdsWorkspaceOverview(tenantId: string) {
     getBusinessesIndex(tenantId),
     getProgramsIndex(tenantId),
     getReportingIndex(tenantId),
-    getCapabilityFlags(tenantId)
+    getCapabilityFlags(tenantId),
   ]);
 
   return {
     businesses,
     programs,
     reports,
-    capabilities
+    capabilities,
   };
 }
 
 export async function getLeadsOverview(tenantId: string) {
-  const [counts, recentWebhookEvents, recentSyncRuns, capabilities] = await Promise.all([
-    getOperationsCounts(tenantId),
-    listRecentWebhookEvents(tenantId, 8),
-    listRecentSyncRuns(tenantId, 8, leadSyncTypes),
-    getCapabilityFlags(tenantId)
-  ]);
+  const [counts, recentWebhookEvents, recentSyncRuns, capabilities] =
+    await Promise.all([
+      getOperationsCounts(tenantId),
+      listRecentWebhookEvents(tenantId, 8),
+      listRecentSyncRuns(tenantId, 8, leadSyncTypes),
+      getCapabilityFlags(tenantId),
+    ]);
 
   return {
     counts,
@@ -66,18 +90,18 @@ export async function getLeadsOverview(tenantId: string) {
         message: getCapabilityMessage(
           capabilities.hasLeadsApi,
           "Yelp lead activity is enabled. This data remains Yelp-native until a CRM mapping is attached.",
-          "Leads ingestion stays hidden until Yelp lead access is enabled for this tenant."
-        )
+          "Leads ingestion stays hidden until Yelp lead access is enabled for this tenant.",
+        ),
       },
       crm: {
         enabled: capabilities.hasCrmIntegration,
         message: getCapabilityMessage(
           capabilities.hasCrmIntegration,
           "CRM enrichment is enabled. Scheduled, in-progress, and completed states will remain CRM-owned.",
-          "CRM enrichment is disabled, so internal job lifecycle states will remain unavailable."
-        )
-      }
-    }
+          "CRM enrichment is disabled, so internal job lifecycle states will remain unavailable.",
+        ),
+      },
+    },
   };
 }
 
@@ -85,40 +109,48 @@ export async function getLocationsOverview(tenantId: string) {
   const [counts, locations, capabilities] = await Promise.all([
     getOperationsCounts(tenantId),
     listRecentLocations(tenantId, 8),
-    getCapabilityFlags(tenantId)
+    getCapabilityFlags(tenantId),
   ]);
 
   return {
     counts,
     locations,
-    hasCrmIntegration: capabilities.hasCrmIntegration
+    hasCrmIntegration: capabilities.hasCrmIntegration,
   };
 }
 
 export async function getServiceCategoryOverview(tenantId: string) {
   const [counts, serviceCategories] = await Promise.all([
     getOperationsCounts(tenantId),
-    listRecentServiceCategories(tenantId, 8)
+    listRecentServiceCategories(tenantId, 8),
   ]);
 
   return {
     counts,
-    serviceCategories
+    serviceCategories,
   };
 }
 
 export async function getIntegrationsOverview(tenantId: string) {
-  const [capabilities, credentials, leadSync, reportingSync, crmSync, leadErrors, reportingErrors, crmErrors] =
-    await Promise.all([
-      getCapabilityFlags(tenantId),
-      listCredentialSets(tenantId),
-      getLatestSuccessfulSyncRun(tenantId, leadSyncTypes),
-      getLatestSuccessfulSyncRun(tenantId, reportingSyncTypes),
-      getLatestSuccessfulSyncRun(tenantId, crmSyncTypes),
-      countSyncErrors(tenantId, leadSyncTypes),
-      countSyncErrors(tenantId, reportingSyncTypes),
-      countSyncErrors(tenantId, crmSyncTypes)
-    ]);
+  const [
+    capabilities,
+    credentials,
+    leadSync,
+    reportingSync,
+    crmSync,
+    leadErrors,
+    reportingErrors,
+    crmErrors,
+  ] = await Promise.all([
+    getCapabilityFlags(tenantId),
+    listCredentialSets(tenantId),
+    getLatestSuccessfulSyncRun(tenantId, leadSyncTypes),
+    getLatestSuccessfulSyncRun(tenantId, reportingSyncTypes),
+    getLatestSuccessfulSyncRun(tenantId, crmSyncTypes),
+    countSyncErrors(tenantId, leadSyncTypes),
+    countSyncErrors(tenantId, reportingSyncTypes),
+    countSyncErrors(tenantId, crmSyncTypes),
+  ]);
 
   const adsCredential = findCredential("ADS_BASIC_AUTH", credentials);
   const reportingCredential = findCredential("REPORTING_FUSION", credentials);
@@ -133,7 +165,7 @@ export async function getIntegrationsOverview(tenantId: string) {
         enabled: capabilities.hasAdsApi,
         detail: adsCredential
           ? getCredentialHealthViewModel(adsCredential).detail
-          : "Credential health is managed in Admin Settings."
+          : "Credential health is managed in Admin Settings.",
       },
       {
         id: "leads",
@@ -143,7 +175,7 @@ export async function getIntegrationsOverview(tenantId: string) {
           ? getCredentialHealthViewModel(leadsCredential).detail
           : "Lead sync depends on Yelp lead enablement plus webhook validation and backfill wiring.",
         lastSuccessfulSyncAt: leadSync?.finishedAt ?? null,
-        errorCount: leadErrors
+        errorCount: leadErrors,
       },
       {
         id: "partner-support",
@@ -151,7 +183,7 @@ export async function getIntegrationsOverview(tenantId: string) {
         enabled: capabilities.hasPartnerSupportApi,
         detail: supportCredential
           ? getCredentialHealthViewModel(supportCredential).detail
-          : "Business-access helper capabilities stay disabled until Yelp partner support enables them."
+          : "Business-access helper capabilities stay disabled until Yelp partner support enables them.",
       },
       {
         id: "reporting",
@@ -161,7 +193,7 @@ export async function getIntegrationsOverview(tenantId: string) {
           ? getCredentialHealthViewModel(reportingCredential).detail
           : "Reporting remains batch-oriented and delayed even when the API is enabled.",
         lastSuccessfulSyncAt: reportingSync?.finishedAt ?? null,
-        errorCount: reportingErrors
+        errorCount: reportingErrors,
       },
       {
         id: "crm",
@@ -171,16 +203,16 @@ export async function getIntegrationsOverview(tenantId: string) {
           ? "CRM is the source of truth for Scheduled, Job in Progress, and Completed lifecycle states."
           : "CRM enrichment is disabled. Yelp lead activity will render without downstream operational status.",
         lastSuccessfulSyncAt: crmSync?.finishedAt ?? null,
-        errorCount: crmErrors
-      }
+        errorCount: crmErrors,
+      },
     ],
-    recentSyncRuns: await listRecentSyncRuns(tenantId, 8)
+    recentSyncRuns: await listRecentSyncRuns(tenantId, 8),
   };
 }
 
 export async function getAuditSyncOverview(tenantId: string) {
   return {
-    recentSyncRuns: await listRecentSyncRuns(tenantId, 10)
+    recentSyncRuns: await listRecentSyncRuns(tenantId, 10),
   };
 }
 
@@ -190,4 +222,44 @@ export async function getAuditWebhookOverview(tenantId: string) {
 
 export async function getAuditWorkerJobOverview(tenantId: string) {
   return getWorkerJobOverview(tenantId);
+}
+
+export async function replayDeadLetteredWorkerJobWorkflow(params: {
+  tenantId: string;
+  actorId: string;
+  actorRole: RoleCode;
+  jobId: string;
+}) {
+  const result = await requeueDeadLetteredWorkerJob({
+    jobId: params.jobId,
+    tenantId: params.tenantId,
+    includeGlobal:
+      params.actorRole === "PLATFORM_ADMIN" || params.actorRole === "ADMIN",
+  });
+
+  if (!result) {
+    throw new YelpValidationError(
+      "The dead-lettered worker is unavailable in the active tenant or was already replayed.",
+    );
+  }
+
+  await recordAuditEvent({
+    tenantId: params.tenantId,
+    actorId: params.actorId,
+    actionType: "worker_job.requeue",
+    status: "SUCCESS",
+    correlationId: result.before.id,
+    upstreamReference: result.before.jobKey,
+    before: {
+      status: result.before.status,
+      attempts: result.before.attempts,
+      maxAttempts: result.before.maxAttempts,
+    },
+    after: {
+      status: result.after.status,
+      attempts: result.after.attempts,
+    },
+  });
+
+  return result.after;
 }

@@ -1,8 +1,16 @@
 import { getProgramCampaignLayer } from "@/features/ads-programs/layers";
+import {
+  deriveProgramMtdFromDailySnapshots,
+  getPacificMtdDateRange,
+  YELP_PROGRAM_SPEND_SOURCE,
+  YELP_REPORTING_TIMEZONE,
+} from "@/features/ads-programs/spend-snapshots";
 
-export const YELP_REPORTING_TIMEZONE = "America/Los_Angeles";
-export const YELP_PROGRAM_SPEND_SOURCE =
-  "Yelp Program List · program_metrics.ad_cost";
+export {
+  getPacificMtdDateRange,
+  YELP_PROGRAM_SPEND_SOURCE,
+  YELP_REPORTING_TIMEZONE,
+} from "@/features/ads-programs/spend-snapshots";
 
 type ProgramMetricSource = {
   budgetCents: number | null;
@@ -51,39 +59,6 @@ function asIsoDateTime(value: unknown) {
   }
 
   return value;
-}
-
-function getDatePartsInTimeZone(now: Date, timeZone: string) {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(now);
-  const values = Object.fromEntries(
-    parts
-      .filter((part) => part.type !== "literal")
-      .map((part) => [part.type, part.value]),
-  );
-
-  return {
-    year: values.year,
-    month: values.month,
-    day: values.day,
-  };
-}
-
-export function getPacificMtdDateRange(now = new Date()) {
-  const { year, month, day } = getDatePartsInTimeZone(
-    now,
-    YELP_REPORTING_TIMEZONE,
-  );
-
-  return {
-    startDate: `${year}-${month}-01`,
-    endDate: `${year}-${month}-${day}`,
-    timeZone: YELP_REPORTING_TIMEZONE,
-  };
 }
 
 export function getProgramSpendState(
@@ -165,6 +140,29 @@ export function getProgramSpendState(
     };
   }
 
+  const derivedMtd = deriveProgramMtdFromDailySnapshots(
+    program.configurationJson,
+    now,
+  );
+  if (derivedMtd) {
+    const isCurrent = derivedMtd.periodEnd === derivedMtd.expectedPeriodEnd;
+
+    return {
+      amountCents: derivedMtd.amountCents,
+      mtdAmountCents: isCurrent ? derivedMtd.amountCents : null,
+      currency: derivedMtd.currency,
+      periodLabel: `${derivedMtd.periodStart} through ${derivedMtd.periodEnd} · Pacific time`,
+      periodStart: derivedMtd.periodStart,
+      periodEnd: derivedMtd.periodEnd,
+      source: derivedMtd.source,
+      lastSuccessfulSync: derivedMtd.lastSuccessfulSync,
+      status: isCurrent ? "current" : "stale",
+      warning: isCurrent
+        ? null
+        : "Daily program spend snapshots have not reached the current Pacific date.",
+    };
+  }
+
   const summary = asRecord(program.summaryJson);
   const metrics = asRecord(summary?.program_metrics);
   const adCost = asNonNegativeCents(metrics?.ad_cost);
@@ -192,7 +190,7 @@ export function getProgramSpendState(
       lastSuccessfulSync: syncedAt,
       status: "current",
       warning:
-        "Yelp Program List does not prove that ad_cost is calendar MTD. This amount is not used as MTD evidence.",
+        "Yelp Program List does not prove that ad_cost is calendar MTD. This amount is not used as MTD evidence; daily snapshots require a prior-month baseline before derived MTD is available.",
     };
   }
 

@@ -1,11 +1,20 @@
 import "server-only";
 
-import { Prisma, type WorkerJobKind, type WorkerJobStatus } from "@prisma/client";
+import {
+  Prisma,
+  type WorkerJobKind,
+  type WorkerJobStatus,
+} from "@prisma/client";
 
 import { toJsonValue } from "@/lib/db/json";
 import { prisma } from "@/lib/db/prisma";
 
-const claimableFinishedStatuses: WorkerJobStatus[] = ["QUEUED", "SUCCEEDED", "FAILED", "SKIPPED"];
+const claimableFinishedStatuses: WorkerJobStatus[] = [
+  "QUEUED",
+  "SUCCEEDED",
+  "FAILED",
+  "SKIPPED",
+];
 const claimableActiveStatuses: WorkerJobStatus[] = ["CLAIMED", "PROCESSING"];
 
 function serializeError(error: unknown) {
@@ -13,14 +22,14 @@ function serializeError(error: unknown) {
     return {
       name: error.name,
       message: error.message,
-      stack: error.stack?.slice(0, 4000) ?? null
+      stack: error.stack?.slice(0, 4000) ?? null,
     };
   }
 
   return {
     name: "UnknownError",
     message: typeof error === "string" ? error : "Unknown worker failure",
-    value: String(error)
+    value: String(error),
   };
 }
 
@@ -57,21 +66,26 @@ export async function claimWorkerJob(params: {
       jobKey: params.jobKey,
       maxAttempts,
       nextAttemptAt: now,
-      payloadJson: params.payloadJson === undefined ? undefined : toJsonValue(params.payloadJson)
+      payloadJson:
+        params.payloadJson === undefined
+          ? undefined
+          : toJsonValue(params.payloadJson),
     },
     update: {
       kind: params.kind,
       maxAttempts,
       ...(params.tenantId !== undefined ? { tenantId: params.tenantId } : {}),
-      ...(params.payloadJson !== undefined ? { payloadJson: toJsonValue(params.payloadJson) } : {})
-    }
+      ...(params.payloadJson !== undefined
+        ? { payloadJson: toJsonValue(params.payloadJson) }
+        : {}),
+    },
   });
 
   if (ensured.status === "DEAD_LETTERED") {
     return {
       claimed: false as const,
       job: ensured,
-      skippedReason: "DEAD_LETTERED" as const
+      skippedReason: "DEAD_LETTERED" as const,
     };
   }
 
@@ -85,14 +99,14 @@ export async function claimWorkerJob(params: {
         nextAttemptAt: null,
         claimedAt: null,
         claimExpiresAt: null,
-        claimedBy: null
-      }
+        claimedBy: null,
+      },
     });
 
     return {
       claimed: false as const,
       job: deadLettered,
-      skippedReason: "DEAD_LETTERED" as const
+      skippedReason: "DEAD_LETTERED" as const,
     };
   }
 
@@ -103,14 +117,14 @@ export async function claimWorkerJob(params: {
         {
           status: { in: claimableFinishedStatuses },
           attempts: { lt: maxAttempts },
-          OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }]
+          OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }],
         },
         {
           status: { in: claimableActiveStatuses },
           attempts: { lt: maxAttempts },
-          claimExpiresAt: { lte: now }
-        }
-      ]
+          claimExpiresAt: { lte: now },
+        },
+      ],
     },
     data: {
       status: "CLAIMED",
@@ -124,25 +138,28 @@ export async function claimWorkerJob(params: {
       lastHeartbeatAt: now,
       lastErrorSummary: null,
       lastErrorJson: Prisma.JsonNull,
-      resultJson: Prisma.JsonNull
-    }
+      resultJson: Prisma.JsonNull,
+    },
   });
 
   const job = await prisma.workerJob.findUniqueOrThrow({
-    where: { id: ensured.id }
+    where: { id: ensured.id },
   });
 
   if (updated.count === 0) {
     return {
       claimed: false as const,
       job,
-      skippedReason: job.status === "FAILED" ? "BACKOFF" as const : "ACTIVE_OR_NOT_DUE" as const
+      skippedReason:
+        job.status === "FAILED"
+          ? ("BACKOFF" as const)
+          : ("ACTIVE_OR_NOT_DUE" as const),
     };
   }
 
   return {
     claimed: true as const,
-    job
+    job,
   };
 }
 
@@ -154,8 +171,8 @@ export async function markWorkerJobProcessing(id: string) {
     data: {
       status: "PROCESSING",
       startedAt: now,
-      lastHeartbeatAt: now
-    }
+      lastHeartbeatAt: now,
+    },
   });
 }
 
@@ -175,8 +192,9 @@ export async function completeWorkerJob(id: string, resultJson?: unknown) {
       lastHeartbeatAt: now,
       lastErrorSummary: null,
       lastErrorJson: Prisma.JsonNull,
-      resultJson: resultJson === undefined ? undefined : toJsonValue(resultJson)
-    }
+      resultJson:
+        resultJson === undefined ? undefined : toJsonValue(resultJson),
+    },
   });
 }
 
@@ -186,12 +204,14 @@ export async function failWorkerJob(id: string, error: unknown) {
     where: { id },
     select: {
       attempts: true,
-      maxAttempts: true
-    }
+      maxAttempts: true,
+    },
   });
   const deadLettered = current.attempts >= current.maxAttempts;
   const status: WorkerJobStatus = deadLettered ? "DEAD_LETTERED" : "FAILED";
-  const nextAttemptAt = deadLettered ? null : new Date(now.getTime() + getBackoffMs(current.attempts));
+  const nextAttemptAt = deadLettered
+    ? null
+    : new Date(now.getTime() + getBackoffMs(current.attempts));
 
   return prisma.workerJob.update({
     where: { id },
@@ -206,40 +226,42 @@ export async function failWorkerJob(id: string, error: unknown) {
       lastHeartbeatAt: now,
       lastErrorSummary: summarizeWorkerError(error),
       lastErrorJson: toJsonValue(serializeError(error)),
-      resultJson: Prisma.JsonNull
-    }
+      resultJson: Prisma.JsonNull,
+    },
   });
 }
 
 export async function getWorkerJobOverview(tenantId: string, take = 10) {
   const where: Prisma.WorkerJobWhereInput = {
-    OR: [{ tenantId }, { tenantId: null }]
+    OR: [{ tenantId }, { tenantId: null }],
   };
 
   const [statusCounts, recentJobs, attentionJobs] = await Promise.all([
     prisma.workerJob.groupBy({
       by: ["status"],
       where,
-      _count: { _all: true }
+      _count: { _all: true },
     }),
     prisma.workerJob.findMany({
       where,
       orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
-      take
+      take,
     }),
     prisma.workerJob.findMany({
       where: {
         ...where,
         status: {
-          in: ["FAILED", "DEAD_LETTERED"]
-        }
+          in: ["FAILED", "DEAD_LETTERED"],
+        },
       },
       orderBy: [{ deadLetteredAt: "desc" }, { updatedAt: "desc" }],
-      take
-    })
+      take,
+    }),
   ]);
 
-  const counts = new Map(statusCounts.map((entry) => [entry.status, entry._count._all]));
+  const counts = new Map(
+    statusCounts.map((entry) => [entry.status, entry._count._all]),
+  );
 
   return {
     counts: {
@@ -249,9 +271,60 @@ export async function getWorkerJobOverview(tenantId: string, take = 10) {
       succeeded: counts.get("SUCCEEDED") ?? 0,
       failed: counts.get("FAILED") ?? 0,
       deadLettered: counts.get("DEAD_LETTERED") ?? 0,
-      skipped: counts.get("SKIPPED") ?? 0
+      skipped: counts.get("SKIPPED") ?? 0,
     },
     recentJobs,
-    attentionJobs
+    attentionJobs,
+  };
+}
+
+export async function requeueDeadLetteredWorkerJob(params: {
+  jobId: string;
+  tenantId: string;
+  includeGlobal: boolean;
+}) {
+  const scope: Prisma.WorkerJobWhereInput = params.includeGlobal
+    ? {
+        id: params.jobId,
+        OR: [{ tenantId: params.tenantId }, { tenantId: null }],
+      }
+    : { id: params.jobId, tenantId: params.tenantId };
+  const existing = await prisma.workerJob.findFirst({
+    where: { ...scope, status: "DEAD_LETTERED" },
+  });
+
+  if (!existing) {
+    return null;
+  }
+
+  const result = await prisma.workerJob.updateMany({
+    where: { ...scope, status: "DEAD_LETTERED" },
+    data: {
+      status: "QUEUED",
+      attempts: 0,
+      queuedAt: new Date(),
+      nextAttemptAt: new Date(),
+      claimedAt: null,
+      claimExpiresAt: null,
+      claimedBy: null,
+      startedAt: null,
+      finishedAt: null,
+      deadLetteredAt: null,
+      lastHeartbeatAt: null,
+      lastErrorSummary: null,
+      lastErrorJson: Prisma.JsonNull,
+      resultJson: Prisma.JsonNull,
+    },
+  });
+
+  if (result.count !== 1) {
+    return null;
+  }
+
+  return {
+    before: existing,
+    after: await prisma.workerJob.findUniqueOrThrow({
+      where: { id: existing.id },
+    }),
   };
 }

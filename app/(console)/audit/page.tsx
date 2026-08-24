@@ -4,6 +4,7 @@ import type { Route } from "next";
 import { OperatorIssuesRefreshButton } from "@/components/forms/operator-issues-refresh-button";
 import { OperatorIssuesFilterForm } from "@/components/forms/operator-issues-filter-form";
 import { OperatorIssuesTable } from "@/components/forms/operator-issues-table";
+import { WorkerJobReplayButton } from "@/components/forms/worker-job-replay-button";
 import { EmptyState } from "@/components/shared/empty-state";
 import { MetricCard } from "@/components/shared/metric-card";
 import { PageHeader } from "@/components/shared/page-header";
@@ -185,7 +186,7 @@ export default async function AuditPage({
     : 0;
 
   return (
-    <div>
+    <div className="min-w-0">
       <PageHeader
         title="Audit"
         description="Work the operator queue first. Refresh issue detection only when the team needs a current pass."
@@ -305,7 +306,7 @@ export default async function AuditPage({
         </CardContent>
       </Card>
 
-      <Card className="mt-6 border-border/70 bg-muted/10">
+      <Card className="mt-6 min-w-0 border-border/70 bg-muted/10">
         <CardHeader>
           <CardTitle>Pilot monitoring</CardTitle>
           <CardDescription>
@@ -436,7 +437,7 @@ export default async function AuditPage({
         </CardContent>
       </Card>
 
-      <Card className="mt-6">
+      <Card className="mt-6 min-w-0">
         <CardHeader>
           <CardTitle>Webhook and reconcile drilldown</CardTitle>
           <CardDescription>
@@ -600,7 +601,7 @@ export default async function AuditPage({
         </CardContent>
       </Card>
 
-      <Card className="mt-6 border-border/70 bg-muted/10">
+      <Card className="mt-6 min-w-0 border-border/70 bg-muted/10">
         <CardHeader>
           <CardTitle>Worker durability</CardTitle>
           <CardDescription>
@@ -644,6 +645,7 @@ export default async function AuditPage({
                   <TableHead>Attempts</TableHead>
                   <TableHead>Updated</TableHead>
                   <TableHead>Last issue</TableHead>
+                  {canManageIssues ? <TableHead>Action</TableHead> : null}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -677,13 +679,27 @@ export default async function AuditPage({
                             ? "Dead-lettered without error detail"
                             : "No current issue")}
                       </TableCell>
+                      {canManageIssues ? (
+                        <TableCell>
+                          {job.status === "DEAD_LETTERED" &&
+                          (job.tenantId === user.tenantId ||
+                            user.role.code === "PLATFORM_ADMIN" ||
+                            user.role.code === "ADMIN") ? (
+                            <WorkerJobReplayButton jobId={job.id} />
+                          ) : (
+                            <span className="text-xs text-muted-foreground">
+                              Automatic
+                            </span>
+                          )}
+                        </TableCell>
+                      ) : null}
                     </TableRow>
                   ))
                 ) : (
                   <TableRow>
                     <TableCell
                       className="text-sm text-muted-foreground"
-                      colSpan={5}
+                      colSpan={canManageIssues ? 6 : 5}
                     >
                       No durable worker jobs have run yet.
                     </TableCell>
@@ -695,8 +711,8 @@ export default async function AuditPage({
         </CardContent>
       </Card>
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,0.95fr)]">
-        <Card>
+      <div className="mt-6 grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,0.95fr)]">
+        <Card className="min-w-0">
           <CardHeader>
             <CardTitle>Recent events</CardTitle>
             <CardDescription>
@@ -743,7 +759,7 @@ export default async function AuditPage({
           </CardContent>
         </Card>
 
-        <Card className="border-border/70 bg-muted/10">
+        <Card className="min-w-0 border-border/70 bg-muted/10">
           <CardHeader>
             <CardTitle>Operational sync log</CardTitle>
             <CardDescription>

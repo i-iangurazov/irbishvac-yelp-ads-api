@@ -3,12 +3,11 @@ import "server-only";
 import { incrementOperationalMetricCounter } from "@/lib/db/metrics-repository";
 import { YelpValidationError } from "@/lib/yelp/errors";
 
-type ProviderName = "YELP" | "SMTP" | "OPENAI" | "ANTHROPIC" | "SERVICETITAN";
+type ProviderName = "YELP" | "SMTP" | "ANTHROPIC" | "SERVICETITAN";
 
 const hourlyProviderBudgets: Record<ProviderName, number> = {
   YELP: 600,
   SMTP: 250,
-  OPENAI: 300,
   ANTHROPIC: 300,
   SERVICETITAN: 500,
 };

@@ -12,15 +12,15 @@ export async function listBusinesses(tenantId: string, search?: string) {
             OR: [
               { name: { contains: search, mode: "insensitive" } },
               { city: { contains: search, mode: "insensitive" } },
-              { state: { contains: search, mode: "insensitive" } }
-            ]
+              { state: { contains: search, mode: "insensitive" } },
+            ],
           }
-        : {})
+        : {}),
     },
     include: {
-      programs: true
+      programs: true,
     },
-    orderBy: [{ updatedAt: "desc" }, { name: "asc" }]
+    orderBy: [{ updatedAt: "desc" }, { name: "asc" }],
   });
 }
 
@@ -32,15 +32,15 @@ export async function getBusinessById(id: string, tenantId: string) {
         select: {
           id: true,
           name: true,
-          externalCrmLocationId: true
-        }
+          externalCrmLocationId: true,
+        },
       },
       mappings: {
         orderBy: [{ isPrimary: "desc" }, { updatedAt: "desc" }],
-        take: 5
+        take: 5,
       },
       programs: {
-        orderBy: { updatedAt: "desc" }
+        orderBy: { updatedAt: "desc" },
       },
       yelpLeads: {
         orderBy: [{ latestInteractionAt: "desc" }, { createdAtYelp: "desc" }],
@@ -50,8 +50,8 @@ export async function getBusinessById(id: string, tenantId: string) {
           latestInteractionAt: true,
           latestWebhookReceivedAt: true,
           latestWebhookStatus: true,
-          lastSyncedAt: true
-        }
+          lastSyncedAt: true,
+        },
       },
       leadAutomationOverrides: {
         take: 1,
@@ -62,12 +62,12 @@ export async function getBusinessById(id: string, tenantId: string) {
           followUp7dEnabled: true,
           aiAssistEnabled: true,
           conversationAutomationEnabled: true,
-          conversationMode: true
-        }
+          conversationMode: true,
+        },
       },
       leadAutomationAttempts: {
         where: {
-          status: "SENT"
+          status: "SENT",
         },
         orderBy: [{ completedAt: "desc" }, { triggeredAt: "desc" }],
         take: 1,
@@ -77,8 +77,8 @@ export async function getBusinessById(id: string, tenantId: string) {
           channel: true,
           completedAt: true,
           triggeredAt: true,
-          providerMessageId: true
-        }
+          providerMessageId: true,
+        },
       },
       reportSchedules: {
         orderBy: { updatedAt: "desc" },
@@ -90,13 +90,13 @@ export async function getBusinessById(id: string, tenantId: string) {
           deliverPerLocation: true,
           recipientEmailsJson: true,
           locationRecipientOverridesJson: true,
-          lastSuccessfulDeliveryAt: true
-        }
+          lastSuccessfulDeliveryAt: true,
+        },
       },
       operatorIssues: {
         where: { status: "OPEN" },
         orderBy: [{ severity: "desc" }, { lastDetectedAt: "desc" }],
-        take: 5
+        take: 5,
       },
       syncRuns: {
         orderBy: [{ startedAt: "desc" }, { createdAt: "desc" }],
@@ -108,16 +108,16 @@ export async function getBusinessById(id: string, tenantId: string) {
           startedAt: true,
           finishedAt: true,
           lastSuccessfulSyncAt: true,
-          errorSummary: true
-        }
+          errorSummary: true,
+        },
       },
       auditEvents: {
         orderBy: { createdAt: "desc" },
-        take: 20
+        take: 20,
       },
       reportRequests: {
         orderBy: { createdAt: "desc" },
-        take: 10
+        take: 10,
       },
       _count: {
         select: {
@@ -128,10 +128,20 @@ export async function getBusinessById(id: string, tenantId: string) {
           mappings: true,
           leadAutomationOverrides: true,
           leadAutomationRules: true,
-          leadAutomationTemplates: true
-        }
-      }
-    }
+          leadAutomationTemplates: true,
+        },
+      },
+    },
+  });
+}
+
+export async function getBusinessAutomationSafetyState(
+  id: string,
+  tenantId: string,
+) {
+  return prisma.business.findFirst({
+    where: { id, tenantId },
+    select: { readinessJson: true },
   });
 }
 
@@ -149,31 +159,42 @@ export async function getBusinessDeleteImpact(id: string, tenantId: string) {
           featureSnapshots: true,
           reportRequests: true,
           reportResults: true,
-          auditEvents: true
-        }
-      }
-    }
+          auditEvents: true,
+        },
+      },
+    },
   });
 }
 
-export async function findBusinessByEncryptedYelpBusinessId(tenantId: string, encryptedYelpBusinessId: string) {
+export async function findBusinessByEncryptedYelpBusinessId(
+  tenantId: string,
+  encryptedYelpBusinessId: string,
+) {
   return prisma.business.findUnique({
     where: {
       tenantId_encryptedYelpBusinessId: {
         tenantId,
-        encryptedYelpBusinessId
-      }
-    }
+        encryptedYelpBusinessId,
+      },
+    },
   });
 }
 
-export async function updateBusinessRecord(id: string, tenantId: string, data: { readinessJson?: unknown; rawSnapshotJson?: unknown }) {
+export async function updateBusinessRecord(
+  id: string,
+  tenantId: string,
+  data: { readinessJson?: unknown; rawSnapshotJson?: unknown },
+) {
   return prisma.business.updateMany({
     where: { id, tenantId },
     data: {
-      ...(data.readinessJson === undefined ? {} : { readinessJson: toJsonValue(data.readinessJson) }),
-      ...(data.rawSnapshotJson === undefined ? {} : { rawSnapshotJson: toJsonValue(data.rawSnapshotJson) })
-    }
+      ...(data.readinessJson === undefined
+        ? {}
+        : { readinessJson: toJsonValue(data.readinessJson) }),
+      ...(data.rawSnapshotJson === undefined
+        ? {}
+        : { rawSnapshotJson: toJsonValue(data.rawSnapshotJson) }),
+    },
   });
 }
 
@@ -188,20 +209,22 @@ export async function upsertBusiness(
     categoriesJson?: unknown;
     readinessJson?: unknown;
     rawSnapshotJson?: unknown;
-  }
+  },
 ) {
   return prisma.business.upsert({
     where: {
       tenantId_encryptedYelpBusinessId: {
         tenantId,
-        encryptedYelpBusinessId
-      }
+        encryptedYelpBusinessId,
+      },
     },
     update: {
       ...data,
       categoriesJson: toJsonValue(data.categoriesJson),
       readinessJson: toJsonValue(data.readinessJson),
-      rawSnapshotJson: data.rawSnapshotJson ? toJsonValue(data.rawSnapshotJson) : undefined
+      rawSnapshotJson: data.rawSnapshotJson
+        ? toJsonValue(data.rawSnapshotJson)
+        : undefined,
     },
     create: {
       tenantId,
@@ -209,8 +232,10 @@ export async function upsertBusiness(
       ...data,
       categoriesJson: toJsonValue(data.categoriesJson),
       readinessJson: toJsonValue(data.readinessJson),
-      rawSnapshotJson: data.rawSnapshotJson ? toJsonValue(data.rawSnapshotJson) : undefined
-    }
+      rawSnapshotJson: data.rawSnapshotJson
+        ? toJsonValue(data.rawSnapshotJson)
+        : undefined,
+    },
   });
 }
 
@@ -218,7 +243,7 @@ export async function deleteBusinessRecord(id: string, tenantId: string) {
   return prisma.business.deleteMany({
     where: {
       id,
-      tenantId
-    }
+      tenantId,
+    },
   });
 }

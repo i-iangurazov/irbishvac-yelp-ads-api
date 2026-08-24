@@ -12,12 +12,14 @@ describe("production role matrix", () => {
     expect(hasPermission("PLATFORM_ADMIN", "tenants:switch")).toBe(true);
     expect(hasPermission("PLATFORM_ADMIN", "billing:manage")).toBe(true);
     expect(hasPermission("PLATFORM_ADMIN", "diagnostics:read")).toBe(true);
+    expect(hasPermission("PLATFORM_ADMIN", "onboarding:manage")).toBe(true);
   });
 
   it("limits agency operators to assigned-client operations", () => {
     expect(hasPermission("AGENCY_OPERATOR", "tenants:switch")).toBe(true);
     expect(hasPermission("AGENCY_OPERATOR", "programs:write")).toBe(true);
     expect(hasPermission("AGENCY_OPERATOR", "autoresponder:manage")).toBe(true);
+    expect(hasPermission("AGENCY_OPERATOR", "onboarding:manage")).toBe(true);
     expect(hasPermission("AGENCY_OPERATOR", "tenants:manage")).toBe(false);
     expect(hasPermission("AGENCY_OPERATOR", "billing:manage")).toBe(false);
     expect(hasPermission("AGENCY_OPERATOR", "users:manage")).toBe(false);
@@ -27,6 +29,7 @@ describe("production role matrix", () => {
     expect(hasPermission("CLIENT_ADMIN", "users:manage")).toBe(true);
     expect(hasPermission("CLIENT_ADMIN", "credentials:manage")).toBe(true);
     expect(hasPermission("CLIENT_ADMIN", "businesses:delete")).toBe(true);
+    expect(hasPermission("CLIENT_ADMIN", "onboarding:manage")).toBe(true);
     expect(hasPermission("CLIENT_ADMIN", "tenants:switch")).toBe(false);
     expect(hasPermission("CLIENT_ADMIN", "billing:manage")).toBe(false);
     expect(hasPermission("CLIENT_ADMIN", "diagnostics:read")).toBe(false);
@@ -39,12 +42,15 @@ describe("production role matrix", () => {
     expect(hasPermission("CLIENT_MANAGER", "credentials:manage")).toBe(false);
     expect(hasPermission("CLIENT_MANAGER", "businesses:delete")).toBe(false);
     expect(hasPermission("CLIENT_MANAGER", "billing:manage")).toBe(false);
+    expect(hasPermission("CLIENT_MANAGER", "onboarding:manage")).toBe(false);
   });
 
   it("limits reviewers and viewers to their intended operations", () => {
     expect(hasPermission("REVIEWER", "replies:review")).toBe(true);
     expect(hasPermission("REVIEWER", "programs:write")).toBe(false);
     expect(hasPermission("REVIEWER", "leads:sync")).toBe(false);
+    expect(hasPermission("REVIEWER", "onboarding:read")).toBe(true);
+    expect(hasPermission("REVIEWER", "onboarding:manage")).toBe(false);
     expect(hasPermission("VIEWER", "reports:read")).toBe(true);
     expect(hasPermission("VIEWER", "replies:review")).toBe(false);
     expect(hasPermission("VIEWER", "autoresponder:manage")).toBe(false);

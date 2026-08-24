@@ -12,6 +12,7 @@ import {
   type LeadAutoresponderSettingsValues,
 } from "@/features/autoresponder/schemas";
 import { getLeadAutomationBusinessOverrideByBusinessId } from "@/lib/db/autoresponder-repository";
+import { getBusinessAutomationSafetyState } from "@/lib/db/businesses-repository";
 import { getSystemSetting } from "@/lib/db/settings-repository";
 import { getServerEnv } from "@/lib/utils/env";
 
@@ -78,9 +79,21 @@ export async function getLeadAutomationScopeConfig(
     LEAD_AUTORESPONDER_SETTING_KEY,
   );
   const defaults = readLeadAutoresponderSettings(settingsValue);
-  const override = businessId
-    ? await getLeadAutomationBusinessOverrideByBusinessId(tenantId, businessId)
-    : null;
+  const [override, businessSafetyRecord] = businessId
+    ? await Promise.all([
+        getLeadAutomationBusinessOverrideByBusinessId(tenantId, businessId),
+        getBusinessAutomationSafetyState(businessId, tenantId),
+      ])
+    : [null, null];
+  const businessReadiness = asRecord(businessSafetyRecord?.readinessJson);
+  const onboardingManaged = businessReadiness?.onboardingManaged === true;
+  const onboardingStatus =
+    typeof businessReadiness?.onboardingStatus === "string"
+      ? businessReadiness.onboardingStatus
+      : null;
+  const businessKillSwitchEnabled =
+    businessReadiness?.emergencyDisabled === true ||
+    (onboardingManaged && onboardingStatus !== "ACTIVE");
   const defaultsApplyToBusiness =
     defaults.scopeMode === "ALL_BUSINESSES" ||
     (Boolean(businessId) &&
@@ -136,7 +149,9 @@ export async function getLeadAutomationScopeConfig(
     getServerEnv().AUTORESPONDER_GLOBAL_KILL_SWITCH === "true";
   const tenantKillSwitchEnabled = defaults.tenantKillSwitchEnabled;
   const effectiveSettings: LeadAutoresponderSettingsValues =
-    platformKillSwitchEnabled || tenantKillSwitchEnabled
+    platformKillSwitchEnabled ||
+    tenantKillSwitchEnabled ||
+    businessKillSwitchEnabled
       ? {
           ...scopedSettings,
           isEnabled: false,
@@ -152,5 +167,7 @@ export async function getLeadAutomationScopeConfig(
     defaultsApplyToBusiness,
     platformKillSwitchEnabled,
     tenantKillSwitchEnabled,
+    businessKillSwitchEnabled,
+    onboardingStatus,
   };
 }

@@ -56,6 +56,7 @@ const isSmtpConfigured = vi.fn();
 const ensureYelpLeadsAccess = vi.fn();
 const getCredentialSet = vi.fn();
 const recordAutoresponderMetric = vi.fn();
+const getBusinessAutomationSafetyState = vi.fn();
 
 vi.mock("@/lib/db/settings-repository", () => ({
   getSystemSetting,
@@ -134,6 +135,10 @@ vi.mock("@/lib/db/credentials-repository", () => ({
 
 vi.mock("@/features/operations/observability-service", () => ({
   recordAutoresponderMetric,
+}));
+
+vi.mock("@/lib/db/businesses-repository", () => ({
+  getBusinessAutomationSafetyState,
 }));
 
 const baseLead = {
@@ -460,6 +465,9 @@ describe("autoresponder service", () => {
     });
     listLeadAutomationBusinessOverrides.mockResolvedValue([]);
     getLeadAutomationBusinessOverrideByBusinessId.mockResolvedValue(null);
+    getBusinessAutomationSafetyState.mockResolvedValue({
+      readinessJson: null,
+    });
     getLeadAutomationCandidate.mockResolvedValue(baseLead);
     listEnabledLeadAutomationRules.mockResolvedValue([baseRule]);
     getLeadAutomationAttemptSummary.mockResolvedValue({

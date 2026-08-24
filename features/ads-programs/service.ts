@@ -313,6 +313,21 @@ function assertProgramCanBeTerminated(
 function assertProgramCanBeMutated(
   program: Awaited<ReturnType<typeof getProgramById>>,
   actionLabel: string,
+): string;
+function assertProgramCanBeMutated(
+  program: Awaited<ReturnType<typeof getProgramById>>,
+  actionLabel: string,
+  requireUpstreamProgramId: true,
+): string;
+function assertProgramCanBeMutated(
+  program: Awaited<ReturnType<typeof getProgramById>>,
+  actionLabel: string,
+  requireUpstreamProgramId: false,
+): string | null;
+function assertProgramCanBeMutated(
+  program: Awaited<ReturnType<typeof getProgramById>>,
+  actionLabel: string,
+  requireUpstreamProgramId = true,
 ) {
   if (program.status === "ENDED") {
     throw new YelpValidationError(
@@ -335,7 +350,7 @@ function assertProgramCanBeMutated(
     );
   }
 
-  if (!program.upstreamProgramId) {
+  if (requireUpstreamProgramId && !program.upstreamProgramId) {
     throw new YelpValidationError(
       `This program has no confirmed Yelp program ID yet. Its create job never completed successfully on Yelp, so ${actionLabel} is not possible upstream.`,
     );
@@ -1378,10 +1393,15 @@ export async function updateProgramBudgetWorkflow(
     );
   }
 
-  const upstreamProgramId = assertProgramCanBeMutated(
-    program,
-    "updating budget or bid settings",
-  );
+  const capabilities = await getCapabilityFlags(tenantId);
+  const demoMode = isDemoAdsMode(capabilities);
+  const upstreamProgramId = demoMode
+    ? assertProgramCanBeMutated(
+        program,
+        "updating budget or bid settings",
+        false,
+      )
+    : assertProgramCanBeMutated(program, "updating budget or bid settings");
 
   const correlationId = randomUUID();
   let requestPayload: ReturnType<typeof mapEditProgramFormToDto> | null = null;
@@ -1448,6 +1468,51 @@ export async function updateProgramBudgetWorkflow(
   });
 
   try {
+    if (demoMode) {
+      await updateProgramJob(job.id, {
+        status: "COMPLETED",
+        responseJson: toJsonValue({
+          job_id: `demo-${job.id}`,
+          status: "COMPLETED",
+        }),
+        completedAt: new Date(),
+      });
+      await updateProgramRecord(program.id, tenantId, {
+        configurationJson: toJsonValue(afterConfiguration),
+        ...(values.operation === "CURRENT_BUDGET"
+          ? { budgetCents: requestPayload?.budget }
+          : {}),
+        ...(values.operation === "BID_STRATEGY"
+          ? {
+              pacingMethod: values.pacingMethod,
+              ...(typeof requestPayload?.max_bid === "number"
+                ? { maxBidCents: requestPayload.max_bid }
+                : {}),
+            }
+          : {}),
+      });
+      await recordAuditEvent({
+        tenantId,
+        actorId,
+        businessId: program.businessId,
+        programId: program.id,
+        actionType,
+        status: "SUCCESS",
+        correlationId,
+        upstreamReference: `demo-${job.id}`,
+        requestSummary: toJsonValue({
+          operation: values.operation,
+          payload: requestPayload,
+          internalNote: values.internalNote,
+        }),
+        responseSummary: toJsonValue({ mode: "demo" }),
+        before: program.configurationJson as never,
+        after: afterConfiguration as never,
+      });
+
+      return { programId: program.id, jobId: job.id };
+    }
+
     const { credential } = await ensureYelpAccess({
       tenantId,
       capabilityKey: "adsApiEnabled",
@@ -1455,7 +1520,7 @@ export async function updateProgramBudgetWorkflow(
     });
     const client = new YelpAdsClient(credential);
     const response = await client.editProgram(
-      upstreamProgramId,
+      upstreamProgramId!,
       requestPayload!,
     );
 

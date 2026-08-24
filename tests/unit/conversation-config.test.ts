@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getSystemSetting = vi.fn();
 const getLeadAutomationBusinessOverrideByBusinessId = vi.fn();
+const getBusinessAutomationSafetyState = vi.fn();
 
 vi.mock("@/lib/db/settings-repository", () => ({
   getSystemSetting,
@@ -11,9 +12,14 @@ vi.mock("@/lib/db/autoresponder-repository", () => ({
   getLeadAutomationBusinessOverrideByBusinessId,
 }));
 
+vi.mock("@/lib/db/businesses-repository", () => ({
+  getBusinessAutomationSafetyState,
+}));
+
 describe("conversation automation config", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getBusinessAutomationSafetyState.mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -249,5 +255,56 @@ describe("conversation automation config", () => {
     expect(result.effectiveSettings.isEnabled).toBe(false);
     expect(result.effectiveSettings.conversationAutomationEnabled).toBe(false);
     expect(result.effectiveSettings.conversationGlobalPauseEnabled).toBe(true);
+  });
+
+  it("blocks an onboarding-managed business until it is active", async () => {
+    getSystemSetting.mockResolvedValue({
+      isEnabled: true,
+      scopeMode: "ALL_BUSINESSES",
+      conversationAutomationEnabled: true,
+      conversationMode: "REVIEW_ONLY",
+    });
+    getLeadAutomationBusinessOverrideByBusinessId.mockResolvedValue(null);
+    getBusinessAutomationSafetyState.mockResolvedValue({
+      readinessJson: {
+        onboardingManaged: true,
+        onboardingStatus: "READY",
+      },
+    });
+
+    const { getLeadAutomationScopeConfig } =
+      await import("@/features/autoresponder/config");
+    const result = await getLeadAutomationScopeConfig("tenant_1", "business_1");
+
+    expect(result.businessKillSwitchEnabled).toBe(true);
+    expect(result.effectiveSettings.isEnabled).toBe(false);
+    expect(result.effectiveSettings.conversationGlobalPauseEnabled).toBe(true);
+  });
+
+  it("allows an active onboarding-managed business to use its safe settings", async () => {
+    vi.resetModules();
+    vi.stubEnv("AUTORESPONDER_GLOBAL_KILL_SWITCH", "false");
+    getSystemSetting.mockResolvedValue({
+      isEnabled: true,
+      scopeMode: "ALL_BUSINESSES",
+      conversationAutomationEnabled: true,
+      conversationMode: "REVIEW_ONLY",
+    });
+    getLeadAutomationBusinessOverrideByBusinessId.mockResolvedValue(null);
+    getBusinessAutomationSafetyState.mockResolvedValue({
+      readinessJson: {
+        onboardingManaged: true,
+        onboardingStatus: "ACTIVE",
+        emergencyDisabled: false,
+      },
+    });
+
+    const { getLeadAutomationScopeConfig } =
+      await import("@/features/autoresponder/config");
+    const result = await getLeadAutomationScopeConfig("tenant_1", "business_1");
+
+    expect(result.businessKillSwitchEnabled).toBe(false);
+    expect(result.effectiveSettings.isEnabled).toBe(true);
+    expect(result.effectiveSettings.conversationMode).toBe("REVIEW_ONLY");
   });
 });

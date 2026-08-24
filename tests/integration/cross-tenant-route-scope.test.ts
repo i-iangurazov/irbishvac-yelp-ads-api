@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { NextResponse } from "next/server";
 
 const {
   exportAiUsageToCsv,
@@ -126,5 +127,39 @@ describe("cross-tenant route scope", () => {
     );
 
     expect(exportAiUsageToCsv).toHaveBeenCalledWith("tenant_a", "2026-08");
+  });
+
+  it("blocks credential writes before the workflow when permission is denied", async () => {
+    requireApiPermission.mockResolvedValueOnce(
+      NextResponse.json({ message: "Forbidden" }, { status: 403 }),
+    );
+    const { POST } = await import("@/app/api/settings/credentials/route");
+    const response = await POST(
+      new Request("http://localhost/api/settings/credentials", {
+        method: "POST",
+        body: JSON.stringify({
+          kind: "REPORTING_FUSION",
+          accessToken: "not-a-real-secret",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(requireApiPermission).toHaveBeenCalledWith("credentials:manage");
+    expect(saveCredentialSet).not.toHaveBeenCalled();
+  });
+
+  it("blocks usage exports before reading data when permission is denied", async () => {
+    requireApiPermission.mockResolvedValueOnce(
+      NextResponse.json({ message: "Forbidden" }, { status: 403 }),
+    );
+    const { GET } = await import("@/app/api/usage/ai/export/route");
+    const response = await GET(
+      new Request("http://localhost/api/usage/ai/export?month=2026-08"),
+    );
+
+    expect(response.status).toBe(403);
+    expect(requireApiPermission).toHaveBeenCalledWith("billing:manage");
+    expect(exportAiUsageToCsv).not.toHaveBeenCalled();
   });
 });

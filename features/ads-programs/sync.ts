@@ -1,6 +1,7 @@
 import { ProgramStatus, ProgramType } from "@prisma/client";
 
 import type { YelpUpstreamProgramDto } from "@/lib/yelp/schemas";
+import { appendProgramSpendDailySnapshot } from "@/features/ads-programs/spend-snapshots";
 
 const supportedProgramTypes = new Set<ProgramType>(Object.values(ProgramType));
 
@@ -13,11 +14,13 @@ const upstreamStatusMap = new Map<string, ProgramStatus>([
   ["FAILED", "FAILED"],
   ["PARTIAL", "PARTIAL"],
   ["INACTIVE", "ENDED"],
-  ["ENDED", "ENDED"]
+  ["ENDED", "ENDED"],
 ]);
 
 function coerceObject(value: unknown) {
-  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 function dollarsFromCents(cents: number) {
@@ -25,14 +28,18 @@ function dollarsFromCents(cents: number) {
 }
 
 export function resolveSynchronizedProgramType(programType: string) {
-  return supportedProgramTypes.has(programType as ProgramType) ? (programType as ProgramType) : null;
+  return supportedProgramTypes.has(programType as ProgramType)
+    ? (programType as ProgramType)
+    : null;
 }
 
 export function resolveSynchronizedProgramStatus(programStatus: string) {
   return upstreamStatusMap.get(programStatus) ?? "FAILED";
 }
 
-export function resolveSynchronizedBudgetCents(program: YelpUpstreamProgramDto) {
+export function resolveSynchronizedBudgetCents(
+  program: YelpUpstreamProgramDto,
+) {
   if (typeof program.program_metrics?.budget === "number") {
     return program.program_metrics.budget;
   }
@@ -44,12 +51,18 @@ export function resolveSynchronizedBudgetCents(program: YelpUpstreamProgramDto) 
   return null;
 }
 
-export function resolveSynchronizedMaxBidCents(program: YelpUpstreamProgramDto) {
-  return typeof program.program_metrics?.max_bid === "number" ? program.program_metrics.max_bid : null;
+export function resolveSynchronizedMaxBidCents(
+  program: YelpUpstreamProgramDto,
+) {
+  return typeof program.program_metrics?.max_bid === "number"
+    ? program.program_metrics.max_bid
+    : null;
 }
 
 export function resolveSynchronizedIsAutobid(program: YelpUpstreamProgramDto) {
-  return typeof program.program_metrics?.is_autobid === "boolean" ? program.program_metrics.is_autobid : null;
+  return typeof program.program_metrics?.is_autobid === "boolean"
+    ? program.program_metrics.is_autobid
+    : null;
 }
 
 export function parseSynchronizedProgramDate(value: string | null | undefined) {
@@ -70,9 +83,16 @@ export function buildSynchronizedProgramConfiguration(
     isAutobid: boolean | null;
     feePeriod: string | null;
     syncedAt: Date;
-  }
+  },
 ) {
   const current = coerceObject(existingConfiguration);
+  const programSpendDailySnapshots = appendProgramSpendDailySnapshot({
+    existingConfiguration,
+    observedAt: options.syncedAt,
+    amountCents: program.program_metrics?.ad_cost,
+    currency: program.program_metrics?.currency,
+    feePeriod: options.feePeriod,
+  });
 
   return {
     ...current,
@@ -85,10 +105,21 @@ export function buildSynchronizedProgramConfiguration(
     availableFeatures: program.available_features,
     adCategories: program.ad_categories,
     ...(program.start_date ? { startDate: program.start_date } : {}),
-    ...(options.budgetCents != null ? { monthlyBudgetDollars: dollarsFromCents(options.budgetCents) } : {}),
-    ...(options.maxBidCents != null ? { maxBidDollars: dollarsFromCents(options.maxBidCents) } : {}),
-    ...(typeof options.isAutobid === "boolean" ? { isAutobid: options.isAutobid } : {}),
+    ...(options.budgetCents != null
+      ? { monthlyBudgetDollars: dollarsFromCents(options.budgetCents) }
+      : {}),
+    ...(options.maxBidCents != null
+      ? { maxBidDollars: dollarsFromCents(options.maxBidCents) }
+      : {}),
+    ...(typeof options.isAutobid === "boolean"
+      ? { isAutobid: options.isAutobid }
+      : {}),
     ...(options.feePeriod ? { feePeriod: options.feePeriod } : {}),
-    ...(program.page_upgrade_info ? { pageUpgradeInfo: program.page_upgrade_info } : {})
+    ...(programSpendDailySnapshots.length > 0
+      ? { programSpendDailySnapshots }
+      : {}),
+    ...(program.page_upgrade_info
+      ? { pageUpgradeInfo: program.page_upgrade_info }
+      : {}),
   };
 }

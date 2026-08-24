@@ -6,6 +6,8 @@ export const PERMISSIONS = {
   "tenants:manage": "tenants:manage",
   "tenants:switch": "tenants:switch",
   "users:manage": "users:manage",
+  "onboarding:read": "onboarding:read",
+  "onboarding:manage": "onboarding:manage",
   "credentials:manage": "credentials:manage",
   "autoresponder:manage": "autoresponder:manage",
   "billing:manage": "billing:manage",
@@ -39,6 +41,8 @@ const permissionMap: Record<RoleCode, Permission[] | ["*"]> = {
   AGENCY_OPERATOR: [
     PERMISSIONS["tenants:switch"],
     PERMISSIONS["settings:read"],
+    PERMISSIONS["onboarding:read"],
+    PERMISSIONS["onboarding:manage"],
     PERMISSIONS["credentials:manage"],
     PERMISSIONS["autoresponder:manage"],
     PERMISSIONS["businesses:read"],
@@ -65,6 +69,8 @@ const permissionMap: Record<RoleCode, Permission[] | ["*"]> = {
   ],
   CLIENT_ADMIN: [
     PERMISSIONS["settings:read"],
+    PERMISSIONS["onboarding:read"],
+    PERMISSIONS["onboarding:manage"],
     PERMISSIONS["users:manage"],
     PERMISSIONS["credentials:manage"],
     PERMISSIONS["autoresponder:manage"],
@@ -90,6 +96,7 @@ const permissionMap: Record<RoleCode, Permission[] | ["*"]> = {
   ],
   CLIENT_MANAGER: [
     PERMISSIONS["settings:read"],
+    PERMISSIONS["onboarding:read"],
     PERMISSIONS["autoresponder:manage"],
     PERMISSIONS["businesses:read"],
     PERMISSIONS["programs:read"],
@@ -108,6 +115,7 @@ const permissionMap: Record<RoleCode, Permission[] | ["*"]> = {
     PERMISSIONS["audit:read"],
   ],
   REVIEWER: [
+    PERMISSIONS["onboarding:read"],
     PERMISSIONS["businesses:read"],
     PERMISSIONS["programs:read"],
     PERMISSIONS["features:read"],
@@ -121,6 +129,8 @@ const permissionMap: Record<RoleCode, Permission[] | ["*"]> = {
   ADMIN: ["*"],
   OPERATOR: [
     PERMISSIONS["settings:read"],
+    PERMISSIONS["onboarding:read"],
+    PERMISSIONS["onboarding:manage"],
     PERMISSIONS["businesses:read"],
     PERMISSIONS["businesses:write"],
     PERMISSIONS["programs:read"],
@@ -143,6 +153,7 @@ const permissionMap: Record<RoleCode, Permission[] | ["*"]> = {
   ],
   ANALYST: [
     PERMISSIONS["settings:read"],
+    PERMISSIONS["onboarding:read"],
     PERMISSIONS["businesses:read"],
     PERMISSIONS["programs:read"],
     PERMISSIONS["features:read"],
@@ -158,6 +169,7 @@ const permissionMap: Record<RoleCode, Permission[] | ["*"]> = {
   ],
   VIEWER: [
     PERMISSIONS["settings:read"],
+    PERMISSIONS["onboarding:read"],
     PERMISSIONS["businesses:read"],
     PERMISSIONS["programs:read"],
     PERMISSIONS["features:read"],

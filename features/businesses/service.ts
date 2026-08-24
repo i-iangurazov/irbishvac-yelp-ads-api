@@ -1401,6 +1401,12 @@ export async function saveBusinessRecord(
     country: match.country ?? null,
     categoriesJson: normalizeYelpCategories(match.categories ?? []),
     readinessJson: {
+      ...(!existing
+        ? {
+            onboardingManaged: true,
+            onboardingStatus: "DRAFT",
+          }
+        : {}),
       ...existingReadiness,
       ...incomingReadiness,
     },

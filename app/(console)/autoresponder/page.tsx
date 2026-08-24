@@ -76,7 +76,10 @@ export default async function AutoresponderPage({
 }) {
   const user = await requireUser();
 
-  if (!hasPermission(user.role.code, "settings:read")) {
+  if (
+    !hasPermission(user.role.code, "settings:read") &&
+    !hasPermission(user.role.code, "replies:review")
+  ) {
     redirect("/dashboard");
   }
 

@@ -22,6 +22,8 @@ const defaultPermissions = {
   AGENCY_OPERATOR: [
     "tenants:switch",
     "settings:read",
+    "onboarding:read",
+    "onboarding:manage",
     "credentials:manage",
     "autoresponder:manage",
     "businesses:read",
@@ -46,6 +48,8 @@ const defaultPermissions = {
   ],
   CLIENT_ADMIN: [
     "settings:read",
+    "onboarding:read",
+    "onboarding:manage",
     "users:manage",
     "credentials:manage",
     "autoresponder:manage",
@@ -70,6 +74,7 @@ const defaultPermissions = {
   ],
   CLIENT_MANAGER: [
     "settings:read",
+    "onboarding:read",
     "autoresponder:manage",
     "businesses:read",
     "programs:read",
@@ -88,6 +93,7 @@ const defaultPermissions = {
     "audit:read",
   ],
   REVIEWER: [
+    "onboarding:read",
     "businesses:read",
     "programs:read",
     "features:read",
@@ -100,6 +106,8 @@ const defaultPermissions = {
   ],
   ADMIN: ["*"],
   OPERATOR: [
+    "onboarding:read",
+    "onboarding:manage",
     "businesses:read",
     "businesses:write",
     "programs:read",
@@ -119,6 +127,7 @@ const defaultPermissions = {
     "audit:read",
   ],
   ANALYST: [
+    "onboarding:read",
     "businesses:read",
     "programs:read",
     "features:read",
@@ -132,6 +141,7 @@ const defaultPermissions = {
     "audit:read",
   ],
   VIEWER: [
+    "onboarding:read",
     "businesses:read",
     "programs:read",
     "features:read",

@@ -38,8 +38,6 @@ const serverEnvSchema = z.object({
     .enum(["true", "false"])
     .optional()
     .default("false"),
-  OPENAI_API_KEY: z.string().optional(),
-  OPENAI_REPLY_MODEL: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
   CLAUDE_REPLY_MODEL: z.string().optional(),
   SMTP_HOST: z.string().optional(),

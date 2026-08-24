@@ -7,7 +7,7 @@ import {
   resolveSynchronizedIsAutobid,
   resolveSynchronizedMaxBidCents,
   resolveSynchronizedProgramStatus,
-  resolveSynchronizedProgramType
+  resolveSynchronizedProgramType,
 } from "@/features/ads-programs/sync";
 
 describe("program sync helpers", () => {
@@ -16,7 +16,9 @@ describe("program sync helpers", () => {
     expect(resolveSynchronizedProgramType("UNKNOWN_TYPE")).toBeNull();
     expect(resolveSynchronizedProgramStatus("ACTIVE")).toBe("ACTIVE");
     expect(resolveSynchronizedProgramStatus("INACTIVE")).toBe("ENDED");
-    expect(resolveSynchronizedProgramStatus("NOT_A_REAL_STATUS")).toBe("FAILED");
+    expect(resolveSynchronizedProgramStatus("NOT_A_REAL_STATUS")).toBe(
+      "FAILED",
+    );
   });
 
   it("derives budget information from program metrics and page-upgrade monthly rate", () => {
@@ -33,9 +35,9 @@ describe("program sync helpers", () => {
           budget: 500000,
           currency: "USD",
           is_autobid: true,
-          max_bid: 4200
-        }
-      })
+          max_bid: 4200,
+        },
+      }),
     ).toBe(500000);
 
     expect(
@@ -48,9 +50,9 @@ describe("program sync helpers", () => {
         ad_categories: [],
         future_budget_changes: [],
         page_upgrade_info: {
-          monthly_rate: 30
-        }
-      })
+          monthly_rate: 30,
+        },
+      }),
     ).toBe(3000);
   });
 
@@ -63,29 +65,34 @@ describe("program sync helpers", () => {
         program_status: "ACTIVE",
         program_pause_status: "NOT_PAUSED",
         active_features: ["AD_GOAL", "CALL_TRACKING"],
-        available_features: ["AD_GOAL", "CALL_TRACKING", "STRICT_CATEGORY_TARGETING"],
+        available_features: [
+          "AD_GOAL",
+          "CALL_TRACKING",
+          "STRICT_CATEGORY_TARGETING",
+        ],
         ad_categories: ["plumbing"],
         future_budget_changes: [],
         start_date: "2026-03-23",
         program_metrics: {
+          ad_cost: 245_000,
           budget: 1000000,
           currency: "USD",
           is_autobid: true,
           max_bid: null,
-          fee_period: "Calendar Month"
-        }
+          fee_period: "Calendar Month",
+        },
       },
       {
         notes: "Keep this customer at 10k.",
-        scheduledBudgetDollars: "12000"
+        scheduledBudgetDollars: "12000",
       },
       {
         budgetCents: 1000000,
         maxBidCents: null,
         isAutobid: true,
         feePeriod: "Calendar Month",
-        syncedAt
-      }
+        syncedAt,
+      },
     );
 
     expect(configuration).toMatchObject({
@@ -99,39 +106,105 @@ describe("program sync helpers", () => {
       monthlyBudgetDollars: "10000",
       isAutobid: true,
       feePeriod: "Calendar Month",
-      adCategories: ["plumbing"]
+      adCategories: ["plumbing"],
     });
+    expect(configuration.programSpendDailySnapshots).toEqual([
+      {
+        observedDate: "2026-03-24",
+        observedAt: syncedAt.toISOString(),
+        amountCents: 245_000,
+        currency: "USD",
+        feePeriod: "Calendar Month",
+        source: "Yelp Program List · program_metrics.ad_cost",
+      },
+    ]);
+  });
+
+  it("replaces the same Pacific day snapshot instead of double-counting it", () => {
+    const first = buildSynchronizedProgramConfiguration(
+      {
+        program_id: "cpc-4",
+        program_type: "CPC",
+        program_status: "ACTIVE",
+        active_features: [],
+        available_features: [],
+        ad_categories: [],
+        future_budget_changes: [],
+        program_metrics: { ad_cost: 100_000, currency: "USD" },
+      },
+      {},
+      {
+        budgetCents: null,
+        maxBidCents: null,
+        isAutobid: null,
+        feePeriod: "Calendar Month",
+        syncedAt: new Date("2026-08-24T12:00:00.000Z"),
+      },
+    );
+    const second = buildSynchronizedProgramConfiguration(
+      {
+        program_id: "cpc-4",
+        program_type: "CPC",
+        program_status: "ACTIVE",
+        active_features: [],
+        available_features: [],
+        ad_categories: [],
+        future_budget_changes: [],
+        program_metrics: { ad_cost: 125_000, currency: "USD" },
+      },
+      first,
+      {
+        budgetCents: null,
+        maxBidCents: null,
+        isAutobid: null,
+        feePeriod: "Calendar Month",
+        syncedAt: new Date("2026-08-24T18:00:00.000Z"),
+      },
+    );
+
+    expect(second.programSpendDailySnapshots).toEqual([
+      expect.objectContaining({
+        observedDate: "2026-08-24",
+        amountCents: 125_000,
+      }),
+    ]);
   });
 
   it("normalizes optional sync fields", () => {
-    expect(resolveSynchronizedMaxBidCents({
-      program_id: "cpc-2",
-      program_type: "CPC",
-      program_status: "ACTIVE",
-      active_features: [],
-      available_features: [],
-      ad_categories: [],
-      future_budget_changes: [],
-      program_metrics: {
-        max_bid: 1500,
-        is_autobid: false
-      }
-    })).toBe(1500);
+    expect(
+      resolveSynchronizedMaxBidCents({
+        program_id: "cpc-2",
+        program_type: "CPC",
+        program_status: "ACTIVE",
+        active_features: [],
+        available_features: [],
+        ad_categories: [],
+        future_budget_changes: [],
+        program_metrics: {
+          max_bid: 1500,
+          is_autobid: false,
+        },
+      }),
+    ).toBe(1500);
 
-    expect(resolveSynchronizedIsAutobid({
-      program_id: "cpc-3",
-      program_type: "CPC",
-      program_status: "ACTIVE",
-      active_features: [],
-      available_features: [],
-      ad_categories: [],
-      future_budget_changes: [],
-      program_metrics: {
-        is_autobid: false
-      }
-    })).toBe(false);
+    expect(
+      resolveSynchronizedIsAutobid({
+        program_id: "cpc-3",
+        program_type: "CPC",
+        program_status: "ACTIVE",
+        active_features: [],
+        available_features: [],
+        ad_categories: [],
+        future_budget_changes: [],
+        program_metrics: {
+          is_autobid: false,
+        },
+      }),
+    ).toBe(false);
 
     expect(parseSynchronizedProgramDate("9999-12-31")).toBeNull();
-    expect(parseSynchronizedProgramDate("2026-03-24")?.toISOString()).toBe("2026-03-24T00:00:00.000Z");
+    expect(parseSynchronizedProgramDate("2026-03-24")?.toISOString()).toBe(
+      "2026-03-24T00:00:00.000Z",
+    );
   });
 });
