@@ -70,7 +70,7 @@ export function SettingsUserCreateForm({
 
   return (
     <form
-      className="grid gap-4 border-b border-border p-4 md:grid-cols-[1fr_1fr_180px] xl:grid-cols-[1fr_1fr_180px_1fr_auto]"
+      className="grid gap-4 border-b border-border p-4 md:grid-cols-[1fr_1fr_210px] xl:grid-cols-[1fr_1fr_210px_1fr_auto]"
       onSubmit={onSubmit}
     >
       <div className="space-y-2">
@@ -104,7 +104,7 @@ export function SettingsUserCreateForm({
             setValue("roleCode", value as SettingsUserCreateValues["roleCode"])
           }
         >
-          <SelectTrigger>
+          <SelectTrigger className="whitespace-nowrap">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

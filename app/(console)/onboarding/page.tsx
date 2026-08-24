@@ -10,6 +10,7 @@ import {
 
 import { OnboardingBusinessActions } from "@/components/forms/onboarding-business-actions";
 import { OnboardingTenantCreateForm } from "@/components/forms/onboarding-tenant-create-form";
+import { SettingsUserCreateForm } from "@/components/forms/settings-user-create-form";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusChip } from "@/components/shared/status-chip";
 import { Badge } from "@/components/ui/badge";
@@ -22,6 +23,10 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { getTenantOnboardingOverview } from "@/features/onboarding/service";
+import {
+  getAssignableRoleCodes,
+  type ProductionRoleCode,
+} from "@/features/settings/roles";
 import { requirePermission } from "@/lib/auth/service";
 import { hasPermission } from "@/lib/permissions";
 import { cn } from "@/lib/utils/cn";
@@ -31,6 +36,16 @@ export default async function OnboardingPage() {
   const overview = await getTenantOnboardingOverview(user.tenantId);
   const canManage = hasPermission(user.role.code, "onboarding:manage");
   const canCreateTenant = hasPermission(user.role.code, "tenants:manage");
+  const canManageUsers = hasPermission(user.role.code, "users:manage");
+  const clientRoleCodes = new Set<ProductionRoleCode>([
+    "CLIENT_ADMIN",
+    "CLIENT_MANAGER",
+    "REVIEWER",
+    "VIEWER",
+  ]);
+  const assignableClientRoles = getAssignableRoleCodes(user.role.code).filter(
+    (roleCode) => clientRoleCodes.has(roleCode),
+  );
 
   return (
     <div>
@@ -77,6 +92,35 @@ export default async function OnboardingPage() {
           </CardHeader>
           <CardContent>
             <OnboardingTenantCreateForm />
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {canManageUsers && assignableClientRoles.length > 0 ? (
+        <Card className="mb-6">
+          <CardHeader className="gap-3 md:flex-row md:items-start md:justify-between">
+            <div>
+              <CardTitle>Client access</CardTitle>
+              <CardDescription>
+                Provision tenant-scoped access with a temporary password and a
+                least-privilege client role. Share the temporary credential
+                through an approved secure channel.
+              </CardDescription>
+            </div>
+            <Button
+              asChild
+              variant="outline"
+              size="sm"
+              className="shrink-0 whitespace-nowrap"
+            >
+              <Link href="/settings">
+                Manage users and roles
+                <ArrowRight className="h-4 w-4" aria-hidden="true" />
+              </Link>
+            </Button>
+          </CardHeader>
+          <CardContent className="p-0">
+            <SettingsUserCreateForm assignableRoles={assignableClientRoles} />
           </CardContent>
         </Card>
       ) : null}

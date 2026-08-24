@@ -5,16 +5,18 @@ This is the release evidence ledger for the first external-client rollout. Point
 ## Verdict And Progress
 
 - Current verdict: **Not Ready**
-- Weighted atomic score: **90 / 100**
-- Implementation completeness: **91 / 100**
-- Verification completeness: **91 / 100**
-- Live readiness: **35 / 100**
+- Weighted atomic score: **94 / 100**
+- Implementation completeness: **100 / 100**
+- Verification completeness: **94 / 100**
+- Live readiness: **50 / 100**
 - Release branch: `main`
 - Baseline commit: `6456fdf`
-- Latest checkpoint: `df40943`
+- Latest checkpoint: `434b164`
 - Live blocker: the canonical business-scoped Yelp Leads read returns `401 AUTH_FAILURE` using the tenant `REPORTING_FUSION` bearer credential.
 
 `Ready` still requires every mandatory release gate, production deployment, and a controlled live Claude-to-Yelp delivery.
+
+Implementation completeness measures whether the required code and UI exist. Verification completeness follows the earned atomic checklist below. Live readiness is calculated only from the provider-backed, production-deployment, and controlled-live-flow requirements.
 
 ## Atomic Weighted Scorecard
 
@@ -49,7 +51,7 @@ This is the release evidence ledger for the first external-client rollout. Point
 | Provider-backed Claude generation                          |      1 |      1 | Live synthetic Anthropic generation succeeded |
 | Provider-backed usage reconciliation                       |      1 |      0 | Controlled live E2E pending                   |
 
-### Multi-Tenant Isolation And RBAC: 14 / 15
+### Multi-Tenant Isolation And RBAC: 15 / 15
 
 | Atomic requirement                                     | Points | Earned | Evidence                                                |
 | ------------------------------------------------------ | -----: | -----: | ------------------------------------------------------- |
@@ -58,7 +60,7 @@ This is the release evidence ledger for the first external-client rollout. Point
 | Server-rendered page authorization and role navigation |      1 |      1 | Permission guards and sidebar tests                     |
 | Background-operation tenant/business scope             |      1 |      1 | Worker/reconcile/report/autoresponder scope review      |
 | Tenant scope and payload/URL IDOR protection           |      2 |      2 | Authenticated tenant route tests                        |
-| Assigned-business restriction for agency operators     |      1 |      0 | Complete assignment matrix pending                      |
+| Agency access restricted to assigned client tenants    |      1 |      1 | UserTenantAccess resolver and negative route tests      |
 | Negative cross-tenant read/write tests                 |      1 |      1 | Tenant access and route tests                           |
 | Negative credential/export tests                       |      1 |      1 | Credential and usage export route tests                 |
 | Negative settings/usage matrix                         |      1 |      1 | Explicit credential-write and usage-export denial tests |
@@ -67,20 +69,20 @@ This is the release evidence ledger for the first external-client rollout. Point
 | All protected API routes have server-side guards       |      1 |      1 | Static guard inventory test                             |
 | All console pages have server-side guards              |      1 |      1 | Static guard inventory test                             |
 
-### Client Onboarding And Activation Gates: 8 / 10
+### Client Onboarding And Activation Gates: 9 / 10
 
-| Atomic requirement                                                  | Points | Earned | Evidence                                           |
-| ------------------------------------------------------------------- | -----: | -----: | -------------------------------------------------- |
-| Isolated tenant and Client Admin creation with safe defaults        |      1 |      1 | Workflow and defaults tests                        |
-| Tenant selector constrained to authorized tenants                   |      1 |      1 | Tenant access and selector implementation          |
-| Guided Yelp/business connection workflow                            |      1 |      1 | Onboarding UI and provider-evidence checks         |
-| Claude tier, limits, hours, rules, and fallback workflow            |      1 |      1 | Onboarding checks and linked configuration UI      |
-| Truthful Draft/Connecting/Review/Ready/Active/Paused/Blocked states |      1 |      1 | State-transition tests                             |
-| Activation blocked until checks pass; review-only default           |      1 |      1 | Schema and readiness tests                         |
-| Server-side pause, emergency disable, and recovery                  |      1 |      1 | Transition and API tests                           |
-| Authenticated tenant and URL business scope                         |      1 |      1 | Onboarding route tests                             |
-| Complete invitation/user assignment step                            |      1 |      0 | Existing tenant user invitation remains incomplete |
-| Successful live Yelp Leads/reporting connection evidence            |      1 |      0 | Yelp Leads returns 401                             |
+| Atomic requirement                                                  | Points | Earned | Evidence                                                             |
+| ------------------------------------------------------------------- | -----: | -----: | -------------------------------------------------------------------- |
+| Isolated tenant and Client Admin creation with safe defaults        |      1 |      1 | Workflow and defaults tests                                          |
+| Tenant selector constrained to authorized tenants                   |      1 |      1 | Tenant access and selector implementation                            |
+| Guided Yelp/business connection workflow                            |      1 |      1 | Onboarding UI and provider-evidence checks                           |
+| Claude tier, limits, hours, rules, and fallback workflow            |      1 |      1 | Onboarding checks and linked configuration UI                        |
+| Truthful Draft/Connecting/Review/Ready/Active/Paused/Blocked states |      1 |      1 | State-transition tests                                               |
+| Activation blocked until checks pass; review-only default           |      1 |      1 | Schema and readiness tests                                           |
+| Server-side pause, emergency disable, and recovery                  |      1 |      1 | Transition and API tests                                             |
+| Authenticated tenant and URL business scope                         |      1 |      1 | Onboarding route tests                                               |
+| Guided client access provisioning and role assignment               |      1 |      1 | Tenant-scoped temporary access, client-role allowlist, audit, and UI |
+| Successful live Yelp Leads/reporting connection evidence            |      1 |      0 | Yelp Leads returns 401                                               |
 
 ### Yelp Campaigns, Cap, MTD And Temporary Campaigns: 10 / 10
 
@@ -112,7 +114,7 @@ This is the release evidence ledger for the first external-client rollout. Point
 | Full IDOR/privilege-escalation review                      |      1 |      1 | Protected-route inventory and negative tenant tests |
 | Final production security regression                       |      1 |      1 | Full release gate and isolated production audit     |
 
-### Tests, Migrations, Deployment And Live Verification: 7 / 10
+### Tests, Migrations, Deployment And Live Verification: 9 / 10
 
 | Atomic requirement                  | Points | Earned | Evidence                                             |
 | ----------------------------------- | -----: | -----: | ---------------------------------------------------- |
@@ -123,8 +125,8 @@ This is the release evidence ledger for the first external-client rollout. Point
 | Fresh database migration            |      1 |      1 | 25 migrations passed                                 |
 | Existing database upgrade           |      1 |      1 | 21 legacy + 4 release migrations passed              |
 | CI internal-failure behavior        |      1 |      1 | Reconcile/follow-up non-2xx tests and curl fail-fast |
-| Push and deploy from `main`         |      1 |      0 | Not pushed or deployed                               |
-| Production smoke test               |      1 |      0 | Deployment pending                                   |
+| Push and deploy from `main`         |      1 |      1 | Commit `434b164` deployed to Vercel Production       |
+| Production smoke test               |      1 |      1 | Public and authenticated critical-route smoke passed |
 | Controlled provider E2E             |      1 |      0 | Yelp Leads auth blocked                              |
 
 ### Health, Observability And Recovery: 5 / 5
@@ -172,6 +174,13 @@ This is the release evidence ledger for the first external-client rollout. Point
 | 2026-08-24 | Browser E2E               | Six authenticated production-flow scenarios passed on a fresh isolated database: create CPC, budget update, terminate, feature update, report request, and settings boundary.                                                                            |
 | 2026-08-24 | Development CSP           | Next.js development hydration is enabled with development-only `unsafe-eval`; the production CSP remains strict and is rechecked by the optimized production build.                                                                                      |
 | 2026-08-24 | CSRF route review         | Browser mutations use JSON-only requests or bodyless POST under an HttpOnly, Secure-in-production, SameSite=Lax session; every protected mutation has a server permission guard, while cron/webhook routes use separate bearer/signature authentication. |
+| 2026-08-24 | Exact-SHA CI              | GitHub Production Readiness run `32725349076` passed fresh/upgrade migrations, format, 372 tests, typecheck, lint, and production build for commit `434b164`.                                                                                            |
+| 2026-08-24 | Production deploy         | Vercel reported successful Production deployment `6062348630` for commit `434b164`; canonical production alias serves the release.                                                                                                                       |
+| 2026-08-24 | Production migrations     | Four pending, previously verified release migrations were applied successfully to the configured production Neon database; all 25 migrations are now applied.                                                                                            |
+| 2026-08-24 | Production smoke          | Canonical login and webhook challenge returned 200; authenticated onboarding, programs, autoresponder, settings, and audit routes returned 200 without application/database errors.                                                                      |
+| 2026-08-24 | Agency scope verification | Four focused tenant-access, tenant-switch, cross-tenant route, and authorization inventory files passed 14 tests; assigned client-tenant access scopes every downstream business operation.                                                              |
+| 2026-08-24 | Yelp Leads recheck        | Both configured production business scopes returned HTTP 401 `AUTH_FAILURE` from `GET /v3/businesses/{businessId}/lead_ids?limit=1` using tenant `REPORTING_FUSION` credentials. No business IDs or lead data were logged.                               |
+| 2026-08-24 | Client access onboarding  | Guided onboarding provisions tenant-scoped users with temporary credentials and client-only role selection; creation and role routes passed 16 focused tests, and desktop/mobile visual QA found no overflow.                                            |
 
 ## Current Blocker
 
