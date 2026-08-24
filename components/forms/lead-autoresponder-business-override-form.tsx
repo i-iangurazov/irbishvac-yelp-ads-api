@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import {
+  defaultLeadAiModel,
   leadConversationAutomationModeOptions,
   leadConversationIntentOptions,
 } from "@/features/autoresponder/constants";
@@ -81,7 +82,7 @@ export function LeadAutoresponderBusinessOverrideForm({
         (availableModels[0]?.value as
           | LeadAutoresponderBusinessOverrideValues["aiModel"]
           | undefined) ??
-        "gpt-5-nano",
+        defaultLeadAiModel,
       conversationAutomationEnabled:
         initialValues?.conversationAutomationEnabled ?? false,
       conversationMode: initialValues?.conversationMode ?? "REVIEW_ONLY",
@@ -283,8 +284,8 @@ export function LeadAutoresponderBusinessOverrideForm({
                   <div className="text-sm font-medium">AI assist</div>
                   <div className="text-xs text-muted-foreground">
                     {aiAssistConfigured
-                      ? "Allows AI-assisted live templates for this business."
-                      : "OpenAI key not configured."}
+                      ? "Allows Claude-assisted live templates for this business."
+                      : "Anthropic key not configured."}
                   </div>
                 </div>
                 <Switch
@@ -328,7 +329,7 @@ export function LeadAutoresponderBusinessOverrideForm({
                 <div className="rounded-lg border border-dashed border-border/80 px-4 py-3 text-sm text-muted-foreground">
                   {aiAssistConfigured
                     ? "AI assist is off for this override."
-                    : "Add `OPENAI_API_KEY` to enable AI assist."}
+                    : "Add `ANTHROPIC_API_KEY` to enable Claude assist."}
                 </div>
               )}
             </div>

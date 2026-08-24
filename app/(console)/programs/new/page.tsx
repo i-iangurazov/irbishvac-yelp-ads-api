@@ -5,14 +5,14 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
 import { getBusinessesIndex } from "@/features/businesses/service";
-import { requireUser } from "@/lib/auth/service";
+import { requirePermission } from "@/lib/auth/service";
 
 export default async function NewProgramPage({
   searchParams,
 }: {
   searchParams: Promise<{ businessId?: string }>;
 }) {
-  const user = await requireUser();
+  const user = await requirePermission("programs:write");
   const query = await searchParams;
   const businesses = await getBusinessesIndex(user.tenantId);
   const initialBusinessId = businesses.some(

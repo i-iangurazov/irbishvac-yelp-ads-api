@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { YelpSyncButton } from "@/components/forms/yelp-sync-button";
 import { MetricCard } from "@/components/shared/metric-card";
 import { PageHeader } from "@/components/shared/page-header";
 import { ProgramCategoryList } from "@/components/shared/program-category-list";
@@ -22,15 +23,28 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { getProgramsIndex } from "@/features/ads-programs/service";
+import {
+  getProgramBudgetPolicy,
+  getProgramsIndex,
+} from "@/features/ads-programs/service";
+import { campaignLayerLabels } from "@/features/ads-programs/layers";
+import {
+  getProgramSpendState,
+  inferProgramCampaignLayer,
+} from "@/features/ads-programs/metrics";
 import { programTypeLabels } from "@/features/ads-programs/schemas";
 import { analyzeBusinessCpcTargeting } from "@/features/ads-programs/targeting";
-import { requireUser } from "@/lib/auth/service";
+import { requirePermission } from "@/lib/auth/service";
+import { hasPermission } from "@/lib/permissions";
 import { formatCurrency, formatDateTime, titleCase } from "@/lib/utils/format";
 
 export default async function ProgramsPage() {
-  const user = await requireUser();
-  const programs = await getProgramsIndex(user.tenantId);
+  const user = await requirePermission("programs:read");
+  const canManagePrograms = hasPermission(user.role.code, "programs:write");
+  const [programs, budgetPolicy] = await Promise.all([
+    getProgramsIndex(user.tenantId),
+    getProgramBudgetPolicy(user.tenantId),
+  ]);
   const activePrograms = programs.filter(
     (program) => program.status === "ACTIVE",
   );
@@ -44,6 +58,14 @@ export default async function ProgramsPage() {
     program.jobs.some(
       (job) => job.status === "FAILED" || job.status === "PARTIAL",
     ),
+  );
+  const programsWithSpend = programs.filter(
+    (program) => getProgramSpendState(program).amountCents !== null,
+  );
+  const reportedSpendCents = programsWithSpend.reduce(
+    (total, program) =>
+      total + (getProgramSpendState(program).amountCents ?? 0),
+    0,
   );
   const programsByBusiness = new Map<string, (typeof programs)[number][]>();
 
@@ -71,13 +93,21 @@ export default async function ProgramsPage() {
         title="Programs"
         description="Manage live and in-flight Yelp program requests from one queue."
         actions={
-          <Button asChild>
-            <Link href="/programs/new">New program</Link>
-          </Button>
+          canManagePrograms ? (
+            <div className="flex flex-wrap gap-2">
+              <YelpSyncButton
+                label="Refresh Yelp spend"
+                syncPath="/api/programs/sync"
+              />
+              <Button asChild>
+                <Link href="/programs/new">New program</Link>
+              </Button>
+            </div>
+          ) : null
         }
       />
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
         <MetricCard
           title="Current programs"
           value={programs.length}
@@ -102,7 +132,35 @@ export default async function ProgramsPage() {
           }
           description="Failed jobs, missing Yelp IDs, or targeting integrity problems."
         />
+        <MetricCard
+          title="Budget protection"
+          value={`${formatCurrency(budgetPolicy.capCents, "USD")} max`}
+          description={
+            budgetPolicy.isOverCap
+              ? `${budgetPolicy.overCapPrograms.length} campaign(s) exceed the cap.`
+              : "Applied independently to every campaign."
+          }
+        />
+        <MetricCard
+          title="Yelp-reported spend"
+          value={formatCurrency(reportedSpendCents, "USD")}
+          description={`${programsWithSpend.length}/${programs.length} programs report billing-period ad cost. This is not labeled MTD without date-bounded evidence.`}
+        />
       </div>
+
+      {budgetPolicy.isOverCap ? (
+        <div className="mt-6 rounded-lg border border-destructive/35 bg-destructive/5 p-4">
+          <div className="font-semibold text-destructive">
+            Monthly Yelp budget exceeds the approved $60,000 cap
+          </div>
+          <div className="mt-1 text-sm text-muted-foreground">
+            {budgetPolicy.overCapPrograms.length} current CPC campaign(s) have a
+            protected budget above{" "}
+            {formatCurrency(budgetPolicy.capCents, "USD")}. Increases remain
+            blocked, while reductions are allowed.
+          </div>
+        </div>
+      ) : null}
 
       <div className="mt-6 flex flex-wrap items-center gap-2 rounded-lg border border-border/80 bg-muted/15 px-4 py-3 text-xs text-muted-foreground">
         <Badge variant="secondary">Local record</Badge>
@@ -164,6 +222,7 @@ export default async function ProgramsPage() {
                   <TableHead>Program</TableHead>
                   <TableHead>Ad categories</TableHead>
                   <TableHead>Budget</TableHead>
+                  <TableHead>Reported spend</TableHead>
                   <TableHead>Latest Yelp job</TableHead>
                   <TableHead>Yelp ID</TableHead>
                   <TableHead>Actions</TableHead>
@@ -179,6 +238,8 @@ export default async function ProgramsPage() {
                       : {};
                   const importedFromYelp =
                     configuration.syncImportedFromYelp === true;
+                  const campaignLayer = inferProgramCampaignLayer(program);
+                  const spend = getProgramSpendState(program);
 
                   return (
                     <TableRow key={program.id}>
@@ -200,6 +261,11 @@ export default async function ProgramsPage() {
                             ? "Advertising campaign"
                             : "Profile product"}
                         </div>
+                        {program.type === "CPC" ? (
+                          <div className="mt-1 text-xs font-medium text-muted-foreground">
+                            {campaignLayerLabels[campaignLayer]}
+                          </div>
+                        ) : null}
                         <div className="mt-2">
                           <StatusChip status={program.status} />
                         </div>
@@ -227,6 +293,27 @@ export default async function ProgramsPage() {
                         ) : (
                           formatCurrency(program.budgetCents, program.currency)
                         )}
+                      </TableCell>
+                      <TableCell>
+                        <div className="font-medium">
+                          {spend.amountCents === null
+                            ? "Pending sync"
+                            : formatCurrency(spend.amountCents, spend.currency)}
+                        </div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          {spend.periodLabel} · {spend.status}
+                        </div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          {spend.source}
+                          {spend.lastSuccessfulSync
+                            ? ` · ${formatDateTime(spend.lastSuccessfulSync)}`
+                            : " · not synced"}
+                        </div>
+                        {spend.warning ? (
+                          <div className="mt-1 max-w-xs text-xs text-warning-foreground">
+                            {spend.warning}
+                          </div>
+                        ) : null}
                       </TableCell>
                       <TableCell>
                         {latestJob ? (

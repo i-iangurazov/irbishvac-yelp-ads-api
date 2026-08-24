@@ -24,7 +24,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { getBusinessesIndex } from "@/features/businesses/service";
-import { requireUser } from "@/lib/auth/service";
+import { requirePermission } from "@/lib/auth/service";
 import { hasPermission } from "@/lib/permissions";
 
 const eligibilityVariantMap = {
@@ -40,7 +40,7 @@ const eligibilityLabelMap = {
 } as const;
 
 export default async function BusinessesPage() {
-  const user = await requireUser();
+  const user = await requirePermission("businesses:read");
   const businesses = await getBusinessesIndex(user.tenantId);
   const canManageBusinesses = hasPermission(user.role.code, "businesses:write");
   const launchReadyBusinesses = businesses.filter(

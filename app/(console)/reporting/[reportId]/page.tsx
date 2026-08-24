@@ -23,7 +23,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { getReportBreakdownView } from "@/features/reporting/service";
-import { requireUser } from "@/lib/auth/service";
+import { requirePermission } from "@/lib/auth/service";
+import { hasPermission } from "@/lib/permissions";
 import { formatCurrency, formatDateTime } from "@/lib/utils/format";
 
 function buildQueryString(values: Record<string, string | undefined>) {
@@ -52,7 +53,7 @@ export default async function ReportDetailPage({
     serviceCategoryId?: string;
   }>;
 }) {
-  const user = await requireUser();
+  const user = await requirePermission("reports:read");
   const { reportId } = await params;
   const filters = await searchParams;
   const reportView = await getReportBreakdownView(
@@ -471,7 +472,7 @@ export default async function ReportDetailPage({
         <div className="space-y-6">
           <ReportStatusPoller reportId={report.id} />
 
-          {user.role.code === "ADMIN" ? (
+          {hasPermission(user.role.code, "diagnostics:read") ? (
             <Card>
               <CardHeader>
                 <CardTitle>Raw JSON payload</CardTitle>

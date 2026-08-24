@@ -6,11 +6,11 @@ import {
   evaluateLeadAutomationEligibility,
   evaluateLeadAutomationFollowUpEligibility,
   isWithinWorkingHours,
-  renderLeadAutomationTemplate
+  renderLeadAutomationTemplate,
 } from "@/features/autoresponder/logic";
 import {
   buildLeadAutomationHistory,
-  buildLeadAutomationSummary
+  buildLeadAutomationSummary,
 } from "@/features/autoresponder/normalize";
 import type { LeadAutoresponderSettingsValues } from "@/features/autoresponder/schemas";
 
@@ -54,11 +54,12 @@ const logInfo = vi.fn();
 const logError = vi.fn();
 const isSmtpConfigured = vi.fn();
 const ensureYelpLeadsAccess = vi.fn();
+const getCredentialSet = vi.fn();
 const recordAutoresponderMetric = vi.fn();
 
 vi.mock("@/lib/db/settings-repository", () => ({
   getSystemSetting,
-  upsertSystemSetting: vi.fn()
+  upsertSystemSetting: vi.fn(),
 }));
 
 vi.mock("@/lib/db/autoresponder-repository", () => ({
@@ -90,45 +91,49 @@ vi.mock("@/lib/db/autoresponder-repository", () => ({
   listLeadConversationReviewTurns,
   listDueLeadAutomationAttempts,
   listRecentLeadAutomationAttempts,
-  claimLeadAutomationAttemptForProcessing
+  claimLeadAutomationAttemptForProcessing,
 }));
 
 vi.mock("@/features/leads/messaging-service", () => ({
-  deliverLeadAutomationMessage
+  deliverLeadAutomationMessage,
 }));
 
 vi.mock("@/features/autoresponder/ai-service", () => ({
-  generateLeadAutomationAiMessage
+  generateLeadAutomationAiMessage,
 }));
 
 vi.mock("@/features/audit/service", () => ({
   recordAuditEvent,
-  getAuditLog
+  getAuditLog,
 }));
 
 vi.mock("@/features/leads/ai-reply-service", () => ({
-  getAiReplyAssistantState
+  getAiReplyAssistantState,
 }));
 
 vi.mock("@/lib/db/issues-repository", () => ({
-  listOperatorIssues
+  listOperatorIssues,
 }));
 
 vi.mock("@/lib/utils/logging", () => ({
   logInfo,
-  logError
+  logError,
 }));
 
 vi.mock("@/features/report-delivery/email", () => ({
-  isSmtpConfigured
+  isSmtpConfigured,
 }));
 
 vi.mock("@/lib/yelp/runtime", () => ({
-  ensureYelpLeadsAccess
+  ensureYelpLeadsAccess,
+}));
+
+vi.mock("@/lib/db/credentials-repository", () => ({
+  getCredentialSet,
 }));
 
 vi.mock("@/features/operations/observability-service", () => ({
-  recordAutoresponderMetric
+  recordAutoresponderMetric,
 }));
 
 const baseLead = {
@@ -146,21 +151,21 @@ const baseLead = {
     name: "Northwind HVAC",
     location: {
       id: "location_1",
-      name: "Downtown"
-    }
+      name: "Downtown",
+    },
   },
   location: {
     id: "location_1",
-    name: "Downtown"
+    name: "Downtown",
   },
   serviceCategory: {
     id: "service_1",
-    name: "HVAC Repair"
+    name: "HVAC Repair",
   },
   mappedServiceLabel: "HVAC Repair",
   automationAttempts: [],
   events: [],
-  conversationActions: []
+  conversationActions: [],
 };
 
 const baseRule = {
@@ -183,13 +188,15 @@ const baseRule = {
     isEnabled: true,
     businessId: null,
     subjectTemplate: "Hi {{customer_name}}",
-    bodyTemplate: "Thanks for contacting {{business_name}} about {{service_type}}.",
-    sourceSystem: "INTERNAL" as const
-  }
+    bodyTemplate:
+      "Thanks for contacting {{business_name}} about {{service_type}}.",
+    sourceSystem: "INTERNAL" as const,
+  },
 };
 
 const baseSettings: LeadAutoresponderSettingsValues = {
   isEnabled: true,
+  tenantKillSwitchEnabled: false,
   scopeMode: "ALL_BUSINESSES" as const,
   scopedBusinessIds: [],
   defaultChannel: "EMAIL" as const,
@@ -199,18 +206,24 @@ const baseSettings: LeadAutoresponderSettingsValues = {
   followUp7dEnabled: false,
   followUp7dDelayDays: 7,
   aiAssistEnabled: true,
-  aiModel: "gpt-5-nano" as const,
+  aiModel: "claude-haiku-4-5" as const,
+  aiAllowedModels: ["claude-haiku-4-5", "claude-sonnet-4-6", "claude-opus-4-6"],
+  aiMonthlyBudgetUsd: 50,
+  aiMonthlyMessageLimit: 5_000,
+  aiMonthlyTokenLimit: 5_000_000,
+  aiUsageWarningPercent: 80,
+  aiAgencyMarkupPercent: 0,
   conversationAutomationEnabled: false,
   conversationGlobalPauseEnabled: false,
   conversationMode: "REVIEW_ONLY" as const,
   conversationAllowedIntents: [
     "MISSING_DETAILS_PROVIDED",
     "BASIC_ACKNOWLEDGMENT",
-    "SIMPLE_NEXT_STEP_CLARIFICATION"
+    "SIMPLE_NEXT_STEP_CLARIFICATION",
   ],
   conversationMaxAutomatedTurns: 2,
   conversationReviewFallbackEnabled: true,
-  conversationEscalateToIssueQueue: true
+  conversationEscalateToIssueQueue: true,
 };
 
 describe("autoresponder helpers", () => {
@@ -218,10 +231,12 @@ describe("autoresponder helpers", () => {
     const variables = buildLeadAutomationVariables(baseLead);
     const text = renderLeadAutomationTemplate(
       "Hi {{customer_name}}, {{business_name}} received your {{service_type}} request ({{lead_reference}}).",
-      variables
+      variables,
     );
 
-    expect(text).toBe("Hi Jane Doe, Northwind HVAC received your HVAC Repair request (lead_1).");
+    expect(text).toBe(
+      "Hi Jane Doe, Northwind HVAC received your HVAC Repair request (lead_1).",
+    );
   });
 
   it("adds an automated disclosure without duplicating it", () => {
@@ -230,26 +245,23 @@ describe("autoresponder helpers", () => {
         channel: "EMAIL",
         subject: "Hi Jane Doe",
         body: "Thanks for contacting Northwind HVAC.",
-        businessName: "Northwind HVAC"
-      })
+        businessName: "Northwind HVAC",
+      }),
     ).toEqual({
       subject: "[Irbishvac automated message] Hi Jane Doe",
-      body:
-        "Irbishvac automated message from Northwind HVAC via Yelp - a team member may follow up with more details.\n\nThanks for contacting Northwind HVAC."
+      body: "Irbishvac automated message from Northwind HVAC via Yelp - a team member may follow up with more details.\n\nThanks for contacting Northwind HVAC.",
     });
 
     expect(
       applyLeadAutomationDisclosure({
         channel: "YELP_THREAD",
         subject: "Ignored",
-        body:
-          "Automated message from Northwind HVAC via Yelp - a team member may follow up with more details.\n\nThanks for contacting Northwind HVAC.",
-        businessName: "Northwind HVAC"
-      })
+        body: "Automated message from Northwind HVAC via Yelp - a team member may follow up with more details.\n\nThanks for contacting Northwind HVAC.",
+        businessName: "Northwind HVAC",
+      }),
     ).toEqual({
       subject: "Ignored",
-      body:
-        "Irbishvac automated message from Northwind HVAC via Yelp - a team member may follow up with more details.\n\nThanks for contacting Northwind HVAC."
+      body: "Irbishvac automated message from Northwind HVAC via Yelp - a team member may follow up with more details.\n\nThanks for contacting Northwind HVAC.",
     });
   });
 
@@ -261,10 +273,10 @@ describe("autoresponder helpers", () => {
           timezone: "UTC",
           workingDaysJson: [1, 2, 3, 4, 5],
           startMinute: 9 * 60,
-          endMinute: 17 * 60
+          endMinute: 17 * 60,
         },
-        new Date("2026-04-06T10:00:00.000Z")
-      )
+        new Date("2026-04-06T10:00:00.000Z"),
+      ),
     ).toBe(true);
 
     expect(
@@ -274,10 +286,10 @@ describe("autoresponder helpers", () => {
           timezone: "UTC",
           workingDaysJson: [1, 2, 3, 4, 5],
           startMinute: 9 * 60,
-          endMinute: 17 * 60
+          endMinute: 17 * 60,
         },
-        new Date("2026-04-05T10:00:00.000Z")
-      )
+        new Date("2026-04-05T10:00:00.000Z"),
+      ),
     ).toBe(false);
   });
 
@@ -287,14 +299,14 @@ describe("autoresponder helpers", () => {
       smtpConfigured: true,
       lead: {
         ...baseLead,
-        automationAttempts: [{ id: "attempt_1", cadence: "INITIAL" }]
+        automationAttempts: [{ id: "attempt_1", cadence: "INITIAL" }],
       },
-      rules: [baseRule]
+      rules: [baseRule],
     });
 
     expect(result).toMatchObject({
       eligible: false,
-      skipReason: "DUPLICATE"
+      skipReason: "DUPLICATE",
     });
   });
 
@@ -302,24 +314,24 @@ describe("autoresponder helpers", () => {
     const result = evaluateLeadAutomationEligibility({
       settings: {
         ...baseSettings,
-        defaultChannel: "YELP_THREAD"
+        defaultChannel: "YELP_THREAD",
       },
       smtpConfigured: false,
       lead: {
         ...baseLead,
-        customerEmail: null
+        customerEmail: null,
       },
       rules: [
         {
           ...baseRule,
-          channel: "YELP_THREAD" as const
-        }
-      ]
+          channel: "YELP_THREAD" as const,
+        },
+      ],
     });
 
     expect(result).toMatchObject({
       eligible: true,
-      recipient: null
+      recipient: null,
     });
   });
 
@@ -328,7 +340,7 @@ describe("autoresponder helpers", () => {
       settings: {
         ...baseSettings,
         defaultChannel: "YELP_THREAD",
-        followUp24hEnabled: true
+        followUp24hEnabled: true,
       },
       cadence: "FOLLOW_UP_24H",
       lead: {
@@ -338,30 +350,30 @@ describe("autoresponder helpers", () => {
             id: "attempt_initial",
             cadence: "INITIAL",
             status: "SENT",
-            completedAt: new Date("2026-04-03T09:00:00.000Z")
-          }
+            completedAt: new Date("2026-04-03T09:00:00.000Z"),
+          },
         ],
         events: [
           {
             eventType: "MESSAGE",
             actorType: "CONSUMER",
             occurredAt: new Date("2026-04-03T12:00:00.000Z"),
-            isReply: true
-          }
-        ]
+            isReply: true,
+          },
+        ],
       },
       rules: [
         {
           ...baseRule,
           channel: "YELP_THREAD",
-          cadence: "FOLLOW_UP_24H"
-        }
-      ]
+          cadence: "FOLLOW_UP_24H",
+        },
+      ],
     });
 
     expect(result).toMatchObject({
       eligible: false,
-      skipReason: "CUSTOMER_REPLIED"
+      skipReason: "CUSTOMER_REPLIED",
     });
   });
 
@@ -383,7 +395,12 @@ describe("autoresponder helpers", () => {
         startedAt: new Date("2026-04-03T09:10:10.000Z"),
         completedAt: new Date("2026-04-03T09:10:20.000Z"),
         template: { id: "tpl_1", name: "Template A" },
-        rule: { id: "rule_1", name: "Rule A", location: null, serviceCategory: null }
+        rule: {
+          id: "rule_1",
+          name: "Rule A",
+          location: null,
+          serviceCategory: null,
+        },
       },
       {
         id: "attempt_1",
@@ -401,20 +418,27 @@ describe("autoresponder helpers", () => {
         startedAt: null,
         completedAt: new Date("2026-04-03T09:00:05.000Z"),
         template: { id: "tpl_1", name: "Template A" },
-        rule: { id: "rule_1", name: "Rule A", location: null, serviceCategory: null }
-      }
+        rule: {
+          id: "rule_1",
+          name: "Rule A",
+          location: null,
+          serviceCategory: null,
+        },
+      },
     ]);
 
     expect(history.map((item) => item.id)).toEqual(["attempt_1", "attempt_2"]);
-    expect(buildLeadAutomationSummary({
+    expect(
+      buildLeadAutomationSummary({
+        status: "SKIPPED",
+        skipReason: "OUTSIDE_WORKING_HOURS",
+        recipient: null,
+        errorSummary: null,
+        template: { name: "Template A" },
+      }),
+    ).toEqual({
       status: "SKIPPED",
-      skipReason: "OUTSIDE_WORKING_HOURS",
-      recipient: null,
-      errorSummary: null,
-      template: { name: "Template A" }
-    })).toEqual({
-      status: "SKIPPED",
-      message: "Outside working hours"
+      message: "Outside working hours",
     });
   });
 });
@@ -427,9 +451,12 @@ describe("autoresponder service", () => {
     listLeadAutomationTemplates.mockResolvedValue([]);
     listLeadAutomationRules.mockResolvedValue([]);
     listLeadAutomationOptions.mockResolvedValue({
-      businesses: [],
-      locations: [],
-      serviceCategories: []
+      businesses: [
+        { id: "business_1", name: "Northwind HVAC" },
+        { id: "business_2", name: "Skyline Electric" },
+      ],
+      locations: [{ id: "location_1", name: "Main location" }],
+      serviceCategories: [{ id: "service_1", name: "HVAC Repair" }],
     });
     listLeadAutomationBusinessOverrides.mockResolvedValue([]);
     getLeadAutomationBusinessOverrideByBusinessId.mockResolvedValue(null);
@@ -442,13 +469,13 @@ describe("autoresponder service", () => {
       pendingCount: 0,
       pendingDueCount: 0,
       scheduledCount: 0,
-      lastSuccessfulAt: null
+      lastSuccessfulAt: null,
     });
     getLeadAutomationBusinessAttemptHealth.mockResolvedValue({
       sentCounts: [],
       failedCounts: [],
       pendingDueCounts: [],
-      lastSuccessfulAttempts: []
+      lastSuccessfulAttempts: [],
     });
     getLeadAutomationBusinessConnectionHealth.mockResolvedValue({
       leadCounts: [],
@@ -456,7 +483,7 @@ describe("autoresponder service", () => {
       latestWebhookActivity: [],
       latestSuccessfulSyncRuns: [],
       latestFailedSyncRuns: [],
-      pendingSyncCounts: []
+      pendingSyncCounts: [],
     });
     listLeadConversationAutomationTurnMetrics.mockResolvedValue([]);
     countLeadConversationOperatorTakeovers.mockResolvedValue(0);
@@ -469,32 +496,69 @@ describe("autoresponder service", () => {
       envConfigured: true,
       enabled: true,
       reviewRequired: true,
-      model: "gpt-5-nano",
-      modelLabel: "gpt-5-nano • Cheapest / test",
-      guardrails: ["No prices"]
+      model: "claude-haiku-4-5",
+      modelLabel: "claude-haiku-4-5 • Economy",
+      guardrails: ["No prices"],
     });
     getAuditLog.mockResolvedValue([]);
     listOperatorIssues.mockResolvedValue([]);
     isSmtpConfigured.mockReturnValue(true);
     ensureYelpLeadsAccess.mockResolvedValue({
       credential: {
-        label: "Yelp Leads bearer token"
-      }
+        label: "Yelp Leads bearer token",
+      },
     });
+    getCredentialSet.mockResolvedValue(null);
   });
 
   it("prevents duplicate first responses when an attempt already exists", async () => {
     getLeadAutomationCandidate.mockResolvedValue({
       ...baseLead,
-      automationAttempts: [{ id: "attempt_1" }]
+      automationAttempts: [{ id: "attempt_1" }],
     });
 
-    const { processLeadAutoresponderForNewLead } = await import("@/features/autoresponder/service");
-    const result = await processLeadAutoresponderForNewLead("tenant_1", "lead_local_1");
+    const { processLeadAutoresponderForNewLead } =
+      await import("@/features/autoresponder/service");
+    const result = await processLeadAutoresponderForNewLead(
+      "tenant_1",
+      "lead_local_1",
+    );
 
     expect(result).toEqual({ status: "DUPLICATE" });
     expect(createLeadAutomationAttempt).not.toHaveBeenCalled();
     expect(deliverLeadAutomationMessage).not.toHaveBeenCalled();
+  });
+
+  it("does not generate or send when the tenant emergency stop is enabled", async () => {
+    getSystemSetting.mockResolvedValueOnce({
+      ...baseSettings,
+      tenantKillSwitchEnabled: true,
+    });
+    createLeadAutomationAttempt.mockResolvedValueOnce({
+      id: "attempt_kill_switch",
+      status: "SKIPPED",
+      skipReason: "AUTORESPONDER_DISABLED",
+    });
+
+    const { processLeadAutoresponderForNewLead } =
+      await import("@/features/autoresponder/service");
+    const result = await processLeadAutoresponderForNewLead(
+      "tenant_1",
+      "lead_local_1",
+    );
+
+    expect(createLeadAutomationAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "SKIPPED",
+        skipReason: "AUTORESPONDER_DISABLED",
+      }),
+    );
+    expect(generateLeadAutomationAiMessage).not.toHaveBeenCalled();
+    expect(deliverLeadAutomationMessage).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      status: "SKIPPED",
+      skipReason: "AUTORESPONDER_DISABLED",
+    });
   });
 
   it("records a skipped initial attempt when a team member already took over the thread", async () => {
@@ -507,56 +571,64 @@ describe("autoresponder service", () => {
           initiator: "OPERATOR",
           status: "SENT",
           createdAt: new Date("2026-04-09T09:00:00.000Z"),
-          completedAt: new Date("2026-04-09T09:01:00.000Z")
-        }
-      ]
+          completedAt: new Date("2026-04-09T09:01:00.000Z"),
+        },
+      ],
     });
     createLeadAutomationAttempt.mockResolvedValue({
       id: "attempt_1",
       status: "SKIPPED",
-      skipReason: "HUMAN_TAKEOVER"
+      skipReason: "HUMAN_TAKEOVER",
     });
 
-    const { processLeadAutoresponderForNewLead } = await import("@/features/autoresponder/service");
-    const result = await processLeadAutoresponderForNewLead("tenant_1", "lead_local_1");
+    const { processLeadAutoresponderForNewLead } =
+      await import("@/features/autoresponder/service");
+    const result = await processLeadAutoresponderForNewLead(
+      "tenant_1",
+      "lead_local_1",
+    );
 
     expect(createLeadAutomationAttempt).toHaveBeenCalledWith(
       expect.objectContaining({
         status: "SKIPPED",
-        skipReason: "HUMAN_TAKEOVER"
-      })
+        skipReason: "HUMAN_TAKEOVER",
+      }),
     );
     expect(deliverLeadAutomationMessage).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       status: "SKIPPED",
-      skipReason: "HUMAN_TAKEOVER"
+      skipReason: "HUMAN_TAKEOVER",
     });
   });
 
   it("records a skipped attempt when the lead has no deliverable contact", async () => {
     getLeadAutomationCandidate.mockResolvedValue({
       ...baseLead,
-      customerEmail: null
+      customerEmail: null,
     });
     createLeadAutomationAttempt.mockResolvedValue({
       id: "attempt_1",
       status: "SKIPPED",
-      skipReason: "MISSING_CONTACT"
+      skipReason: "MISSING_CONTACT",
     });
 
-    const { processLeadAutoresponderForNewLead } = await import("@/features/autoresponder/service");
-    const result = await processLeadAutoresponderForNewLead("tenant_1", "lead_local_1");
+    const { processLeadAutoresponderForNewLead } =
+      await import("@/features/autoresponder/service");
+    const result = await processLeadAutoresponderForNewLead(
+      "tenant_1",
+      "lead_local_1",
+    );
 
     expect(createLeadAutomationAttempt).toHaveBeenCalledWith(
       expect.objectContaining({
         status: "SKIPPED",
-        skipReason: "MISSING_CONTACT"
-      })
+        skipReason: "MISSING_CONTACT",
+      }),
     );
     expect(deliverLeadAutomationMessage).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       status: "SKIPPED",
-      skipReason: "MISSING_CONTACT"
+      skipReason: "MISSING_CONTACT",
     });
   });
 
@@ -566,13 +638,13 @@ describe("autoresponder service", () => {
       ruleId: "rule_1",
       templateId: "template_1",
       channel: "EMAIL",
-      recipient: "jane@example.com"
+      recipient: "jane@example.com",
     });
     deliverLeadAutomationMessage.mockResolvedValue({
       status: "SENT",
       deliveryChannel: "EMAIL",
       warning: null,
-      error: null
+      error: null,
     });
     updateLeadAutomationAttempt.mockResolvedValue({
       id: "attempt_1",
@@ -583,20 +655,24 @@ describe("autoresponder service", () => {
       templateId: "template_1",
       providerStatus: "sent",
       providerMetadataJson: {
-        deliveryChannel: "EMAIL"
-      }
+        deliveryChannel: "EMAIL",
+      },
     });
 
-    const { processLeadAutoresponderForNewLead } = await import("@/features/autoresponder/service");
-    const result = await processLeadAutoresponderForNewLead("tenant_1", "lead_local_1");
+    const { processLeadAutoresponderForNewLead } =
+      await import("@/features/autoresponder/service");
+    const result = await processLeadAutoresponderForNewLead(
+      "tenant_1",
+      "lead_local_1",
+    );
 
     expect(createLeadAutomationAttempt).toHaveBeenCalledWith(
       expect.objectContaining({
         status: "PENDING",
         renderedSubject: "[Irbishvac automated message] Hi Jane Doe",
         renderedBody:
-          "Irbishvac automated message from Northwind HVAC via Yelp - a team member may follow up with more details.\n\nThanks for contacting Northwind HVAC about HVAC Repair."
-      })
+          "Irbishvac automated message from Northwind HVAC via Yelp - a team member may follow up with more details.\n\nThanks for contacting Northwind HVAC about HVAC Repair.",
+      }),
     );
     expect(deliverLeadAutomationMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -606,20 +682,20 @@ describe("autoresponder service", () => {
         channel: "EMAIL",
         renderedSubject: "[Irbishvac automated message] Hi Jane Doe",
         renderedBody:
-          "Irbishvac automated message from Northwind HVAC via Yelp - a team member may follow up with more details.\n\nThanks for contacting Northwind HVAC about HVAC Repair."
-      })
+          "Irbishvac automated message from Northwind HVAC via Yelp - a team member may follow up with more details.\n\nThanks for contacting Northwind HVAC about HVAC Repair.",
+      }),
     );
     expect(updateLeadAutomationAttempt).toHaveBeenCalledWith(
       "attempt_1",
       expect.objectContaining({
         status: "SENT",
         providerMetadataJson: expect.objectContaining({
-          deliveryChannel: "EMAIL"
-        })
-      })
+          deliveryChannel: "EMAIL",
+        }),
+      }),
     );
     expect(result).toMatchObject({
-      status: "SENT"
+      status: "SENT",
     });
   });
 
@@ -628,7 +704,7 @@ describe("autoresponder service", () => {
       ...baseSettings,
       defaultChannel: "YELP_THREAD",
       emailFallbackEnabled: false,
-      aiAssistEnabled: true
+      aiAssistEnabled: true,
     });
     listEnabledLeadAutomationRules.mockResolvedValueOnce([
       {
@@ -637,35 +713,36 @@ describe("autoresponder service", () => {
         template: {
           ...baseRule.template,
           subjectTemplate: null,
-          bodyTemplate: "Thanks for contacting {{business_name}} about {{service_type}}.",
+          bodyTemplate:
+            "Thanks for contacting {{business_name}} about {{service_type}}.",
           metadataJson: {
             templateKind: "ACKNOWLEDGMENT",
             renderMode: "AI_ASSISTED",
-            aiPrompt: "Write a short helpful Yelp reply."
-          }
-        }
-      }
+            aiPrompt: "Write a short helpful Yelp reply.",
+          },
+        },
+      },
     ]);
     generateLeadAutomationAiMessage.mockResolvedValueOnce({
       usedAi: true,
       subject: "Ignored for Yelp thread",
       body: "Hi Jane, thanks for reaching out. Please reply here with a photo and the address so we can review the next step.",
-      model: "gpt-5-nano",
+      model: "claude-haiku-4-5",
       fallbackReason: null,
-      warningCodes: []
+      warningCodes: [],
     });
     createLeadAutomationAttempt.mockResolvedValueOnce({
       id: "attempt_ai_1",
       ruleId: "rule_1",
       templateId: "template_1",
       channel: "YELP_THREAD",
-      recipient: null
+      recipient: null,
     });
     deliverLeadAutomationMessage.mockResolvedValueOnce({
       status: "SENT",
       deliveryChannel: "YELP_THREAD",
       warning: null,
-      error: null
+      error: null,
     });
     updateLeadAutomationAttempt.mockResolvedValueOnce({
       id: "attempt_ai_1",
@@ -678,32 +755,36 @@ describe("autoresponder service", () => {
       providerMetadataJson: {
         contentSource: "AI",
         deliveryChannel: "YELP_THREAD",
-        aiModel: "gpt-5-nano"
-      }
+        aiModel: "claude-haiku-4-5",
+      },
     });
 
-    const { processLeadAutoresponderForNewLead } = await import("@/features/autoresponder/service");
-    const result = await processLeadAutoresponderForNewLead("tenant_1", "lead_local_1");
+    const { processLeadAutoresponderForNewLead } =
+      await import("@/features/autoresponder/service");
+    const result = await processLeadAutoresponderForNewLead(
+      "tenant_1",
+      "lead_local_1",
+    );
 
     expect(generateLeadAutomationAiMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         channel: "YELP_THREAD",
         guidance: "Write a short helpful Yelp reply.",
-        model: "gpt-5-nano"
-      })
+        model: "claude-haiku-4-5",
+      }),
     );
     expect(createLeadAutomationAttempt).toHaveBeenCalledWith(
       expect.objectContaining({
         renderedBody:
-          "Irbishvac automated message from Northwind HVAC via Yelp - a team member may follow up with more details.\n\nHi Jane, thanks for reaching out. Please reply here with a photo and the address so we can review the next step."
-      })
+          "Irbishvac automated message from Northwind HVAC via Yelp - a team member may follow up with more details.\n\nHi Jane, thanks for reaching out. Please reply here with a photo and the address so we can review the next step.",
+      }),
     );
     expect(deliverLeadAutomationMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         channel: "YELP_THREAD",
         renderedBody:
-          "Irbishvac automated message from Northwind HVAC via Yelp - a team member may follow up with more details.\n\nHi Jane, thanks for reaching out. Please reply here with a photo and the address so we can review the next step."
-      })
+          "Irbishvac automated message from Northwind HVAC via Yelp - a team member may follow up with more details.\n\nHi Jane, thanks for reaching out. Please reply here with a photo and the address so we can review the next step.",
+      }),
     );
     expect(updateLeadAutomationAttempt).toHaveBeenCalledWith(
       "attempt_ai_1",
@@ -711,12 +792,12 @@ describe("autoresponder service", () => {
         providerMetadataJson: expect.objectContaining({
           contentSource: "AI",
           deliveryChannel: "YELP_THREAD",
-          aiModel: "gpt-5-nano"
-        })
-      })
+          aiModel: "claude-haiku-4-5",
+        }),
+      }),
     );
     expect(result).toMatchObject({
-      status: "SENT"
+      status: "SENT",
     });
   });
 
@@ -725,7 +806,7 @@ describe("autoresponder service", () => {
       ...baseSettings,
       defaultChannel: "YELP_THREAD",
       emailFallbackEnabled: false,
-      aiAssistEnabled: true
+      aiAssistEnabled: true,
     });
     listEnabledLeadAutomationRules.mockResolvedValueOnce([
       {
@@ -734,35 +815,36 @@ describe("autoresponder service", () => {
         template: {
           ...baseRule.template,
           subjectTemplate: null,
-          bodyTemplate: "Thanks for contacting {{business_name}} about {{service_type}}.",
+          bodyTemplate:
+            "Thanks for contacting {{business_name}} about {{service_type}}.",
           metadataJson: {
             templateKind: "ACKNOWLEDGMENT",
             renderMode: "AI_ASSISTED",
-            aiPrompt: "Write a short helpful Yelp reply."
-          }
-        }
-      }
+            aiPrompt: "Write a short helpful Yelp reply.",
+          },
+        },
+      },
     ]);
     generateLeadAutomationAiMessage.mockResolvedValueOnce({
       usedAi: false,
       subject: "",
       body: "Thanks for contacting Northwind HVAC about HVAC Repair.",
-      model: "gpt-5-nano",
+      model: "claude-haiku-4-5",
       fallbackReason: "AI_REQUEST_FAILED",
-      warningCodes: []
+      warningCodes: [],
     });
     createLeadAutomationAttempt.mockResolvedValueOnce({
       id: "attempt_ai_fallback_1",
       ruleId: "rule_1",
       templateId: "template_1",
       channel: "YELP_THREAD",
-      recipient: null
+      recipient: null,
     });
     deliverLeadAutomationMessage.mockResolvedValueOnce({
       status: "SENT",
       deliveryChannel: "YELP_THREAD",
       warning: null,
-      error: null
+      error: null,
     });
     updateLeadAutomationAttempt.mockResolvedValueOnce({
       id: "attempt_ai_fallback_1",
@@ -776,18 +858,22 @@ describe("autoresponder service", () => {
         contentSource: "TEMPLATE_FALLBACK",
         fallbackReason: "AI_REQUEST_FAILED",
         deliveryChannel: "YELP_THREAD",
-        aiModel: "gpt-5-nano"
-      }
+        aiModel: "claude-haiku-4-5",
+      },
     });
 
-    const { processLeadAutoresponderForNewLead } = await import("@/features/autoresponder/service");
-    const result = await processLeadAutoresponderForNewLead("tenant_1", "lead_local_1");
+    const { processLeadAutoresponderForNewLead } =
+      await import("@/features/autoresponder/service");
+    const result = await processLeadAutoresponderForNewLead(
+      "tenant_1",
+      "lead_local_1",
+    );
 
     expect(createLeadAutomationAttempt).toHaveBeenCalledWith(
       expect.objectContaining({
         renderedBody:
-          "Irbishvac automated message from Northwind HVAC via Yelp - a team member may follow up with more details.\n\nThanks for contacting Northwind HVAC about HVAC Repair."
-      })
+          "Irbishvac automated message from Northwind HVAC via Yelp - a team member may follow up with more details.\n\nThanks for contacting Northwind HVAC about HVAC Repair.",
+      }),
     );
     expect(updateLeadAutomationAttempt).toHaveBeenCalledWith(
       "attempt_ai_fallback_1",
@@ -796,12 +882,12 @@ describe("autoresponder service", () => {
           contentSource: "TEMPLATE_FALLBACK",
           fallbackReason: "AI_REQUEST_FAILED",
           deliveryChannel: "YELP_THREAD",
-          aiModel: "gpt-5-nano"
-        })
-      })
+          aiModel: "claude-haiku-4-5",
+        }),
+      }),
     );
     expect(result).toMatchObject({
-      status: "SENT"
+      status: "SENT",
     });
   });
 
@@ -811,33 +897,37 @@ describe("autoresponder service", () => {
       ruleId: "rule_1",
       templateId: "template_1",
       channel: "EMAIL",
-      recipient: "jane@example.com"
+      recipient: "jane@example.com",
     });
     deliverLeadAutomationMessage.mockResolvedValue({
       status: "FAILED",
       deliveryChannel: "EMAIL",
       warning: null,
-      error: new Error("SMTP outage")
+      error: new Error("SMTP outage"),
     });
     updateLeadAutomationAttempt.mockResolvedValue({
       id: "attempt_1",
       status: "FAILED",
-      errorSummary: "SMTP outage"
+      errorSummary: "SMTP outage",
     });
 
-    const { processLeadAutoresponderForNewLead } = await import("@/features/autoresponder/service");
-    const result = await processLeadAutoresponderForNewLead("tenant_1", "lead_local_1");
+    const { processLeadAutoresponderForNewLead } =
+      await import("@/features/autoresponder/service");
+    const result = await processLeadAutoresponderForNewLead(
+      "tenant_1",
+      "lead_local_1",
+    );
 
     expect(updateLeadAutomationAttempt).toHaveBeenCalledWith(
       "attempt_1",
       expect.objectContaining({
         status: "FAILED",
-        errorSummary: "SMTP outage"
-      })
+        errorSummary: "SMTP outage",
+      }),
     );
     expect(result).toMatchObject({
       status: "FAILED",
-      errorSummary: "SMTP outage"
+      errorSummary: "SMTP outage",
     });
   });
 
@@ -847,7 +937,7 @@ describe("autoresponder service", () => {
       isEnabled: false,
       defaultChannel: "YELP_THREAD",
       emailFallbackEnabled: false,
-      aiAssistEnabled: false
+      aiAssistEnabled: false,
     });
     getLeadAutomationBusinessOverrideByBusinessId.mockResolvedValueOnce({
       businessId: "business_1",
@@ -859,20 +949,20 @@ describe("autoresponder service", () => {
       followUp7dEnabled: false,
       followUp7dDelayDays: 7,
       aiAssistEnabled: true,
-      aiModel: "gpt-5-mini"
+      aiModel: "claude-sonnet-4-6",
     });
     createLeadAutomationAttempt.mockResolvedValueOnce({
       id: "attempt_override_1",
       ruleId: "rule_1",
       templateId: "template_1",
       channel: "EMAIL",
-      recipient: "jane@example.com"
+      recipient: "jane@example.com",
     });
     deliverLeadAutomationMessage.mockResolvedValueOnce({
       status: "SENT",
       deliveryChannel: "EMAIL",
       warning: null,
-      error: null
+      error: null,
     });
     updateLeadAutomationAttempt.mockResolvedValueOnce({
       id: "attempt_override_1",
@@ -883,21 +973,25 @@ describe("autoresponder service", () => {
       templateId: "template_1",
       providerStatus: "sent",
       providerMetadataJson: {
-        deliveryChannel: "EMAIL"
-      }
+        deliveryChannel: "EMAIL",
+      },
     });
 
-    const { processLeadAutoresponderForNewLead } = await import("@/features/autoresponder/service");
-    const result = await processLeadAutoresponderForNewLead("tenant_1", "lead_local_1");
+    const { processLeadAutoresponderForNewLead } =
+      await import("@/features/autoresponder/service");
+    const result = await processLeadAutoresponderForNewLead(
+      "tenant_1",
+      "lead_local_1",
+    );
 
     expect(createLeadAutomationAttempt).toHaveBeenCalledWith(
       expect.objectContaining({
         status: "PENDING",
-        channel: "EMAIL"
-      })
+        channel: "EMAIL",
+      }),
     );
     expect(result).toMatchObject({
-      status: "SENT"
+      status: "SENT",
     });
   });
 
@@ -907,27 +1001,27 @@ describe("autoresponder service", () => {
       defaultChannel: "YELP_THREAD",
       emailFallbackEnabled: false,
       followUp24hEnabled: true,
-      followUp7dEnabled: true
+      followUp7dEnabled: true,
     });
     listEnabledLeadAutomationRules.mockResolvedValueOnce([
       {
         ...baseRule,
         channel: "YELP_THREAD",
-        cadence: "INITIAL"
-      }
+        cadence: "INITIAL",
+      },
     ]);
     createLeadAutomationAttempt.mockResolvedValueOnce({
       id: "attempt_initial_1",
       ruleId: "rule_1",
       templateId: "template_1",
       channel: "YELP_THREAD",
-      recipient: null
+      recipient: null,
     });
     deliverLeadAutomationMessage.mockResolvedValueOnce({
       status: "SENT",
       deliveryChannel: "YELP_THREAD",
       warning: null,
-      error: null
+      error: null,
     });
     updateLeadAutomationAttempt.mockResolvedValueOnce({
       id: "attempt_initial_1",
@@ -938,21 +1032,22 @@ describe("autoresponder service", () => {
       templateId: "template_1",
       providerStatus: "sent",
       providerMetadataJson: {
-        deliveryChannel: "YELP_THREAD"
+        deliveryChannel: "YELP_THREAD",
       },
-      completedAt: new Date("2026-04-03T09:15:00.000Z")
+      completedAt: new Date("2026-04-03T09:15:00.000Z"),
     });
     upsertLeadAutomationAttemptByLeadCadence
       .mockResolvedValueOnce({
         id: "attempt_follow_up_24h",
-        cadence: "FOLLOW_UP_24H"
+        cadence: "FOLLOW_UP_24H",
       })
       .mockResolvedValueOnce({
         id: "attempt_follow_up_7d",
-        cadence: "FOLLOW_UP_7D"
+        cadence: "FOLLOW_UP_7D",
       });
 
-    const { processLeadAutoresponderForNewLead } = await import("@/features/autoresponder/service");
+    const { processLeadAutoresponderForNewLead } =
+      await import("@/features/autoresponder/service");
     await processLeadAutoresponderForNewLead("tenant_1", "lead_local_1");
 
     expect(upsertLeadAutomationAttemptByLeadCadence).toHaveBeenNthCalledWith(
@@ -961,8 +1056,8 @@ describe("autoresponder service", () => {
         tenantId: "tenant_1",
         leadId: "lead_local_1",
         cadence: "FOLLOW_UP_24H",
-        dueAt: new Date("2026-04-04T09:15:00.000Z")
-      })
+        dueAt: new Date("2026-04-04T09:15:00.000Z"),
+      }),
     );
     expect(upsertLeadAutomationAttemptByLeadCadence).toHaveBeenNthCalledWith(
       2,
@@ -970,8 +1065,8 @@ describe("autoresponder service", () => {
         tenantId: "tenant_1",
         leadId: "lead_local_1",
         cadence: "FOLLOW_UP_7D",
-        dueAt: new Date("2026-04-10T09:15:00.000Z")
-      })
+        dueAt: new Date("2026-04-10T09:15:00.000Z"),
+      }),
     );
   });
 
@@ -980,15 +1075,15 @@ describe("autoresponder service", () => {
       ...baseSettings,
       defaultChannel: "YELP_THREAD",
       emailFallbackEnabled: true,
-      followUp24hEnabled: true
+      followUp24hEnabled: true,
     });
     listDueLeadAutomationAttempts.mockResolvedValueOnce([
       {
         id: "attempt_follow_up_24h",
         tenantId: "tenant_1",
         leadId: "lead_local_1",
-        cadence: "FOLLOW_UP_24H"
-      }
+        cadence: "FOLLOW_UP_24H",
+      },
     ]);
     getLeadAutomationCandidate.mockResolvedValueOnce({
       ...baseLead,
@@ -997,15 +1092,15 @@ describe("autoresponder service", () => {
           id: "attempt_initial",
           cadence: "INITIAL",
           status: "SENT",
-          completedAt: new Date("2026-04-03T09:00:00.000Z")
+          completedAt: new Date("2026-04-03T09:00:00.000Z"),
         },
         {
           id: "attempt_follow_up_24h",
           cadence: "FOLLOW_UP_24H",
           status: "PENDING",
-          dueAt: new Date("2026-04-04T09:00:00.000Z")
-        }
-      ]
+          dueAt: new Date("2026-04-04T09:00:00.000Z"),
+        },
+      ],
     });
     listEnabledLeadAutomationRules.mockResolvedValueOnce([
       {
@@ -1015,49 +1110,50 @@ describe("autoresponder service", () => {
         cadence: "FOLLOW_UP_24H",
         template: {
           ...baseRule.template,
-          bodyTemplate: "Checking back in on your request."
-        }
-      }
+          bodyTemplate: "Checking back in on your request.",
+        },
+      },
     ]);
     updateLeadAutomationAttempt
       .mockResolvedValueOnce({
         id: "attempt_follow_up_24h",
         status: "PENDING",
-        cadence: "FOLLOW_UP_24H"
+        cadence: "FOLLOW_UP_24H",
       })
       .mockResolvedValueOnce({
         id: "attempt_follow_up_24h",
         status: "SENT",
         cadence: "FOLLOW_UP_24H",
-        completedAt: new Date("2026-04-04T09:05:00.000Z")
+        completedAt: new Date("2026-04-04T09:05:00.000Z"),
       });
     deliverLeadAutomationMessage.mockResolvedValueOnce({
       status: "SENT",
       deliveryChannel: "YELP_THREAD",
       warning: null,
-      error: null
+      error: null,
     });
 
-    const { reconcileDueLeadAutomationFollowUps } = await import("@/features/autoresponder/service");
+    const { reconcileDueLeadAutomationFollowUps } =
+      await import("@/features/autoresponder/service");
     const result = await reconcileDueLeadAutomationFollowUps(20);
 
     expect(claimLeadAutomationAttemptForProcessing).toHaveBeenCalledWith(
       "attempt_follow_up_24h",
-      expect.any(Date)
+      expect.any(Date),
     );
     expect(deliverLeadAutomationMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         automationAttemptId: "attempt_follow_up_24h",
         channel: "YELP_THREAD",
-        allowEmailFallback: false
-      })
+        allowEmailFallback: false,
+      }),
     );
     expect(result).toEqual([
       expect.objectContaining({
         attemptId: "attempt_follow_up_24h",
         cadence: "FOLLOW_UP_24H",
-        status: "SENT"
-      })
+        status: "SENT",
+      }),
     ]);
   });
 
@@ -1069,7 +1165,7 @@ describe("autoresponder service", () => {
       ...baseSettings,
       defaultChannel: "YELP_THREAD",
       emailFallbackEnabled: false,
-      followUp24hEnabled: true
+      followUp24hEnabled: true,
     });
     listDueLeadAutomationAttempts.mockResolvedValueOnce([
       {
@@ -1077,8 +1173,8 @@ describe("autoresponder service", () => {
         tenantId: "tenant_1",
         leadId: "lead_local_1",
         cadence: "FOLLOW_UP_24H",
-        dueAt: new Date("2026-04-05T08:00:00.000Z")
-      }
+        dueAt: new Date("2026-04-05T08:00:00.000Z"),
+      },
     ]);
     getLeadAutomationCandidate.mockResolvedValueOnce({
       ...baseLead,
@@ -1088,16 +1184,16 @@ describe("autoresponder service", () => {
           id: "attempt_initial",
           cadence: "INITIAL",
           status: "SENT",
-          completedAt: new Date("2026-04-03T09:00:00.000Z")
+          completedAt: new Date("2026-04-03T09:00:00.000Z"),
         },
         {
           id: "attempt_follow_up_24h",
           leadId: "lead_local_1",
           cadence: "FOLLOW_UP_24H",
           status: "PENDING",
-          dueAt: new Date("2026-04-05T08:00:00.000Z")
-        }
-      ]
+          dueAt: new Date("2026-04-05T08:00:00.000Z"),
+        },
+      ],
     });
     listEnabledLeadAutomationRules.mockResolvedValueOnce([
       {
@@ -1109,18 +1205,19 @@ describe("autoresponder service", () => {
         timezone: "UTC",
         workingDaysJson: [1, 2, 3, 4, 5],
         startMinute: 9 * 60,
-        endMinute: 17 * 60
-      }
+        endMinute: 17 * 60,
+      },
     ]);
     updateLeadAutomationAttempt.mockResolvedValueOnce({
       id: "attempt_follow_up_24h",
       leadId: "lead_local_1",
       cadence: "FOLLOW_UP_24H",
       status: "PENDING",
-      dueAt: new Date("2026-04-06T09:00:00.000Z")
+      dueAt: new Date("2026-04-06T09:00:00.000Z"),
     });
 
-    const { reconcileDueLeadAutomationFollowUps } = await import("@/features/autoresponder/service");
+    const { reconcileDueLeadAutomationFollowUps } =
+      await import("@/features/autoresponder/service");
     const result = await reconcileDueLeadAutomationFollowUps(20);
 
     expect(updateLeadAutomationAttempt).toHaveBeenCalledWith(
@@ -1129,16 +1226,16 @@ describe("autoresponder service", () => {
         status: "PENDING",
         dueAt: new Date("2026-04-06T09:00:00.000Z"),
         startedAt: null,
-        completedAt: null
-      })
+        completedAt: null,
+      }),
     );
     expect(deliverLeadAutomationMessage).not.toHaveBeenCalled();
     expect(result).toEqual([
       expect.objectContaining({
         attemptId: "attempt_follow_up_24h",
         cadence: "FOLLOW_UP_24H",
-        status: "PENDING"
-      })
+        status: "PENDING",
+      }),
     ]);
 
     vi.useRealTimers();
@@ -1156,22 +1253,27 @@ describe("autoresponder service", () => {
       followUp7dEnabled: false,
       followUp7dDelayDays: 7,
       aiAssistEnabled: true,
-      aiModel: "gpt-5-mini"
+      aiModel: "claude-sonnet-4-6",
     });
 
-    const { saveLeadAutomationBusinessOverrideWorkflow } = await import("@/features/autoresponder/service");
-    const result = await saveLeadAutomationBusinessOverrideWorkflow("tenant_1", "user_1", {
-      businessId: "business_1",
-      isEnabled: true,
-      defaultChannel: "YELP_THREAD",
-      emailFallbackEnabled: false,
-      followUp24hEnabled: true,
-      followUp24hDelayHours: 24,
-      followUp7dEnabled: false,
-      followUp7dDelayDays: 7,
-      aiAssistEnabled: true,
-      aiModel: "gpt-5-mini"
-    });
+    const { saveLeadAutomationBusinessOverrideWorkflow } =
+      await import("@/features/autoresponder/service");
+    const result = await saveLeadAutomationBusinessOverrideWorkflow(
+      "tenant_1",
+      "user_1",
+      {
+        businessId: "business_1",
+        isEnabled: true,
+        defaultChannel: "YELP_THREAD",
+        emailFallbackEnabled: false,
+        followUp24hEnabled: true,
+        followUp24hDelayHours: 24,
+        followUp7dEnabled: false,
+        followUp7dDelayDays: 7,
+        aiAssistEnabled: true,
+        aiModel: "claude-sonnet-4-6",
+      },
+    );
 
     expect(upsertLeadAutomationBusinessOverride).toHaveBeenCalledWith(
       "tenant_1",
@@ -1179,13 +1281,35 @@ describe("autoresponder service", () => {
       expect.objectContaining({
         defaultChannel: "YELP_THREAD",
         emailFallbackEnabled: false,
-        aiModel: "gpt-5-mini"
-      })
+        aiModel: "claude-sonnet-4-6",
+      }),
     );
     expect(result).toMatchObject({
       businessId: "business_1",
-      aiModel: "gpt-5-mini"
+      aiModel: "claude-sonnet-4-6",
     });
+  });
+
+  it("rejects a business model outside the tenant allowlist", async () => {
+    getSystemSetting.mockResolvedValueOnce({
+      ...baseSettings,
+      aiModel: "claude-haiku-4-5",
+      aiAllowedModels: ["claude-haiku-4-5"],
+    });
+    const { saveLeadAutomationBusinessOverrideWorkflow } =
+      await import("@/features/autoresponder/service");
+
+    await expect(
+      saveLeadAutomationBusinessOverrideWorkflow("tenant_1", "user_1", {
+        businessId: "business_1",
+        isEnabled: true,
+        defaultChannel: "YELP_THREAD",
+        emailFallbackEnabled: false,
+        aiAssistEnabled: true,
+        aiModel: "claude-opus-4-6",
+      }),
+    ).rejects.toThrow("not enabled for the client tenant");
+    expect(upsertLeadAutomationBusinessOverride).not.toHaveBeenCalled();
   });
 
   it("stores template business scope and template kind metadata", async () => {
@@ -1194,19 +1318,21 @@ describe("autoresponder service", () => {
       businessId: "business_1",
       name: "Cannot estimate yet",
       channel: "YELP_THREAD",
-      isEnabled: true
+      isEnabled: true,
     });
 
-    const { createLeadAutomationTemplateWorkflow } = await import("@/features/autoresponder/service");
+    const { createLeadAutomationTemplateWorkflow } =
+      await import("@/features/autoresponder/service");
     await createLeadAutomationTemplateWorkflow("tenant_1", "user_1", {
       name: "Cannot estimate yet",
       businessId: "business_1",
       channel: "YELP_THREAD",
       templateKind: "CANNOT_ESTIMATE",
       renderMode: "AI_ASSISTED",
-      aiPrompt: "Tell AI to explain that an exact estimate is not available yet.",
+      aiPrompt:
+        "Tell AI to explain that an exact estimate is not available yet.",
       isEnabled: true,
-      bodyTemplate: "We cannot give an exact quote yet."
+      bodyTemplate: "We cannot give an exact quote yet.",
     });
 
     expect(createLeadAutomationTemplate).toHaveBeenCalledWith(
@@ -1216,9 +1342,10 @@ describe("autoresponder service", () => {
         metadataJson: expect.objectContaining({
           templateKind: "CANNOT_ESTIMATE",
           renderMode: "AI_ASSISTED",
-          aiPrompt: "Tell AI to explain that an exact estimate is not available yet."
-        })
-      })
+          aiPrompt:
+            "Tell AI to explain that an exact estimate is not available yet.",
+        }),
+      }),
     );
   });
 
@@ -1227,11 +1354,12 @@ describe("autoresponder service", () => {
       id: "template_1",
       businessId: "business_2",
       business: {
-        name: "Other business"
-      }
+        name: "Other business",
+      },
     });
 
-    const { createLeadAutomationRuleWorkflow } = await import("@/features/autoresponder/service");
+    const { createLeadAutomationRuleWorkflow } =
+      await import("@/features/autoresponder/service");
 
     await expect(
       createLeadAutomationRuleWorkflow("tenant_1", "user_1", {
@@ -1242,9 +1370,11 @@ describe("autoresponder service", () => {
         isEnabled: true,
         priority: 100,
         onlyDuringWorkingHours: false,
-        workingDays: [1, 2, 3, 4, 5]
-      })
-    ).rejects.toThrow("Template scope does not match the selected Yelp business.");
+        workingDays: [1, 2, 3, 4, 5],
+      }),
+    ).rejects.toThrow(
+      "Template scope does not match the selected Yelp business.",
+    );
   });
 
   it("deletes an automation template through the workflow layer", async () => {
@@ -1253,18 +1383,23 @@ describe("autoresponder service", () => {
       businessId: "business_1",
       name: "Acknowledgment",
       channel: "YELP_THREAD",
-      isEnabled: true
+      isEnabled: true,
     });
     deleteLeadAutomationTemplate.mockResolvedValueOnce({
-      id: "template_1"
+      id: "template_1",
     });
 
-    const { deleteLeadAutomationTemplateWorkflow } = await import("@/features/autoresponder/service");
-    const result = await deleteLeadAutomationTemplateWorkflow("tenant_1", "user_1", "template_1");
+    const { deleteLeadAutomationTemplateWorkflow } =
+      await import("@/features/autoresponder/service");
+    const result = await deleteLeadAutomationTemplateWorkflow(
+      "tenant_1",
+      "user_1",
+      "template_1",
+    );
 
     expect(deleteLeadAutomationTemplate).toHaveBeenCalledWith("template_1");
     expect(result).toEqual({
-      deleted: true
+      deleted: true,
     });
   });
 
@@ -1273,25 +1408,30 @@ describe("autoresponder service", () => {
       id: "rule_1",
       businessId: "business_1",
       name: "Initial response",
-      templateId: "template_1"
+      templateId: "template_1",
     });
     deleteLeadAutomationRule.mockResolvedValueOnce({
-      id: "rule_1"
+      id: "rule_1",
     });
 
-    const { deleteLeadAutomationRuleWorkflow } = await import("@/features/autoresponder/service");
-    const result = await deleteLeadAutomationRuleWorkflow("tenant_1", "user_1", "rule_1");
+    const { deleteLeadAutomationRuleWorkflow } =
+      await import("@/features/autoresponder/service");
+    const result = await deleteLeadAutomationRuleWorkflow(
+      "tenant_1",
+      "user_1",
+      "rule_1",
+    );
 
     expect(deleteLeadAutomationRule).toHaveBeenCalledWith("rule_1");
     expect(result).toEqual({
-      deleted: true
+      deleted: true,
     });
   });
 
   it("builds module state for the dedicated autoresponder page", async () => {
     getSystemSetting.mockResolvedValueOnce({
       ...baseSettings,
-      defaultChannel: "YELP_THREAD"
+      defaultChannel: "YELP_THREAD",
     });
     listLeadAutomationOptions.mockResolvedValueOnce({
       businesses: [
@@ -1299,17 +1439,17 @@ describe("autoresponder service", () => {
           id: "business_1",
           name: "Northwind HVAC",
           encryptedYelpBusinessId: "ys4FVTHxbSepIkvCLHYxCA",
-          locationId: "location_1"
+          locationId: "location_1",
         },
         {
           id: "business_2",
           name: "Southwind Plumbing",
           encryptedYelpBusinessId: "ys4FVTHxbSepIkvCLHYxCB",
-          locationId: "location_2"
-        }
+          locationId: "location_2",
+        },
       ],
       locations: [],
-      serviceCategories: []
+      serviceCategories: [],
     });
     listLeadAutomationTemplates.mockResolvedValueOnce([
       {
@@ -1321,13 +1461,13 @@ describe("autoresponder service", () => {
         subjectTemplate: null,
         bodyTemplate: "Thanks for contacting {{business_name}}.",
         metadataJson: {
-          templateKind: "ACKNOWLEDGMENT"
+          templateKind: "ACKNOWLEDGMENT",
         },
         _count: {
           rules: 1,
-          attempts: 4
-        }
-      }
+          attempts: 4,
+        },
+      },
     ]);
     listLeadAutomationRules.mockResolvedValueOnce([
       {
@@ -1347,8 +1487,8 @@ describe("autoresponder service", () => {
         endMinute: null,
         template: { id: "template_1", name: "Default thread reply" },
         location: null,
-        serviceCategory: null
-      }
+        serviceCategory: null,
+      },
     ]);
     getLeadAutomationAttemptSummary.mockResolvedValueOnce({
       sentCount: 4,
@@ -1357,16 +1497,16 @@ describe("autoresponder service", () => {
       pendingCount: 1,
       pendingDueCount: 0,
       scheduledCount: 1,
-      lastSuccessfulAt: new Date("2026-04-07T09:30:00.000Z")
+      lastSuccessfulAt: new Date("2026-04-07T09:30:00.000Z"),
     });
     getLeadAutomationBusinessAttemptHealth.mockResolvedValueOnce({
       sentCounts: [
         {
           businessId: "business_1",
           _count: {
-            _all: 4
-          }
-        }
+            _all: 4,
+          },
+        },
       ],
       failedCounts: [],
       pendingDueCounts: [],
@@ -1374,24 +1514,24 @@ describe("autoresponder service", () => {
         {
           businessId: "business_1",
           completedAt: new Date("2026-04-07T09:30:00.000Z"),
-          triggeredAt: new Date("2026-04-07T09:00:00.000Z")
-        }
-      ]
+          triggeredAt: new Date("2026-04-07T09:00:00.000Z"),
+        },
+      ],
     });
     getLeadAutomationBusinessConnectionHealth.mockResolvedValueOnce({
       leadCounts: [
         {
           businessId: "business_1",
           _count: {
-            _all: 12
-          }
+            _all: 12,
+          },
         },
         {
           businessId: "business_2",
           _count: {
-            _all: 3
-          }
-        }
+            _all: 3,
+          },
+        },
       ],
       latestLeadActivity: [
         {
@@ -1399,15 +1539,15 @@ describe("autoresponder service", () => {
           externalLeadId: "lead_1",
           latestInteractionAt: new Date("2026-04-07T09:05:00.000Z"),
           createdAtYelp: new Date("2026-04-07T09:00:00.000Z"),
-          lastSyncedAt: new Date("2026-04-07T09:06:00.000Z")
+          lastSyncedAt: new Date("2026-04-07T09:06:00.000Z"),
         },
         {
           businessId: "business_2",
           externalLeadId: "lead_2",
           latestInteractionAt: new Date("2026-04-07T08:00:00.000Z"),
           createdAtYelp: new Date("2026-04-07T08:00:00.000Z"),
-          lastSyncedAt: new Date("2026-04-07T08:01:00.000Z")
-        }
+          lastSyncedAt: new Date("2026-04-07T08:01:00.000Z"),
+        },
       ],
       latestWebhookActivity: [
         {
@@ -1415,8 +1555,8 @@ describe("autoresponder service", () => {
           externalLeadId: "lead_1",
           latestWebhookReceivedAt: new Date("2026-04-07T09:00:30.000Z"),
           latestWebhookStatus: "COMPLETED",
-          latestWebhookErrorSummary: null
-        }
+          latestWebhookErrorSummary: null,
+        },
       ],
       latestSuccessfulSyncRuns: [
         {
@@ -1426,7 +1566,7 @@ describe("autoresponder service", () => {
           startedAt: new Date("2026-04-07T09:00:30.000Z"),
           finishedAt: new Date("2026-04-07T09:01:00.000Z"),
           lastSuccessfulSyncAt: new Date("2026-04-07T09:01:00.000Z"),
-          errorSummary: null
+          errorSummary: null,
         },
         {
           businessId: "business_2",
@@ -1435,11 +1575,11 @@ describe("autoresponder service", () => {
           startedAt: new Date("2026-04-07T08:00:30.000Z"),
           finishedAt: new Date("2026-04-07T08:01:00.000Z"),
           lastSuccessfulSyncAt: new Date("2026-04-07T08:01:00.000Z"),
-          errorSummary: null
-        }
+          errorSummary: null,
+        },
       ],
       latestFailedSyncRuns: [],
-      pendingSyncCounts: []
+      pendingSyncCounts: [],
     });
     listRecentLeadAutomationAttempts.mockResolvedValueOnce([
       {
@@ -1455,19 +1595,24 @@ describe("autoresponder service", () => {
         providerMessageId: "provider_1",
         providerStatus: "sent",
         providerMetadataJson: {
-          deliveryChannel: "YELP_THREAD"
+          deliveryChannel: "YELP_THREAD",
         },
         errorSummary: null,
         triggeredAt: new Date("2026-04-07T09:00:00.000Z"),
         startedAt: new Date("2026-04-07T09:00:01.000Z"),
         completedAt: new Date("2026-04-07T09:00:05.000Z"),
         template: { id: "template_1", name: "Default thread reply" },
-        rule: { id: "rule_1", name: "Weekday default", location: null, serviceCategory: null },
+        rule: {
+          id: "rule_1",
+          name: "Weekday default",
+          location: null,
+          serviceCategory: null,
+        },
         business: { name: "Northwind HVAC" },
         lead: { externalLeadId: "lead_1", customerName: "Jane Doe" },
         location: null,
-        serviceCategory: null
-      }
+        serviceCategory: null,
+      },
     ]);
     listLeadAutomationBusinessOverrides.mockResolvedValueOnce([
       {
@@ -1481,7 +1626,7 @@ describe("autoresponder service", () => {
         followUp7dEnabled: true,
         followUp7dDelayDays: 7,
         aiAssistEnabled: true,
-        aiModel: "gpt-5-mini",
+        aiModel: "claude-sonnet-4-6",
         conversationAutomationEnabled: true,
         conversationMode: "BOUNDED_AUTO_REPLY",
         conversationAllowedIntentsJson: ["BASIC_ACKNOWLEDGMENT"],
@@ -1492,17 +1637,17 @@ describe("autoresponder service", () => {
         business: {
           id: "business_1",
           name: "Northwind HVAC",
-          encryptedYelpBusinessId: "ys4FVTHxbSepIkvCLHYxCA"
-        }
-      }
+          encryptedYelpBusinessId: "ys4FVTHxbSepIkvCLHYxCA",
+        },
+      },
     ]);
     getAiReplyAssistantState.mockResolvedValueOnce({
       envConfigured: true,
       enabled: true,
       reviewRequired: true,
-      model: "gpt-5-nano",
-      modelLabel: "gpt-5-nano • Cheapest / test",
-      guardrails: ["No prices", "Operator review is required"]
+      model: "claude-haiku-4-5",
+      modelLabel: "claude-haiku-4-5 • Economy",
+      guardrails: ["No prices", "Operator review is required"],
     });
     getAuditLog.mockResolvedValueOnce([
       {
@@ -1513,28 +1658,30 @@ describe("autoresponder service", () => {
         business: { name: "Northwind HVAC" },
         actor: { name: "Alex Operator" },
         requestSummaryJson: { channel: "YELP_THREAD" },
-        responseSummaryJson: { summary: { warningCodes: ["INSUFFICIENT_CONTEXT"] } }
-      }
+        responseSummaryJson: {
+          summary: { warningCodes: ["INSUFFICIENT_CONTEXT"] },
+        },
+      },
     ]);
     listLeadConversationAutomationTurnMetrics.mockResolvedValueOnce([
       {
         leadId: "lead_local_1",
         decision: "AUTO_REPLY",
         stopReason: null,
-        createdAt: new Date("2026-04-07T09:00:00.000Z")
+        createdAt: new Date("2026-04-07T09:00:00.000Z"),
       },
       {
         leadId: "lead_local_1",
         decision: "REVIEW_ONLY",
         stopReason: "MODE_REVIEW_ONLY",
-        createdAt: new Date("2026-04-07T09:30:00.000Z")
+        createdAt: new Date("2026-04-07T09:30:00.000Z"),
       },
       {
         leadId: "lead_local_2",
         decision: "HUMAN_HANDOFF",
         stopReason: "LOW_CONFIDENCE",
-        createdAt: new Date("2026-04-07T10:00:00.000Z")
-      }
+        createdAt: new Date("2026-04-07T10:00:00.000Z"),
+      },
     ]);
     countLeadConversationOperatorTakeovers.mockResolvedValueOnce(2);
     listLeadConversationReviewTurns.mockResolvedValueOnce([
@@ -1555,11 +1702,11 @@ describe("autoresponder service", () => {
           customerName: "Sam Client",
           business: {
             id: "business_2",
-            name: "Skyline Electric"
+            name: "Skyline Electric",
           },
-          conversationActions: []
-        }
-      }
+          conversationActions: [],
+        },
+      },
     ]);
     listOperatorIssues.mockResolvedValueOnce([
       {
@@ -1569,11 +1716,12 @@ describe("autoresponder service", () => {
         summary: "Masked email fallback failed",
         lastDetectedAt: new Date("2026-04-07T10:30:00.000Z"),
         lead: { customerName: "Jane Doe", externalLeadId: "lead_1" },
-        business: { id: "business_1", name: "Northwind HVAC" }
-      }
+        business: { id: "business_1", name: "Northwind HVAC" },
+      },
     ]);
 
-    const { getLeadAutomationModuleState } = await import("@/features/autoresponder/service");
+    const { getLeadAutomationModuleState } =
+      await import("@/features/autoresponder/service");
     const result = await getLeadAutomationModuleState("tenant_1");
 
     expect(result.moduleSummary).toMatchObject({
@@ -1592,16 +1740,16 @@ describe("autoresponder service", () => {
       businessReadyCount: 2,
       businessLiveCount: 0,
       businessNeedsSetupCount: 0,
-      businessIssueCount: 1
+      businessIssueCount: 1,
     });
     expect(result.operatingMode).toMatchObject({
       primaryChannel: "Yelp thread",
-      liveTemplateMode: "Thread-safe templates are live."
+      liveTemplateMode: "Thread-safe templates are live.",
     });
     expect(result.aiAssist).toMatchObject({
       enabled: true,
       reviewRequired: true,
-      modelLabel: "gpt-5-nano • Cheapest / test"
+      modelLabel: "claude-haiku-4-5 • Economy",
     });
     expect(result.conversationMetrics).toMatchObject({
       automatedReplyCount: 1,
@@ -1609,7 +1757,7 @@ describe("autoresponder service", () => {
       humanHandoffCount: 1,
       lowConfidenceCount: 1,
       operatorTakeoverCount: 2,
-      replyAfterAutomationRate: 100
+      replyAfterAutomationRate: 100,
     });
     expect(result.conversationReviewQueue.items).toEqual([
       expect.objectContaining({
@@ -1617,18 +1765,18 @@ describe("autoresponder service", () => {
         leadId: "lead_local_2",
         businessName: "Skyline Electric",
         decisionLabel: "Review-only",
-        intentLabel: "Simple Next Step Clarification"
-      })
+        intentLabel: "Simple Next Step Clarification",
+      }),
     ]);
     expect(result.recentActivity.map((item) => item.actionLabel)).toEqual(
-      expect.arrayContaining(["Initial response sent", "AI draft generated"])
+      expect.arrayContaining(["Initial response sent", "AI draft generated"]),
     );
     expect(result.openIssues).toEqual([
       expect.objectContaining({
         id: "issue_1",
         summary: "Masked email fallback failed",
-        targetLabel: "Jane Doe"
-      })
+        targetLabel: "Jane Doe",
+      }),
     ]);
     expect(result.businessHealth).toEqual(
       expect.arrayContaining([
@@ -1641,7 +1789,7 @@ describe("autoresponder service", () => {
           yelpConnectionLabel: "Webhook live",
           leadCount: 12,
           sentCount: 4,
-          hasOverride: true
+          hasOverride: true,
         }),
         expect.objectContaining({
           businessId: "business_2",
@@ -1649,9 +1797,9 @@ describe("autoresponder service", () => {
           yelpConnectionStatus: "READY",
           yelpConnectionLabel: "Sync verified",
           leadCount: 3,
-          hasOverride: false
-        })
-      ])
+          hasOverride: false,
+        }),
+      ]),
     );
   });
 });

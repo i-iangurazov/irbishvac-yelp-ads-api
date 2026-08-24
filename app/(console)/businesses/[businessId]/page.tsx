@@ -30,7 +30,7 @@ import {
 import { programTypeLabels } from "@/features/ads-programs/schemas";
 import { analyzeBusinessCpcTargeting } from "@/features/ads-programs/targeting";
 import { getBusinessDetail } from "@/features/businesses/service";
-import { requireUser } from "@/lib/auth/service";
+import { requirePermission } from "@/lib/auth/service";
 import { hasPermission } from "@/lib/permissions";
 import { formatCurrency, formatDateTime, titleCase } from "@/lib/utils/format";
 import { formatYelpCategory } from "@/lib/yelp/categories";
@@ -52,7 +52,7 @@ export default async function BusinessDetailPage({
 }: {
   params: Promise<{ businessId: string }>;
 }) {
-  const user = await requireUser();
+  const user = await requirePermission("businesses:read");
   const { businessId } = await params;
   const business = await getBusinessDetail(user.tenantId, businessId);
   const targetingIssues = analyzeBusinessCpcTargeting(
@@ -60,15 +60,18 @@ export default async function BusinessDetailPage({
     business.categories,
   );
   const canManageBusinesses = hasPermission(user.role.code, "businesses:write");
+  const canDeleteBusinesses = hasPermission(
+    user.role.code,
+    "businesses:delete",
+  );
   const hasBlockingPrograms = business.programs.some((program) =>
     ["ACTIVE", "SCHEDULED", "QUEUED", "PROCESSING"].includes(program.status),
   );
-  const deleteDisabledReason =
-    user.role.code !== "ADMIN"
-      ? "Only Admin users can delete businesses."
-      : hasBlockingPrograms
-        ? "Terminate or resolve active and pending programs before deleting this business."
-        : undefined;
+  const deleteDisabledReason = !canDeleteBusinesses
+    ? "Your role cannot delete businesses."
+    : hasBlockingPrograms
+      ? "Terminate or resolve active and pending programs before deleting this business."
+      : undefined;
 
   return (
     <div>
@@ -77,24 +80,30 @@ export default async function BusinessDetailPage({
         description="One place to check Yelp connection, automation, programs, mappings, reports, and issues for this business."
         actions={
           <div className="flex flex-wrap items-start gap-3">
-            <Button asChild>
-              <Link href={`/programs/new?businessId=${business.id}`}>
-                New program
-              </Link>
-            </Button>
-            <Button asChild variant="outline">
-              <Link href="/reporting">Run report</Link>
-            </Button>
-            <YelpSyncButton
-              label="Refresh Yelp"
-              syncPath={`/api/businesses/${business.id}/programs/sync`}
-            />
-            <BusinessDeleteForm
-              businessId={business.id}
-              businessName={business.name}
-              deleteImpact={business.deleteImpact}
-              disabledReason={deleteDisabledReason}
-            />
+            {canManageBusinesses ? (
+              <>
+                <Button asChild>
+                  <Link href={`/programs/new?businessId=${business.id}`}>
+                    New program
+                  </Link>
+                </Button>
+                <Button asChild variant="outline">
+                  <Link href="/reporting">Run report</Link>
+                </Button>
+                <YelpSyncButton
+                  label="Refresh Yelp"
+                  syncPath={`/api/businesses/${business.id}/programs/sync`}
+                />
+              </>
+            ) : null}
+            {canDeleteBusinesses ? (
+              <BusinessDeleteForm
+                businessId={business.id}
+                businessName={business.name}
+                deleteImpact={business.deleteImpact}
+                disabledReason={deleteDisabledReason}
+              />
+            ) : null}
           </div>
         }
       />

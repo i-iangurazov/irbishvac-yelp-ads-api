@@ -63,7 +63,7 @@ const foundationNavigation: Array<{
 ];
 
 export function AppSidebar() {
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
 
   return (
     <aside className="hidden min-h-screen w-64 border-r border-border/70 bg-card text-foreground lg:block xl:w-[16.5rem]">

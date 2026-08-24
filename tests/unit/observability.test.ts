@@ -17,16 +17,16 @@ vi.mock("@/lib/db/metrics-repository", () => ({
   incrementOperationalMetricCounter,
   recordOperationalMetricDistribution,
   setOperationalMetricGauge,
-  listOperationalMetricRollups
+  listOperationalMetricRollups,
 }));
 
 vi.mock("@/lib/db/issues-repository", () => ({
   getOperatorIssueSummaryCounts,
-  listOperatorIssues
+  listOperatorIssues,
 }));
 
 vi.mock("@/lib/db/settings-repository", () => ({
-  getSystemSetting
+  getSystemSetting,
 }));
 
 vi.mock("@/lib/db/autoresponder-repository", () => ({
@@ -34,7 +34,7 @@ vi.mock("@/lib/db/autoresponder-repository", () => ({
   listLeadAutomationOptions,
   listLeadAutomationRules,
   listLeadAutomationTemplates,
-  getLeadAutomationBusinessAttemptHealth
+  getLeadAutomationBusinessAttemptHealth,
 }));
 
 describe("observability service", () => {
@@ -48,26 +48,26 @@ describe("observability service", () => {
       retryableOpen: 1,
       deliveryFailures: 0,
       unmappedLeads: 0,
-      staleLeads: 0
+      staleLeads: 0,
     });
     listOperatorIssues.mockResolvedValue([]);
     getSystemSetting.mockResolvedValue({
       isEnabled: true,
       scopeMode: "SELECTED_BUSINESSES",
       scopedBusinessIds: ["business_1"],
-      aiModel: "gpt-5-nano",
+      aiModel: "claude-haiku-4-5",
       conversationAutomationEnabled: true,
       conversationGlobalPauseEnabled: false,
-      conversationMode: "REVIEW_ONLY"
+      conversationMode: "REVIEW_ONLY",
     });
     listLeadAutomationBusinessOverrides.mockResolvedValue([]);
     listLeadAutomationOptions.mockResolvedValue({
       businesses: [
         {
           id: "business_1",
-          name: "Northwind HVAC"
-        }
-      ]
+          name: "Northwind HVAC",
+        },
+      ],
     });
     listLeadAutomationRules.mockResolvedValue([
       {
@@ -75,38 +75,37 @@ describe("observability service", () => {
         isEnabled: true,
         cadence: "INITIAL",
         businessId: null,
-        templateId: "template_1"
-      }
+        templateId: "template_1",
+      },
     ]);
     listLeadAutomationTemplates.mockResolvedValue([
       {
         id: "template_1",
-        isEnabled: true
-      }
+        isEnabled: true,
+      },
     ]);
     getLeadAutomationBusinessAttemptHealth.mockResolvedValue({
       sentCounts: [
         {
           businessId: "business_1",
           _count: {
-            _all: 2
-          }
-        }
-      ]
+            _all: 2,
+          },
+        },
+      ],
     });
   });
 
   it("records conversation decision metrics with bounded dimensions", async () => {
-    const { recordConversationDecisionMetric, operationalMetricKeys } = await import(
-      "@/features/operations/observability-service"
-    );
+    const { recordConversationDecisionMetric, operationalMetricKeys } =
+      await import("@/features/operations/observability-service");
 
     await recordConversationDecisionMetric({
       tenantId: "tenant_1",
       decision: "HUMAN_HANDOFF",
       stopReason: "LOW_CONFIDENCE",
       mode: "REVIEW_ONLY",
-      confidence: "LOW"
+      confidence: "LOW",
     });
 
     expect(incrementOperationalMetricCounter).toHaveBeenNthCalledWith(1, {
@@ -115,24 +114,23 @@ describe("observability service", () => {
       dimensions: {
         decision: "HUMAN_HANDOFF",
         mode: "REVIEW_ONLY",
-        confidence: "LOW"
-      }
+        confidence: "LOW",
+      },
     });
     expect(incrementOperationalMetricCounter).toHaveBeenNthCalledWith(2, {
       tenantId: "tenant_1",
       metricKey: operationalMetricKeys.conversationStopReason,
       dimensions: {
         stopReason: "LOW_CONFIDENCE",
-        mode: "REVIEW_ONLY"
-      }
+        mode: "REVIEW_ONLY",
+      },
     });
   });
 
   it("summarizes pilot monitoring metrics and rollout posture", async () => {
     const now = new Date();
-    const { getOperationalPilotOverview, operationalMetricKeys } = await import(
-      "@/features/operations/observability-service"
-    );
+    const { getOperationalPilotOverview, operationalMetricKeys } =
+      await import("@/features/operations/observability-service");
 
     listOperationalMetricRollups.mockResolvedValue([
       {
@@ -141,7 +139,7 @@ describe("observability service", () => {
         totalValue: 12,
         sampleCount: 12,
         lastValue: 12,
-        dimensionsJson: null
+        dimensionsJson: null,
       },
       {
         metricKey: operationalMetricKeys.webhookReconcileQueueLagMs,
@@ -149,7 +147,7 @@ describe("observability service", () => {
         totalValue: 600000,
         sampleCount: 5,
         lastValue: 120000,
-        dimensionsJson: null
+        dimensionsJson: null,
       },
       {
         metricKey: operationalMetricKeys.autoresponderInitialSent,
@@ -157,7 +155,7 @@ describe("observability service", () => {
         totalValue: 3,
         sampleCount: 3,
         lastValue: 3,
-        dimensionsJson: null
+        dimensionsJson: null,
       },
       {
         metricKey: operationalMetricKeys.autoresponderFollowUpFailed,
@@ -165,7 +163,7 @@ describe("observability service", () => {
         totalValue: 1,
         sampleCount: 1,
         lastValue: 1,
-        dimensionsJson: null
+        dimensionsJson: null,
       },
       {
         metricKey: operationalMetricKeys.conversationDecision,
@@ -174,8 +172,8 @@ describe("observability service", () => {
         sampleCount: 2,
         lastValue: 2,
         dimensionsJson: {
-          decision: "HUMAN_HANDOFF"
-        }
+          decision: "HUMAN_HANDOFF",
+        },
       },
       {
         metricKey: operationalMetricKeys.conversationDecision,
@@ -184,8 +182,8 @@ describe("observability service", () => {
         sampleCount: 4,
         lastValue: 4,
         dimensionsJson: {
-          decision: "AUTO_REPLY"
-        }
+          decision: "AUTO_REPLY",
+        },
       },
       {
         metricKey: operationalMetricKeys.conversationStopReason,
@@ -194,8 +192,8 @@ describe("observability service", () => {
         sampleCount: 2,
         lastValue: 2,
         dimensionsJson: {
-          stopReason: "LOW_CONFIDENCE"
-        }
+          stopReason: "LOW_CONFIDENCE",
+        },
       },
       {
         metricKey: operationalMetricKeys.issueCreated,
@@ -203,7 +201,7 @@ describe("observability service", () => {
         totalValue: 5,
         sampleCount: 5,
         lastValue: 5,
-        dimensionsJson: null
+        dimensionsJson: null,
       },
       {
         metricKey: operationalMetricKeys.reportDeliverySucceeded,
@@ -211,7 +209,7 @@ describe("observability service", () => {
         totalValue: 8,
         sampleCount: 8,
         lastValue: 8,
-        dimensionsJson: null
+        dimensionsJson: null,
       },
       {
         metricKey: operationalMetricKeys.reportDeliveryFailed,
@@ -219,8 +217,8 @@ describe("observability service", () => {
         totalValue: 2,
         sampleCount: 2,
         lastValue: 2,
-        dimensionsJson: null
-      }
+        dimensionsJson: null,
+      },
     ]);
 
     const overview = await getOperationalPilotOverview("tenant_1");
@@ -236,7 +234,7 @@ describe("observability service", () => {
       businessId: "business_1",
       rolloutLabel: "Review pilot",
       proofOfSend: true,
-      conversationModeLabel: "Review-only"
+      conversationModeLabel: "Review-only",
     });
   });
 });

@@ -33,6 +33,13 @@ import {
   type CreateProgramFormValues,
   type EditProgramFormValues,
 } from "@/features/ads-programs/schemas";
+import {
+  campaignLayerLabels,
+  campaignLayers,
+  isTemporaryAugustCampaignLayer,
+  temporaryAugustCampaigns,
+  type CampaignLayer,
+} from "@/features/ads-programs/layers";
 import { apiFetch } from "@/lib/utils/client-api";
 import {
   formatCurrency,
@@ -115,11 +122,13 @@ export function ProgramForm(props: ProgramFormProps) {
     programType: props.initialValues?.programType ?? "CPC",
     currency: props.initialValues?.currency ?? "USD",
     startDate: props.initialValues?.startDate ?? "",
+    endDate: props.initialValues?.endDate ?? "",
     monthlyBudgetDollars: props.initialValues?.monthlyBudgetDollars ?? "",
     isAutobid: props.initialValues?.isAutobid ?? true,
     maxBidDollars: props.initialValues?.maxBidDollars ?? "",
     pacingMethod: normalizePacingMethod(props.initialValues?.pacingMethod),
     feePeriod: normalizeFeePeriod(props.initialValues?.feePeriod),
+    campaignLayer: props.initialValues?.campaignLayer ?? "GENERAL",
     adCategories: props.initialValues?.adCategories ?? [],
     scheduledBudgetEffectiveDate:
       props.initialValues?.scheduledBudgetEffectiveDate ?? "",
@@ -158,6 +167,7 @@ export function ProgramForm(props: ProgramFormProps) {
     (business) => business.id === watch("businessId"),
   );
   const programType = watch("programType");
+  const campaignLayer = watch("campaignLayer");
   const isAutobid = watch("isAutobid");
   const currency = watch("currency");
   const monthlyBudgetDollars = watch("monthlyBudgetDollars");
@@ -180,13 +190,21 @@ export function ProgramForm(props: ProgramFormProps) {
     () =>
       selectedCategoryAliases.filter(
         (alias) =>
+          !(
+            isTemporaryAugustCampaignLayer(campaignLayer) &&
+            alias === temporaryAugustCampaigns[campaignLayer].categoryAlias
+          ) &&
           !aliasBackedCategories.some((category) => category.alias === alias),
       ),
-    [aliasBackedCategories, selectedCategoryAliases],
+    [aliasBackedCategories, campaignLayer, selectedCategoryAliases],
   );
 
   useEffect(() => {
     if (programType !== "CPC") {
+      return;
+    }
+
+    if (isTemporaryAugustCampaignLayer(campaignLayer)) {
       return;
     }
 
@@ -200,7 +218,13 @@ export function ProgramForm(props: ProgramFormProps) {
         shouldDirty: true,
       });
     }
-  }, [aliasBackedCategories, programType, selectedCategoryAliases, setValue]);
+  }, [
+    aliasBackedCategories,
+    campaignLayer,
+    programType,
+    selectedCategoryAliases,
+    setValue,
+  ]);
 
   const centsPreview = useMemo(() => {
     try {
@@ -365,8 +389,70 @@ export function ProgramForm(props: ProgramFormProps) {
           </div>
 
           <div className="space-y-2">
+            <Label>Campaign layer</Label>
+            <Select
+              value={campaignLayer}
+              onValueChange={(value) => {
+                const nextLayer = value as CampaignLayer;
+                setValue("campaignLayer", nextLayer, {
+                  shouldValidate: true,
+                  shouldDirty: true,
+                });
+
+                if (isTemporaryAugustCampaignLayer(nextLayer)) {
+                  const temporaryCampaign = temporaryAugustCampaigns[nextLayer];
+                  setValue("programType", "CPC", {
+                    shouldValidate: true,
+                    shouldDirty: true,
+                  });
+                  setValue("adCategories", [temporaryCampaign.categoryAlias], {
+                    shouldValidate: true,
+                    shouldDirty: true,
+                  });
+                  setValue(
+                    "monthlyBudgetDollars",
+                    temporaryCampaign.monthlyBudgetDollars,
+                    { shouldValidate: true, shouldDirty: true },
+                  );
+                  setDailyBudgetDollars(temporaryCampaign.dailyBudgetDollars);
+                  setValue("endDate", temporaryCampaign.endDate, {
+                    shouldValidate: true,
+                    shouldDirty: true,
+                  });
+                }
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {campaignLayers.map((layer) => (
+                  <SelectItem key={layer} value={layer}>
+                    {campaignLayerLabels[layer]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Only the approved temporary Plumbing and Commercial HVAC layers
+              are available through August 31. The permanent HVAC split remains
+              on hold.
+            </p>
+          </div>
+
+          <div className="space-y-2">
             <Label htmlFor="startDate">Start date</Label>
             <Input id="startDate" type="date" {...register("startDate")} />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="endDate">End date</Label>
+            <Input id="endDate" type="date" {...register("endDate")} />
+            {errors.endDate ? (
+              <p className="text-sm text-destructive">
+                {errors.endDate.message}
+              </p>
+            ) : null}
           </div>
 
           <div className="space-y-2">
@@ -675,6 +761,8 @@ export function ProgramForm(props: ProgramFormProps) {
                   ? selectedCategoryAliases.join(", ")
                   : "Omit field and let Yelp use listing categories"}
               </div>
+              <div>Campaign layer: {campaignLayerLabels[campaignLayer]}</div>
+              <div>End date: {watch("endDate") || "No end date"}</div>
             </div>
           </div>
 

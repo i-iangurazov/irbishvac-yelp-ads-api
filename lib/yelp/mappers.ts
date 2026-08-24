@@ -1,6 +1,10 @@
 import type { JobStatus, ProgramStatus } from "@prisma/client";
 
-import type { CreateProgramFormValues, EditProgramFormValues, TerminateProgramFormValues } from "@/features/ads-programs/schemas";
+import type {
+  CreateProgramFormValues,
+  EditProgramFormValues,
+  TerminateProgramFormValues,
+} from "@/features/ads-programs/schemas";
 import type { FeatureFormValues } from "@/features/program-features/schemas";
 import type { ReportRequestFormValues } from "@/features/reporting/schemas";
 import { parseCurrencyToCents } from "@/lib/utils/format";
@@ -11,7 +15,7 @@ import type {
   YelpJobStatusResponseDto,
   YelpProgramFeatureDto,
   YelpReportRequestDto,
-  YelpTerminateProgramRequestDto
+  YelpTerminateProgramRequestDto,
 } from "@/lib/yelp/schemas";
 
 function toDateOnlyOrUndefined(value: string | undefined) {
@@ -25,7 +29,9 @@ function hasFutureStartDate(value: string | undefined) {
 
   const input = new Date(`${value}T00:00:00.000Z`);
   const today = new Date();
-  const todayUtc = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+  const todayUtc = new Date(
+    Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()),
+  );
 
   return input.getTime() > todayUtc.getTime();
 }
@@ -36,7 +42,9 @@ function collectReceiptStatuses(receipt: YelpJobStatusResponseDto) {
   for (const businessResult of receipt.business_results ?? []) {
     statuses.add(businessResult.status);
 
-    for (const updateGroup of Object.values(businessResult.update_results ?? {})) {
+    for (const updateGroup of Object.values(
+      businessResult.update_results ?? {},
+    )) {
       if (typeof updateGroup.status === "string") {
         statuses.add(updateGroup.status);
       }
@@ -51,7 +59,11 @@ function collectReceiptStatuses(receipt: YelpJobStatusResponseDto) {
           continue;
         }
 
-        if (typeof updateResult === "object" && updateResult !== null && "status" in updateResult) {
+        if (
+          typeof updateResult === "object" &&
+          updateResult !== null &&
+          "status" in updateResult
+        ) {
           const nestedStatus = (updateResult as { status?: unknown }).status;
 
           if (typeof nestedStatus === "string" && nestedStatus.length > 0) {
@@ -67,13 +79,20 @@ function collectReceiptStatuses(receipt: YelpJobStatusResponseDto) {
 
 function findUpstreamProgramId(receipt: YelpJobStatusResponseDto) {
   for (const businessResult of receipt.business_results ?? []) {
-    if (businessResult.identifier_type === "PROGRAM" && businessResult.identifier) {
+    if (
+      businessResult.identifier_type === "PROGRAM" &&
+      businessResult.identifier
+    ) {
       return businessResult.identifier;
     }
 
-    for (const updateGroup of Object.values(businessResult.update_results ?? {})) {
+    for (const updateGroup of Object.values(
+      businessResult.update_results ?? {},
+    )) {
       const programIdValue =
-        typeof updateGroup === "object" && updateGroup !== null && "program_id" in updateGroup
+        typeof updateGroup === "object" &&
+        updateGroup !== null &&
+        "program_id" in updateGroup
           ? (updateGroup as { program_id?: unknown }).program_id
           : undefined;
 
@@ -82,7 +101,9 @@ function findUpstreamProgramId(receipt: YelpJobStatusResponseDto) {
       }
 
       const programId =
-        typeof programIdValue === "object" && programIdValue !== null && "requested_value" in programIdValue
+        typeof programIdValue === "object" &&
+        programIdValue !== null &&
+        "requested_value" in programIdValue
           ? (programIdValue as { requested_value?: unknown }).requested_value
           : undefined;
 
@@ -95,68 +116,96 @@ function findUpstreamProgramId(receipt: YelpJobStatusResponseDto) {
   return undefined;
 }
 
-function resolveProgramStatusForSuccess(operation: "CREATE_PROGRAM" | "EDIT_PROGRAM" | "END_PROGRAM", startDate?: string) {
+function resolveProgramStatusForSuccess(
+  operation: "CREATE_PROGRAM" | "EDIT_PROGRAM" | "END_PROGRAM",
+  startDate?: string,
+) {
   if (operation === "END_PROGRAM") {
     return "ENDED" as const;
   }
 
-  return hasFutureStartDate(startDate) ? ("SCHEDULED" as const) : ("ACTIVE" as const);
+  return hasFutureStartDate(startDate)
+    ? ("SCHEDULED" as const)
+    : ("ACTIVE" as const);
 }
 
 export function mapCreateProgramFormToDto(
   values: CreateProgramFormValues,
-  encryptedBusinessId: string
+  encryptedBusinessId: string,
 ): YelpCreateProgramRequestDto {
   return {
     business_id: encryptedBusinessId,
     program_name: values.programType,
     start: toDateOnlyOrUndefined(values.startDate),
+    end: toDateOnlyOrUndefined(values.endDate),
     currency: values.currency,
-    budget: values.monthlyBudgetDollars ? parseCurrencyToCents(values.monthlyBudgetDollars) : undefined,
+    budget: values.monthlyBudgetDollars
+      ? parseCurrencyToCents(values.monthlyBudgetDollars)
+      : undefined,
     is_autobid: values.programType === "CPC" ? values.isAutobid : undefined,
-    max_bid: !values.isAutobid && values.maxBidDollars ? parseCurrencyToCents(values.maxBidDollars) : undefined,
-    pacing_method: values.programType === "CPC" ? values.pacingMethod : undefined,
+    max_bid:
+      !values.isAutobid && values.maxBidDollars
+        ? parseCurrencyToCents(values.maxBidDollars)
+        : undefined,
+    pacing_method:
+      values.programType === "CPC" ? values.pacingMethod : undefined,
     fee_period: values.programType === "CPC" ? values.feePeriod : undefined,
-    ad_categories: values.programType === "CPC" ? values.adCategories : undefined
+    ad_categories:
+      values.programType === "CPC" ? values.adCategories : undefined,
   };
 }
 
-export function mapEditProgramFormToDto(values: EditProgramFormValues): YelpEditProgramRequestDto {
-  const hasScheduledBudgetChange = Boolean(values.scheduledBudgetEffectiveDate && values.scheduledBudgetDollars);
+export function mapEditProgramFormToDto(
+  values: EditProgramFormValues,
+): YelpEditProgramRequestDto {
+  const hasScheduledBudgetChange = Boolean(
+    values.scheduledBudgetEffectiveDate && values.scheduledBudgetDollars,
+  );
 
   return {
     start: toDateOnlyOrUndefined(values.startDate),
-    end: undefined,
+    end: toDateOnlyOrUndefined(values.endDate),
     budget: hasScheduledBudgetChange
       ? parseCurrencyToCents(values.scheduledBudgetDollars!)
       : values.monthlyBudgetDollars
         ? parseCurrencyToCents(values.monthlyBudgetDollars)
         : undefined,
-    future_budget_date: hasScheduledBudgetChange ? toDateOnlyOrUndefined(values.scheduledBudgetEffectiveDate) : undefined,
-    max_bid: !values.isAutobid && values.maxBidDollars ? parseCurrencyToCents(values.maxBidDollars) : undefined,
-    pacing_method: values.programType === "CPC" ? values.pacingMethod : undefined,
-    ad_categories: values.programType === "CPC" ? values.adCategories : undefined
+    future_budget_date: hasScheduledBudgetChange
+      ? toDateOnlyOrUndefined(values.scheduledBudgetEffectiveDate)
+      : undefined,
+    max_bid:
+      !values.isAutobid && values.maxBidDollars
+        ? parseCurrencyToCents(values.maxBidDollars)
+        : undefined,
+    pacing_method:
+      values.programType === "CPC" ? values.pacingMethod : undefined,
+    ad_categories:
+      values.programType === "CPC" ? values.adCategories : undefined,
   };
 }
 
-export function mapTerminateProgramFormToDto(values: TerminateProgramFormValues): YelpTerminateProgramRequestDto {
+export function mapTerminateProgramFormToDto(
+  values: TerminateProgramFormValues,
+): YelpTerminateProgramRequestDto {
   void values;
   return {};
 }
 
-export function mapFeatureFormToDto(values: FeatureFormValues): YelpProgramFeatureDto {
+export function mapFeatureFormToDto(
+  values: FeatureFormValues,
+): YelpProgramFeatureDto {
   return values;
 }
 
 export function mapReportFormToDto(
   values: ReportRequestFormValues,
-  encryptedBusinessIds: string[]
+  encryptedBusinessIds: string[],
 ): YelpReportRequestDto {
   return {
     business_ids: encryptedBusinessIds,
     start_date: values.startDate,
     end_date: values.endDate,
-    metrics: values.metrics
+    metrics: values.metrics,
   };
 }
 
@@ -169,14 +218,14 @@ export function mapSubmittedYelpJob(response: YelpJobSubmissionResponseDto): {
   return {
     jobStatus: "QUEUED",
     programStatus: "QUEUED",
-    isTerminal: false
+    isTerminal: false,
   };
 }
 
 export function mapYelpJobStatusReceipt(
   receipt: YelpJobStatusResponseDto,
   operation: "CREATE_PROGRAM" | "EDIT_PROGRAM" | "END_PROGRAM",
-  startDate?: string
+  startDate?: string,
 ): {
   jobStatus: JobStatus;
   programStatus: ProgramStatus;
@@ -188,7 +237,11 @@ export function mapYelpJobStatusReceipt(
   }
 
   if (receipt.status === "PROCESSING") {
-    return { jobStatus: "PROCESSING", programStatus: "PROCESSING", isTerminal: false };
+    return {
+      jobStatus: "PROCESSING",
+      programStatus: "PROCESSING",
+      isTerminal: false,
+    };
   }
 
   const statuses = collectReceiptStatuses(receipt);
@@ -201,7 +254,7 @@ export function mapYelpJobStatusReceipt(
       jobStatus: "PARTIAL",
       programStatus: "PARTIAL",
       isTerminal: true,
-      upstreamProgramId
+      upstreamProgramId,
     };
   }
 
@@ -210,7 +263,7 @@ export function mapYelpJobStatusReceipt(
       jobStatus: "FAILED",
       programStatus: "FAILED",
       isTerminal: true,
-      upstreamProgramId
+      upstreamProgramId,
     };
   }
 
@@ -218,6 +271,6 @@ export function mapYelpJobStatusReceipt(
     jobStatus: "COMPLETED",
     programStatus: resolveProgramStatusForSuccess(operation, startDate),
     isTerminal: true,
-    upstreamProgramId
+    upstreamProgramId,
   };
 }

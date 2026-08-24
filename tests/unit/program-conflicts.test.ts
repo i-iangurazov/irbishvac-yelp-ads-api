@@ -1,14 +1,21 @@
 import { describe, expect, it } from "vitest";
 
-import { cpcCategoryTargetsOverlap, findConflictingCpcPrograms } from "@/features/ads-programs/conflicts";
+import {
+  cpcCategoryTargetsOverlap,
+  findConflictingCpcPrograms,
+} from "@/features/ads-programs/conflicts";
 
 describe("program conflict detection", () => {
   it("treats matching CPC category aliases as overlapping", () => {
-    expect(cpcCategoryTargetsOverlap(["electricians"], ["electricians"])).toBe(true);
+    expect(cpcCategoryTargetsOverlap(["electricians"], ["electricians"])).toBe(
+      true,
+    );
   });
 
   it("treats different CPC category aliases as non-overlapping", () => {
-    expect(cpcCategoryTargetsOverlap(["electricians"], ["plumbing"])).toBe(false);
+    expect(cpcCategoryTargetsOverlap(["electricians"], ["plumbing"])).toBe(
+      false,
+    );
   });
 
   it("allows all-category CPC programs to coexist with category-specific CPC programs", () => {
@@ -21,21 +28,25 @@ describe("program conflict detection", () => {
   });
 
   it("treats explicit full listing categories as the main listing-wide program", () => {
-    const listingCategoryAliases = ["waterheaterinstallrepair", "plumbing", "hvac"];
+    const listingCategoryAliases = [
+      "waterheaterinstallrepair",
+      "plumbing",
+      "hvac",
+    ];
 
     expect(
       cpcCategoryTargetsOverlap(
         ["waterheaterinstallrepair", "plumbing", "hvac"],
         ["plumbing"],
-        { listingCategoryAliases }
-      )
+        { listingCategoryAliases },
+      ),
     ).toBe(false);
     expect(
       cpcCategoryTargetsOverlap(
         ["waterheaterinstallrepair", "plumbing", "hvac"],
         [],
-        { listingCategoryAliases }
-      )
+        { listingCategoryAliases },
+      ),
     ).toBe(true);
   });
 
@@ -47,14 +58,18 @@ describe("program conflict detection", () => {
           upstreamProgramId: "4WnJ0ZU6e36WnJHdLt-leA",
           type: "CPC",
           status: "ACTIVE",
-          adCategoriesJson: ["waterheaterinstallrepair", "plumbing", "hvac"]
-        }
+          adCategoriesJson: ["waterheaterinstallrepair", "plumbing", "hvac"],
+        },
       ],
       ["plumbing"],
       undefined,
       {
-        listingCategoryAliases: ["waterheaterinstallrepair", "plumbing", "hvac"]
-      }
+        listingCategoryAliases: [
+          "waterheaterinstallrepair",
+          "plumbing",
+          "hvac",
+        ],
+      },
     );
 
     expect(result).toEqual([]);
@@ -68,25 +83,44 @@ describe("program conflict detection", () => {
           upstreamProgramId: "upstream-1",
           type: "CPC",
           status: "ACTIVE",
-          adCategoriesJson: ["electricians"]
+          adCategoriesJson: ["electricians"],
         },
         {
           id: "program-2",
           upstreamProgramId: "upstream-2",
           type: "CPC",
           status: "ENDED",
-          adCategoriesJson: ["electricians"]
+          adCategoriesJson: ["electricians"],
         },
         {
           id: "program-3",
           upstreamProgramId: "upstream-3",
           type: "VL",
           status: "ACTIVE",
-          adCategoriesJson: []
-        }
+          adCategoriesJson: [],
+        },
       ],
       ["electricians"],
-      "program-1"
+      "program-1",
+    );
+
+    expect(result).toEqual([]);
+  });
+
+  it("allows the approved temporary commercial HVAC layer to overlap an existing HVAC campaign", () => {
+    const result = findConflictingCpcPrograms(
+      [
+        {
+          id: "install",
+          type: "CPC",
+          status: "ACTIVE",
+          adCategoriesJson: ["hvac"],
+          configurationJson: { campaignLayer: "GENERAL" },
+        },
+      ],
+      ["hvac"],
+      undefined,
+      { requestedCampaignLayer: "AUGUST_COMMERCIAL_HVAC_TEMP" },
     );
 
     expect(result).toEqual([]);

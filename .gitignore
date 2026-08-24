@@ -1,5 +1,7 @@
 .next
 node_modules
+node_modules.shared
+.pnpm-store
 .env
 .env.local
 .env.*.local

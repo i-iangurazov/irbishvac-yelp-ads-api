@@ -20,37 +20,43 @@ vi.mock("@/lib/db/autoresponder-repository", () => ({
   listEnabledLeadAutomationTemplates,
   getLeadConversationAutomationTurnBySourceEventKey,
   upsertLeadConversationAutomationState,
-  createLeadConversationAutomationTurn
+  createLeadConversationAutomationTurn,
 }));
 
 vi.mock("@/features/autoresponder/config", () => ({
   getLeadAutomationScopeConfig,
-  resolveLeadAiModel
+  resolveLeadAiModel,
 }));
 
 vi.mock("@/features/leads/messaging-service", () => ({
-  deliverLeadAutomationMessage
+  deliverLeadAutomationMessage,
 }));
 
 vi.mock("@/lib/db/issues-repository", () => ({
   createOperatorIssue,
   getOperatorIssueByDedupeKey,
-  updateOperatorIssue
+  updateOperatorIssue,
 }));
 
 vi.mock("@/features/audit/service", () => ({
-  recordAuditEvent
+  recordAuditEvent,
 }));
 
 vi.mock("@/features/autoresponder/ai-service", () => ({
-  generateLeadAutomationAiMessageFromGuidance
+  generateLeadAutomationAiMessageFromGuidance,
 }));
 
 vi.mock("@/features/operations/observability-service", () => ({
-  recordConversationDecisionMetric
+  recordConversationDecisionMetric,
 }));
 
-function buildEffectiveSettings(overrides: Partial<Awaited<ReturnType<typeof getLeadAutomationScopeConfig>>["effectiveSettings"]> = {}) {
+function buildEffectiveSettings(
+  overrides: Partial<
+    Awaited<
+      ReturnType<typeof getLeadAutomationScopeConfig>
+    >["effectiveSettings"]
+  > = {},
+) {
   return {
     isEnabled: true,
     scopeMode: "ALL_BUSINESSES" as const,
@@ -62,19 +68,19 @@ function buildEffectiveSettings(overrides: Partial<Awaited<ReturnType<typeof get
     followUp7dEnabled: false,
     followUp7dDelayDays: 7,
     aiAssistEnabled: false,
-    aiModel: "gpt-5-nano" as const,
+    aiModel: "claude-haiku-4-5" as const,
     conversationAutomationEnabled: true,
     conversationGlobalPauseEnabled: false,
     conversationMode: "REVIEW_ONLY" as const,
     conversationAllowedIntents: [
       "MISSING_DETAILS_PROVIDED",
       "BASIC_ACKNOWLEDGMENT",
-      "SIMPLE_NEXT_STEP_CLARIFICATION"
+      "SIMPLE_NEXT_STEP_CLARIFICATION",
     ],
     conversationMaxAutomatedTurns: 2,
     conversationReviewFallbackEnabled: true,
     conversationEscalateToIssueQueue: true,
-    ...overrides
+    ...overrides,
   };
 }
 
@@ -88,7 +94,7 @@ function buildLead(overrides: Record<string, unknown> = {}) {
     business: {
       id: "business_1",
       name: "Northwind HVAC",
-      location: null
+      location: null,
     },
     location: null,
     serviceCategory: null,
@@ -107,11 +113,12 @@ function buildLead(overrides: Record<string, unknown> = {}) {
         isReply: true,
         occurredAt: new Date("2026-04-14T08:00:00.000Z"),
         payloadJson: {
-          message: "Thanks, I uploaded the photo and the address is 123 Main St."
-        }
-      }
+          message:
+            "Thanks, I uploaded the photo and the address is 123 Main St.",
+        },
+      },
     ],
-    ...overrides
+    ...overrides,
   };
 }
 
@@ -125,19 +132,21 @@ describe("conversation autoresponder service", () => {
     generateLeadAutomationAiMessageFromGuidance.mockResolvedValue({
       subject: "",
       body: "Fallback body",
-      model: "gpt-5-nano",
+      model: "claude-haiku-4-5",
       usedAi: false,
       fallbackReason: "AI_DISABLED",
-      warningCodes: []
+      warningCodes: [],
     });
     upsertLeadConversationAutomationState.mockResolvedValue({
-      id: "state_1"
+      id: "state_1",
     });
-    createLeadConversationAutomationTurn.mockImplementation(async (payload: Record<string, unknown>) => ({
-      id: "turn_1",
-      decision: payload.decision,
-      stopReason: payload.stopReason ?? null
-    }));
+    createLeadConversationAutomationTurn.mockImplementation(
+      async (payload: Record<string, unknown>) => ({
+        id: "turn_1",
+        decision: payload.decision,
+        stopReason: payload.stopReason ?? null,
+      }),
+    );
     recordAuditEvent.mockResolvedValue(undefined);
   });
 
@@ -145,67 +154,72 @@ describe("conversation autoresponder service", () => {
     getLeadAutomationCandidate.mockResolvedValue(buildLead());
     getLeadAutomationScopeConfig.mockResolvedValue({
       effectiveSettings: buildEffectiveSettings({
-        conversationMode: "REVIEW_ONLY"
-      })
+        conversationMode: "REVIEW_ONLY",
+      }),
     });
 
-    const { processLeadConversationAutomationForInboundMessage } = await import(
-      "@/features/autoresponder/conversation-service"
-    );
+    const { processLeadConversationAutomationForInboundMessage } =
+      await import("@/features/autoresponder/conversation-service");
 
     const result = await processLeadConversationAutomationForInboundMessage({
       tenantId: "tenant_1",
       leadId: "lead_1",
-      sourceEventId: "ext_evt_1"
+      sourceEventId: "ext_evt_1",
     });
 
     expect(result).toEqual({
       processed: true,
       decision: "REVIEW_ONLY",
-      stopReason: "MODE_REVIEW_ONLY"
+      stopReason: "MODE_REVIEW_ONLY",
     });
     expect(recordConversationDecisionMetric).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId: "tenant_1",
         decision: "REVIEW_ONLY",
-        stopReason: "MODE_REVIEW_ONLY"
-      })
+        stopReason: "MODE_REVIEW_ONLY",
+      }),
     );
     expect(deliverLeadAutomationMessage).not.toHaveBeenCalled();
     expect(createOperatorIssue).not.toHaveBeenCalled();
     expect(createLeadConversationAutomationTurn).toHaveBeenCalledWith(
       expect.objectContaining({
         decision: "REVIEW_ONLY",
-        renderedBody: expect.any(String)
-      })
+        renderedBody: expect.any(String),
+      }),
     );
-    expect(createLeadConversationAutomationTurn.mock.calls[0][0].metadataJson).toEqual(
+    expect(
+      createLeadConversationAutomationTurn.mock.calls[0][0].metadataJson,
+    ).toEqual(
       expect.objectContaining({
-        inboundMessageExcerpt: "Thanks, I uploaded the photo and the address is 123 Main St.",
+        inboundMessageExcerpt:
+          "Thanks, I uploaded the photo and the address is 123 Main St.",
         sourceContext: expect.objectContaining({
-          customerMessageExcerpt: "Thanks, I uploaded the photo and the address is 123 Main St.",
-          sourceEventKey: "evt_1"
+          customerMessageExcerpt:
+            "Thanks, I uploaded the photo and the address is 123 Main St.",
+          sourceEventKey: "evt_1",
         }),
         template: expect.objectContaining({
           name: expect.any(String),
           promptSource: "TEMPLATE_AI_PROMPT",
           aiPromptConfigured: true,
-          aiPromptPreview: expect.any(String)
+          aiPromptPreview: expect.any(String),
         }),
         routing: expect.objectContaining({
           ruleId: null,
           ruleName: null,
-          ruleSource: expect.stringContaining("Conversation routing uses inbound intent classification")
+          ruleSource: expect.stringContaining(
+            "Conversation routing uses inbound intent classification",
+          ),
         }),
         rendering: expect.objectContaining({
           contentSource: "TEMPLATE",
-          templateRenderMode: "AI_ASSISTED"
+          templateRenderMode: "AI_ASSISTED",
         }),
         reviewState: expect.objectContaining({
           operatorReviewRequired: true,
-          operatorEditStatus: "WAITING_FOR_OPERATOR"
-        })
-      })
+          operatorEditStatus: "WAITING_FOR_OPERATOR",
+        }),
+      }),
     );
   });
 
@@ -221,70 +235,74 @@ describe("conversation autoresponder service", () => {
             isReply: true,
             occurredAt: new Date("2026-04-14T09:00:00.000Z"),
             payloadJson: {
-              message: "How much will this cost and can someone give me a quote today?"
-            }
-          }
-        ]
-      })
+              message:
+                "How much will this cost and can someone give me a quote today?",
+            },
+          },
+        ],
+      }),
     );
     getLeadAutomationScopeConfig.mockResolvedValue({
       effectiveSettings: buildEffectiveSettings({
-        conversationMode: "BOUNDED_AUTO_REPLY"
-      })
+        conversationMode: "BOUNDED_AUTO_REPLY",
+      }),
     });
     deliverLeadAutomationMessage.mockResolvedValue({
       status: "SENT",
       deliveryChannel: "YELP_THREAD",
       warning: null,
-      error: null
+      error: null,
     });
 
-    const { processLeadConversationAutomationForInboundMessage } = await import(
-      "@/features/autoresponder/conversation-service"
-    );
+    const { processLeadConversationAutomationForInboundMessage } =
+      await import("@/features/autoresponder/conversation-service");
 
     const result = await processLeadConversationAutomationForInboundMessage({
       tenantId: "tenant_1",
       leadId: "lead_1",
-      sourceEventId: "ext_evt_2"
+      sourceEventId: "ext_evt_2",
     });
 
     expect(result).toEqual({
       processed: true,
       decision: "HUMAN_HANDOFF",
-      stopReason: "PRICING_RISK"
+      stopReason: "PRICING_RISK",
     });
     expect(deliverLeadAutomationMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId: "tenant_1",
         leadId: "lead_1",
         channel: "YELP_THREAD",
-        renderedBody: expect.stringContaining("do not want to guess on pricing")
-      })
+        renderedBody: expect.stringContaining(
+          "do not want to guess on pricing",
+        ),
+      }),
     );
     expect(createOperatorIssue).toHaveBeenCalledWith(
       "tenant_1",
       expect.objectContaining({
         issueType: "AUTORESPONDER_FAILURE",
         severity: "HIGH",
-        leadId: "lead_1"
-      })
+        leadId: "lead_1",
+      }),
     );
     expect(createLeadConversationAutomationTurn).toHaveBeenCalledWith(
       expect.objectContaining({
         decision: "HUMAN_HANDOFF",
         stopReason: "PRICING_RISK",
-        renderedBody: expect.stringContaining("Irbishvac automated message")
-      })
+        renderedBody: expect.stringContaining("Irbishvac automated message"),
+      }),
     );
-    expect(createLeadConversationAutomationTurn.mock.calls[0][0].metadataJson).toEqual(
+    expect(
+      createLeadConversationAutomationTurn.mock.calls[0][0].metadataJson,
+    ).toEqual(
       expect.objectContaining({
         automatedTurns: expect.objectContaining({
           before: 0,
           after: 0,
-          max: 2
-        })
-      })
+          max: 2,
+        }),
+      }),
     );
   });
 
@@ -300,51 +318,50 @@ describe("conversation autoresponder service", () => {
             isReply: true,
             occurredAt: new Date("2026-04-14T10:00:00.000Z"),
             payloadJson: {
-              message: "Thanks, got it."
-            }
-          }
-        ]
-      })
+              message: "Thanks, got it.",
+            },
+          },
+        ],
+      }),
     );
     getLeadAutomationScopeConfig.mockResolvedValue({
       effectiveSettings: buildEffectiveSettings({
-        conversationMode: "BOUNDED_AUTO_REPLY"
-      })
+        conversationMode: "BOUNDED_AUTO_REPLY",
+      }),
     });
     deliverLeadAutomationMessage.mockResolvedValue({
       status: "SENT",
       deliveryChannel: "YELP_THREAD",
       warning: null,
-      error: null
+      error: null,
     });
 
-    const { processLeadConversationAutomationForInboundMessage } = await import(
-      "@/features/autoresponder/conversation-service"
-    );
+    const { processLeadConversationAutomationForInboundMessage } =
+      await import("@/features/autoresponder/conversation-service");
 
     const result = await processLeadConversationAutomationForInboundMessage({
       tenantId: "tenant_1",
       leadId: "lead_1",
-      sourceEventId: "ext_evt_3"
+      sourceEventId: "ext_evt_3",
     });
 
     expect(result).toEqual({
       processed: true,
       decision: "AUTO_REPLY",
-      stopReason: null
+      stopReason: null,
     });
     expect(deliverLeadAutomationMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId: "tenant_1",
         leadId: "lead_1",
         automationAttemptId: null,
-        channel: "YELP_THREAD"
-      })
+        channel: "YELP_THREAD",
+      }),
     );
     expect(createLeadConversationAutomationTurn).toHaveBeenCalledWith(
       expect.objectContaining({
-        decision: "AUTO_REPLY"
-      })
+        decision: "AUTO_REPLY",
+      }),
     );
   });
 
@@ -352,31 +369,30 @@ describe("conversation autoresponder service", () => {
     getLeadAutomationCandidate.mockResolvedValue(buildLead());
     getLeadAutomationScopeConfig.mockResolvedValue({
       effectiveSettings: buildEffectiveSettings({
-        conversationGlobalPauseEnabled: true
-      })
+        conversationGlobalPauseEnabled: true,
+      }),
     });
 
-    const { processLeadConversationAutomationForInboundMessage } = await import(
-      "@/features/autoresponder/conversation-service"
-    );
+    const { processLeadConversationAutomationForInboundMessage } =
+      await import("@/features/autoresponder/conversation-service");
 
     const result = await processLeadConversationAutomationForInboundMessage({
       tenantId: "tenant_1",
       leadId: "lead_1",
-      sourceEventId: "ext_evt_1"
+      sourceEventId: "ext_evt_1",
     });
 
     expect(result).toEqual({
       processed: true,
       decision: "HUMAN_HANDOFF",
-      stopReason: "ROLLOUT_PAUSED"
+      stopReason: "ROLLOUT_PAUSED",
     });
     expect(createOperatorIssue).not.toHaveBeenCalled();
     expect(createLeadConversationAutomationTurn).toHaveBeenCalledWith(
       expect.objectContaining({
         decision: "HUMAN_HANDOFF",
-        stopReason: "ROLLOUT_PAUSED"
-      })
+        stopReason: "ROLLOUT_PAUSED",
+      }),
     );
   });
 });

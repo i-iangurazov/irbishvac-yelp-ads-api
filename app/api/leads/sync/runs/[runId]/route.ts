@@ -5,10 +5,10 @@ import { handleRouteError, requireApiPermission } from "@/lib/utils/http";
 
 export async function GET(
   _request: Request,
-  { params }: { params: Promise<{ runId: string }> }
+  { params }: { params: Promise<{ runId: string }> },
 ) {
   try {
-    const user = await requireApiPermission("leads:write");
+    const user = await requireApiPermission("leads:sync");
 
     if (user instanceof NextResponse) {
       return user;

@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/table";
 import type { LeadFiltersInput } from "@/features/leads/schemas";
 import { getLeadsIndex } from "@/features/leads/service";
-import { requireUser } from "@/lib/auth/service";
+import { requirePermission } from "@/lib/auth/service";
 import { hasPermission } from "@/lib/permissions";
 import { formatDateTime } from "@/lib/utils/format";
 
@@ -68,13 +68,13 @@ export default async function LeadsPage({
     pageSize?: string;
   }>;
 }) {
-  const user = await requireUser();
+  const user = await requirePermission("leads:read");
   const filters = await searchParams;
   const overview = await getLeadsIndex(
     user.tenantId,
     filters as LeadFiltersInput,
   );
-  const canSyncLeads = hasPermission(user.role.code, "leads:write");
+  const canSyncLeads = hasPermission(user.role.code, "leads:sync");
   const filtersApplied = Object.values(overview.filters).some(Boolean);
   const latestImport = overview.backfill.latestRun;
   const queueSummary =

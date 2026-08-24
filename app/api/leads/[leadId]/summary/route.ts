@@ -5,10 +5,10 @@ import { handleRouteError, requireApiPermission } from "@/lib/utils/http";
 
 export async function POST(
   request: Request,
-  context: { params: Promise<{ leadId: string }> }
+  context: { params: Promise<{ leadId: string }> },
 ) {
   try {
-    const user = await requireApiPermission("leads:read");
+    const user = await requireApiPermission("replies:review");
 
     if (user instanceof NextResponse) {
       return user;
@@ -16,7 +16,12 @@ export async function POST(
 
     const body = await request.json();
     const { leadId } = await context.params;
-    const result = await generateLeadSummaryWorkflow(user.tenantId, user.id, leadId, body);
+    const result = await generateLeadSummaryWorkflow(
+      user.tenantId,
+      user.id,
+      leadId,
+      body,
+    );
 
     return NextResponse.json(result);
   } catch (error) {

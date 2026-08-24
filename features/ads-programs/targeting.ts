@@ -1,6 +1,10 @@
 import type { ProgramStatus, ProgramType } from "@prisma/client";
 
 import { normalizeProgramCategoryAliases } from "@/features/ads-programs/conflicts";
+import {
+  areCompatibleOverlappingLayers,
+  getProgramCampaignLayer,
+} from "@/features/ads-programs/layers";
 import { extractYelpCategoryAliases } from "@/lib/yelp/categories";
 
 const currentTargetingStatuses = new Set<ProgramStatus>([
@@ -31,6 +35,7 @@ export type CpcTargetingCandidate = {
   status: ProgramStatus;
   upstreamProgramId?: string | null;
   adCategoriesJson?: unknown;
+  configurationJson?: unknown;
 };
 
 export type CpcTargetingIssue = {
@@ -194,6 +199,22 @@ export function analyzeBusinessCpcTargeting(
       );
 
       if (overlappingAliases.length === 0) {
+        continue;
+      }
+
+      const hvacOnlyOverlap =
+        left.scope.aliases.length === 1 &&
+        right.scope.aliases.length === 1 &&
+        overlappingAliases.length === 1 &&
+        overlappingAliases[0] === "hvac";
+
+      if (
+        hvacOnlyOverlap &&
+        areCompatibleOverlappingLayers(
+          getProgramCampaignLayer(left.program.configurationJson),
+          getProgramCampaignLayer(right.program.configurationJson),
+        )
+      ) {
         continue;
       }
 

@@ -3,9 +3,12 @@ import { NextResponse } from "next/server";
 import { sendLeadReplyWorkflow } from "@/features/leads/messaging-service";
 import { handleRouteError, requireApiPermission } from "@/lib/utils/http";
 
-export async function POST(request: Request, context: { params: Promise<{ leadId: string }> }) {
+export async function POST(
+  request: Request,
+  context: { params: Promise<{ leadId: string }> },
+) {
   try {
-    const user = await requireApiPermission("leads:write");
+    const user = await requireApiPermission("replies:review");
 
     if (user instanceof NextResponse) {
       return user;
@@ -13,9 +16,15 @@ export async function POST(request: Request, context: { params: Promise<{ leadId
 
     const body = await request.json();
     const { leadId } = await context.params;
-    const result = await sendLeadReplyWorkflow(user.tenantId, user.id, leadId, body, {
-      idempotencyKey: request.headers.get("idempotency-key")
-    });
+    const result = await sendLeadReplyWorkflow(
+      user.tenantId,
+      user.id,
+      leadId,
+      body,
+      {
+        idempotencyKey: request.headers.get("idempotency-key"),
+      },
+    );
 
     return NextResponse.json(result);
   } catch (error) {

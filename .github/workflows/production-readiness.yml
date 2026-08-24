@@ -47,7 +47,7 @@ jobs:
       SEED_ADMIN_NAME: Admin User
       SEED_ADMIN_PASSWORD: ChangeMe123!
       MAIN_PLATFORM_WEBHOOK_SHARED_SECRET: ci-forward-secret
-      OPENAI_REPLY_MODEL: gpt-5-nano
+      CLAUDE_REPLY_MODEL: claude-sonnet-4-6
 
     steps:
       - name: Checkout
@@ -77,6 +77,12 @@ jobs:
 
       - name: Verify fresh migrations on disposable Postgres
         run: pnpm prisma:verify:fresh
+
+      - name: Verify existing database upgrade on disposable Postgres
+        run: pnpm prisma:verify:upgrade
+
+      - name: Check formatting for release changes
+        run: pnpm format:check
 
       - name: Run tests
         run: pnpm test

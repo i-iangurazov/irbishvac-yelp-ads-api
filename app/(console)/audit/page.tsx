@@ -33,7 +33,8 @@ import {
   getAuditWebhookOverview,
   getAuditWorkerJobOverview,
 } from "@/features/operations/service";
-import { requireUser } from "@/lib/auth/service";
+import { requirePermission } from "@/lib/auth/service";
+import { hasPermission } from "@/lib/permissions";
 import { formatDateTime, titleCase } from "@/lib/utils/format";
 
 function formatAuditAction(actionType: string) {
@@ -146,7 +147,8 @@ export default async function AuditPage({
     page?: string;
   }>;
 }) {
-  const user = await requireUser();
+  const user = await requirePermission("audit:read");
+  const canManageIssues = hasPermission(user.role.code, "sync:retry");
   const filters = await searchParams;
   const [
     events,
@@ -190,7 +192,7 @@ export default async function AuditPage({
         actions={
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
             <Badge variant="outline">Operator queue</Badge>
-            <OperatorIssuesRefreshButton />
+            {canManageIssues ? <OperatorIssuesRefreshButton /> : null}
           </div>
         }
       />
@@ -241,6 +243,7 @@ export default async function AuditPage({
           ) : (
             <>
               <OperatorIssuesTable
+                canManage={canManageIssues}
                 issues={issueQueue.issues.map((issue) => ({
                   id: issue.id,
                   typeLabel: issue.typeLabel,

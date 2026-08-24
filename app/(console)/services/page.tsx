@@ -17,10 +17,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { getServiceCategoryOverview } from "@/features/operations/service";
-import { requireUser } from "@/lib/auth/service";
+import { requirePermission } from "@/lib/auth/service";
 
 export default async function ServicesPage() {
-  const user = await requireUser();
+  const user = await requirePermission("services:read");
   const overview = await getServiceCategoryOverview(user.tenantId);
 
   return (

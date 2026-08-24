@@ -26,7 +26,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { getServiceTitanConnectorOverview } from "@/features/crm-connector/service";
-import { requireUser } from "@/lib/auth/service";
+import { requirePermission } from "@/lib/auth/service";
 import {
   getDefaultServiceTitanUrls,
   type ServiceTitanEnvironment,
@@ -68,7 +68,7 @@ function formatCatalogStatus(totalCount: number, hasMore: boolean) {
 }
 
 export default async function IntegrationsPage() {
-  const user = await requireUser();
+  const user = await requirePermission("integrations:read");
   const overview = await getServiceTitanConnectorOverview(user.tenantId);
   const formDefaults = buildConnectorDefaults(overview);
 

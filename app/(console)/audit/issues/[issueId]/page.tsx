@@ -16,7 +16,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { getOperatorIssueDetail } from "@/features/issues/service";
-import { requireUser } from "@/lib/auth/service";
+import { requirePermission } from "@/lib/auth/service";
+import { hasPermission } from "@/lib/permissions";
 import { formatDateTime } from "@/lib/utils/format";
 
 export default async function OperatorIssueDetailPage({
@@ -24,7 +25,9 @@ export default async function OperatorIssueDetailPage({
 }: {
   params: Promise<{ issueId: string }>;
 }) {
-  const user = await requireUser();
+  const user = await requirePermission("audit:read");
+  const canManageIssues = hasPermission(user.role.code, "sync:retry");
+  const canReadDiagnostics = hasPermission(user.role.code, "diagnostics:read");
   const { issueId } = await params;
   const detail = await getOperatorIssueDetail(user.tenantId, issueId);
   const issue = detail.issue;
@@ -171,7 +174,7 @@ export default async function OperatorIssueDetailPage({
                   <div className="mt-1 text-xs text-muted-foreground">
                     Started {formatDateTime(issue.syncRun.startedAt)}
                   </div>
-                  {issue.syncRun.errors[0] ? (
+                  {canReadDiagnostics && issue.syncRun.errors[0] ? (
                     <div className="mt-2 text-sm text-muted-foreground">
                       {issue.syncRun.errors[0].message}
                     </div>
@@ -181,17 +184,19 @@ export default async function OperatorIssueDetailPage({
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Context</CardTitle>
-              <CardDescription>
-                Raw normalized issue context from the source record.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <JsonViewer value={issue.detailsJson} />
-            </CardContent>
-          </Card>
+          {canReadDiagnostics ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Context</CardTitle>
+                <CardDescription>
+                  Raw normalized issue context from the source record.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <JsonViewer value={issue.detailsJson} />
+              </CardContent>
+            </Card>
+          ) : null}
 
           <Card>
             <CardHeader>
@@ -218,7 +223,7 @@ export default async function OperatorIssueDetailPage({
                         <span>•</span>
                         <span>{formatDateTime(event.createdAt)}</span>
                       </div>
-                      {event.requestSummaryJson ? (
+                      {canReadDiagnostics && event.requestSummaryJson ? (
                         <div className="mt-3">
                           <JsonViewer value={event.requestSummaryJson} />
                         </div>
@@ -232,73 +237,87 @@ export default async function OperatorIssueDetailPage({
         </div>
 
         <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Actions</CardTitle>
-              <CardDescription>
-                Use only the safe actions this issue type supports.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {detail.retryable && issue.status === "OPEN" ? (
+          {canManageIssues ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Actions</CardTitle>
+                <CardDescription>
+                  Use only the safe actions this issue type supports.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {detail.retryable && issue.status === "OPEN" ? (
+                  <div className="rounded-lg border border-border/80 bg-muted/10 p-4">
+                    <div className="text-sm font-medium">
+                      {detail.retryLabel}
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      Retries the underlying workflow without creating a new
+                      issue type.
+                    </div>
+                    <div className="mt-3">
+                      <OperatorIssueRetryButton
+                        issueId={issue.id}
+                        label={detail.retryLabel}
+                      />
+                    </div>
+                  </div>
+                ) : null}
+
+                {detail.remapHref ? (
+                  <div className="rounded-lg border border-border/80 bg-muted/10 p-4">
+                    <div className="text-sm font-medium">
+                      Remap in lead workspace
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      Use the existing lead detail page to resolve CRM mapping
+                      and downstream lifecycle context.
+                    </div>
+                    <div className="mt-3">
+                      <Link
+                        className="text-sm font-medium hover:underline"
+                        href={detail.remapHref as `/leads/${string}`}
+                      >
+                        Open lead workspace
+                      </Link>
+                    </div>
+                  </div>
+                ) : null}
+
                 <div className="rounded-lg border border-border/80 bg-muted/10 p-4">
-                  <div className="text-sm font-medium">{detail.retryLabel}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    Retries the underlying workflow without creating a new issue
-                    type.
-                  </div>
-                  <div className="mt-3">
-                    <OperatorIssueRetryButton
-                      issueId={issue.id}
-                      label={detail.retryLabel}
-                    />
-                  </div>
+                  <OperatorIssueResolutionForm
+                    action="resolve"
+                    issueId={issue.id}
+                    submitLabel="Mark resolved"
+                    title="Resolve issue"
+                  />
                 </div>
-              ) : null}
 
-              {detail.remapHref ? (
                 <div className="rounded-lg border border-border/80 bg-muted/10 p-4">
-                  <div className="text-sm font-medium">
-                    Remap in lead workspace
-                  </div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    Use the existing lead detail page to resolve CRM mapping and
-                    downstream lifecycle context.
-                  </div>
-                  <div className="mt-3">
-                    <Link
-                      className="text-sm font-medium hover:underline"
-                      href={detail.remapHref as `/leads/${string}`}
-                    >
-                      Open lead workspace
-                    </Link>
-                  </div>
+                  <OperatorIssueResolutionForm
+                    action="ignore"
+                    issueId={issue.id}
+                    submitLabel="Ignore issue"
+                    title="Ignore / dismiss"
+                  />
                 </div>
-              ) : null}
 
-              <div className="rounded-lg border border-border/80 bg-muted/10 p-4">
-                <OperatorIssueResolutionForm
-                  action="resolve"
-                  issueId={issue.id}
-                  submitLabel="Mark resolved"
-                  title="Resolve issue"
-                />
-              </div>
-
-              <div className="rounded-lg border border-border/80 bg-muted/10 p-4">
-                <OperatorIssueResolutionForm
-                  action="ignore"
-                  issueId={issue.id}
-                  submitLabel="Ignore issue"
-                  title="Ignore / dismiss"
-                />
-              </div>
-
-              <div className="rounded-lg border border-border/80 bg-muted/10 p-4">
-                <OperatorIssueNoteForm issueId={issue.id} />
-              </div>
-            </CardContent>
-          </Card>
+                <div className="rounded-lg border border-border/80 bg-muted/10 p-4">
+                  <OperatorIssueNoteForm issueId={issue.id} />
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardHeader>
+                <CardTitle>Read-only access</CardTitle>
+                <CardDescription>
+                  Your role can review this issue but cannot retry, resolve,
+                  ignore, or annotate it.
+                </CardDescription>
+              </CardHeader>
+            </Card>
+          )}
 
           <Card>
             <CardHeader>

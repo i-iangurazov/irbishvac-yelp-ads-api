@@ -5,17 +5,21 @@ import { handleRouteError, requireApiPermission } from "@/lib/utils/http";
 
 export async function DELETE(
   _request: Request,
-  { params }: { params: Promise<{ businessId: string }> }
+  { params }: { params: Promise<{ businessId: string }> },
 ) {
   try {
-    const user = await requireApiPermission("settings:write");
+    const user = await requireApiPermission("autoresponder:manage");
 
     if (user instanceof NextResponse) {
       return user;
     }
 
     const { businessId } = await params;
-    const result = await deleteLeadAutomationBusinessOverrideWorkflow(user.tenantId, user.id, businessId);
+    const result = await deleteLeadAutomationBusinessOverrideWorkflow(
+      user.tenantId,
+      user.id,
+      businessId,
+    );
 
     return NextResponse.json(result);
   } catch (error) {

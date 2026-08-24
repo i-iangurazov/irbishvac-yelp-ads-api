@@ -21,9 +21,15 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { getProgramDetail } from "@/features/ads-programs/service";
+import { campaignLayerLabels } from "@/features/ads-programs/layers";
+import {
+  getProgramSpendState,
+  inferProgramCampaignLayer,
+} from "@/features/ads-programs/metrics";
 import { programTypeLabels } from "@/features/ads-programs/schemas";
 import { resolveProgramCategoryScope } from "@/features/ads-programs/targeting";
-import { requireUser } from "@/lib/auth/service";
+import { requirePermission } from "@/lib/auth/service";
+import { hasPermission } from "@/lib/permissions";
 import {
   formatCurrency,
   formatDateTime,
@@ -52,7 +58,12 @@ export default async function ProgramDetailPage({
   params: Promise<{ programId: string }>;
   searchParams: Promise<{ jobId?: string }>;
 }) {
-  const user = await requireUser();
+  const user = await requirePermission("programs:read");
+  const canManagePrograms = hasPermission(user.role.code, "programs:write");
+  const canTerminatePrograms = hasPermission(
+    user.role.code,
+    "programs:terminate",
+  );
   const { programId } = await params;
   const query = await searchParams;
   const [program, capabilities] = await Promise.all([
@@ -64,6 +75,8 @@ export default async function ProgramDetailPage({
     program.configurationJson !== null
       ? (program.configurationJson as Record<string, unknown>)
       : {};
+  const campaignLayer = inferProgramCampaignLayer(program);
+  const spend = getProgramSpendState(program);
   const scheduledBudgetDollars =
     typeof configuration.scheduledBudgetDollars === "string"
       ? configuration.scheduledBudgetDollars
@@ -159,6 +172,25 @@ export default async function ProgramDetailPage({
               ? "No explicit aliases were returned; Yelp derives targeting from the listing."
               : "Only CPC programs use ad-category targeting.",
       href: program.type === "CPC" ? "#category-targeting" : undefined,
+    },
+    {
+      id: "reported-spend",
+      label: "Yelp-reported spend",
+      status:
+        spend.status === "current"
+          ? "CURRENT"
+          : spend.status === "error"
+            ? "FAILED"
+            : spend.status === "stale"
+              ? "STALE"
+              : "UNKNOWN",
+      value:
+        spend.amountCents === null
+          ? "Pending sync"
+          : formatCurrency(spend.amountCents, spend.currency),
+      detail: `${spend.periodLabel}. ${spend.source}.${
+        spend.warning ? ` ${spend.warning}` : ""
+      }`,
     },
     {
       id: "record-origin",
@@ -293,7 +325,7 @@ export default async function ProgramDetailPage({
         description="Check local status, Yelp confirmation, budget, features, business mapping, and automation posture."
         actions={
           <div className="flex flex-wrap gap-3">
-            {program.type === "CPC" ? (
+            {canManagePrograms && program.type === "CPC" ? (
               <Button asChild variant="outline">
                 <Link href="#budget-operations">Budget</Link>
               </Button>
@@ -301,10 +333,12 @@ export default async function ProgramDetailPage({
             <Button asChild variant="outline">
               <Link href={`/program-features/${program.id}`}>Features</Link>
             </Button>
-            <ProgramTerminateForm
-              programId={program.id}
-              disabledReason={terminateDisabledReason}
-            />
+            {canTerminatePrograms ? (
+              <ProgramTerminateForm
+                programId={program.id}
+                disabledReason={terminateDisabledReason}
+              />
+            ) : null}
           </div>
         }
       />
@@ -423,6 +457,17 @@ export default async function ProgramDetailPage({
                 </div>
               </div>
               <div>
+                <div className="text-muted-foreground">Yelp-reported spend</div>
+                <div>
+                  {spend.amountCents === null
+                    ? "Pending sync"
+                    : formatCurrency(spend.amountCents, spend.currency)}
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {spend.periodLabel}
+                </div>
+              </div>
+              <div>
                 <div className="text-muted-foreground">Pacing</div>
                 <div>{program.pacingMethod ?? "Not set"}</div>
               </div>
@@ -435,6 +480,10 @@ export default async function ProgramDetailPage({
                     programType={program.type}
                   />
                 </div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Campaign layer</div>
+                <div>{campaignLayerLabels[campaignLayer]}</div>
               </div>
               <div>
                 <div className="text-muted-foreground">Yelp program ID</div>
@@ -477,12 +526,13 @@ export default async function ProgramDetailPage({
             </CardContent>
           </Card>
 
-          {program.type === "CPC" ? (
+          {canManagePrograms && program.type === "CPC" ? (
             <>
               <ProgramCategoryTargetingOperations
                 programId={program.id}
                 currentCategories={program.adCategoriesJson}
                 listingCategories={program.business.categoriesJson}
+                currentCampaignLayer={campaignLayer}
               />
               <ProgramBudgetOperations
                 programId={program.id}

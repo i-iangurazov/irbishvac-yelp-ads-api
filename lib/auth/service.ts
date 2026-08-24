@@ -8,19 +8,20 @@ import { SESSION_COOKIE_NAME } from "@/lib/auth/constants";
 import { createSessionToken, verifySessionToken } from "@/lib/auth/session";
 import { verifyPassword } from "@/lib/auth/password";
 import { findUserByEmail, getUserById } from "@/lib/db/users-repository";
+import { resolveAccessibleTenant } from "@/lib/db/tenant-access-repository";
 import { hasPermission, type Permission } from "@/lib/permissions";
 
 export async function signIn(email: string, password: string) {
   const user = await findUserByEmail(email);
 
   if (!user || !user.isActive) {
-    return { success: false as const, message: "No active user found for that email." };
+    return { success: false as const, message: "Invalid email or password." };
   }
 
   const isValid = await verifyPassword(password, user.passwordHash);
 
   if (!isValid) {
-    return { success: false as const, message: "Password is incorrect." };
+    return { success: false as const, message: "Invalid email or password." };
   }
 
   const token = await createSessionToken({
@@ -28,7 +29,7 @@ export async function signIn(email: string, password: string) {
     tenantId: user.tenantId,
     roleCode: user.role.code,
     email: user.email,
-    name: user.name
+    name: user.name,
   });
 
   const cookieStore = await cookies();
@@ -38,7 +39,7 @@ export async function signIn(email: string, password: string) {
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
-    maxAge: 60 * 60 * 24 * 7
+    maxAge: 60 * 60 * 24 * 7,
   });
 
   return { success: true as const };
@@ -59,10 +60,72 @@ export async function getCurrentUser() {
 
   try {
     const payload = await verifySessionToken(token);
-    return getUserById(payload.sub);
+    const user = await getUserById(payload.sub);
+
+    if (!user.isActive) {
+      return null;
+    }
+
+    const activeTenant = await resolveAccessibleTenant({
+      userId: user.id,
+      primaryTenantId: user.tenantId,
+      roleCode: user.role.code,
+      targetTenantId: payload.tenantId,
+    });
+
+    if (!activeTenant) {
+      return null;
+    }
+
+    return {
+      ...user,
+      primaryTenantId: user.tenantId,
+      tenantId: activeTenant.id,
+      tenant: activeTenant,
+    };
   } catch {
     return null;
   }
+}
+
+export async function switchActiveTenant(tenantId: string) {
+  const user = await getCurrentUser();
+
+  if (!user) {
+    return { success: false as const, message: "Unauthorized" };
+  }
+
+  const target = await resolveAccessibleTenant({
+    userId: user.id,
+    primaryTenantId: user.primaryTenantId,
+    roleCode: user.role.code,
+    targetTenantId: tenantId,
+  });
+
+  if (!target) {
+    return { success: false as const, message: "Tenant access denied." };
+  }
+
+  const token = await createSessionToken({
+    sub: user.id,
+    tenantId: target.id,
+    roleCode: user.role.code,
+    email: user.email,
+    name: user.name,
+  });
+  const cookieStore = await cookies();
+  cookieStore.set(SESSION_COOKIE_NAME, token, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 7,
+  });
+
+  return {
+    success: true as const,
+    tenant: { id: target.id, name: target.name, slug: target.slug },
+  };
 }
 
 export async function requireUser() {

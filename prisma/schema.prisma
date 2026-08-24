@@ -8,6 +8,11 @@ datasource db {
 }
 
 enum RoleCode {
+  PLATFORM_ADMIN
+  AGENCY_OPERATOR
+  CLIENT_ADMIN
+  CLIENT_MANAGER
+  REVIEWER
   ADMIN
   OPERATOR
   ANALYST
@@ -397,6 +402,8 @@ model Tenant {
   syncRuns       SyncRun[]
   syncErrors     SyncError[]
   operationalMetricRollups OperationalMetricRollup[]
+  aiGenerationUsage AiGenerationUsage[]
+  userTenantAccess UserTenantAccess[]
   externalSideEffects ExternalSideEffect[]
   workerJobs WorkerJob[]
 }
@@ -422,6 +429,7 @@ model User {
   isActive     Boolean      @default(true)
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
+  tenantAccess UserTenantAccess[]
   tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   role         Role         @relation(fields: [roleId], references: [id])
   reportRuns   ReportRequest[] @relation("ReportCreatedBy")
@@ -431,6 +439,18 @@ model User {
 
   @@index([tenantId])
   @@index([roleId])
+}
+
+model UserTenantAccess {
+  id        String   @id @default(cuid())
+  userId    String
+  tenantId  String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, tenantId])
+  @@index([tenantId, userId])
 }
 
 model CredentialSet {
@@ -539,6 +559,7 @@ model Program {
 
   @@index([tenantId, businessId])
   @@index([tenantId, type, status])
+  @@unique([tenantId, upstreamProgramId])
 }
 
 model ProgramJob {
@@ -1070,7 +1091,7 @@ model LeadAutomationBusinessOverride {
   followUp7dEnabled   Boolean               @default(false)
   followUp7dDelayDays Int                   @default(7)
   aiAssistEnabled     Boolean               @default(true)
-  aiModel             String                @default("gpt-5-nano")
+  aiModel             String                @default("claude-sonnet-4-6")
   conversationAutomationEnabled Boolean     @default(false)
   conversationMode    LeadConversationAutomationMode @default(REVIEW_ONLY)
   conversationAllowedIntentsJson Json       @default("[\"MISSING_DETAILS_PROVIDED\",\"BASIC_ACKNOWLEDGMENT\",\"SIMPLE_NEXT_STEP_CLARIFICATION\"]")
@@ -1352,6 +1373,34 @@ model OperationalMetricRollup {
   @@unique([tenantId, metricKey, bucketStart, dimensionKey])
   @@index([tenantId, bucketStart])
   @@index([tenantId, metricKey, bucketStart])
+}
+
+model AiGenerationUsage {
+  id                       String   @id @default(cuid())
+  tenantId                 String
+  businessId               String?
+  leadId                   String?
+  correlationId            String
+  provider                 String   @default("ANTHROPIC")
+  operation                String
+  model                    String
+  resultStatus             String
+  inputTokens              Int      @default(0)
+  outputTokens             Int      @default(0)
+  cacheCreationInputTokens Int      @default(0)
+  cacheReadInputTokens     Int      @default(0)
+  latencyMs                Int      @default(0)
+  providerCostMicroUsd     Int      @default(0)
+  billableCostMicroUsd     Int      @default(0)
+  rateSnapshotJson         Json
+  failureReason            String?
+  createdAt                DateTime @default(now())
+  tenant                   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, correlationId])
+  @@index([tenantId, createdAt])
+  @@index([tenantId, businessId, createdAt])
+  @@index([tenantId, resultStatus, createdAt])
 }
 
 model ExternalSideEffect {

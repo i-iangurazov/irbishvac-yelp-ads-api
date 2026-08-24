@@ -26,7 +26,8 @@ import {
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getLeadDetail } from "@/features/leads/service";
-import { requireUser } from "@/lib/auth/service";
+import { requirePermission } from "@/lib/auth/service";
+import { hasPermission } from "@/lib/permissions";
 import { formatDateTime, titleCase } from "@/lib/utils/format";
 
 export const dynamic = "force-dynamic";
@@ -204,7 +205,10 @@ export default async function LeadDetailPage({
 }: {
   params: Promise<{ leadId: string }>;
 }) {
-  const user = await requireUser();
+  const user = await requirePermission("leads:read");
+  const canReviewReplies = hasPermission(user.role.code, "replies:review");
+  const canWriteLeads = hasPermission(user.role.code, "leads:write");
+  const canReadDiagnostics = hasPermission(user.role.code, "diagnostics:read");
   const { leadId } = await params;
   const detail = await getLeadDetail(user.tenantId, leadId);
   const mapping = detail.crm.mapping;
@@ -551,7 +555,7 @@ export default async function LeadDetailPage({
                               : ""}
                           </div>
                         ) : null}
-                        {action.providerMetadataJson ? (
+                        {canReadDiagnostics && action.providerMetadataJson ? (
                           <div className="mt-3 rounded-lg border border-dashed border-border/70 p-3">
                             <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                               Provider metadata
@@ -972,7 +976,7 @@ export default async function LeadDetailPage({
                               : ""}
                           </div>
                         ) : null}
-                        {attempt.providerMetadataJson ? (
+                        {canReadDiagnostics && attempt.providerMetadataJson ? (
                           <div className="mt-3 rounded-lg border border-dashed border-border/70 p-3">
                             <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                               Provider metadata
@@ -1035,325 +1039,333 @@ export default async function LeadDetailPage({
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Partner operations</CardTitle>
-              <CardDescription>
-                Update CRM mapping and downstream lifecycle without mixing them
-                into Yelp-native thread history.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="rounded-lg border border-border/80 bg-muted/10 p-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  <StatusChip status={mapping?.state ?? "UNRESOLVED"} />
-                  <StatusChip status={detail.crm.currentInternalStatus} />
-                  <StatusChip status={detail.crm.health.status} />
-                </div>
-                <div className="mt-3 text-sm font-medium">
-                  {detail.crm.mappingReference}
-                </div>
-                <div className="mt-1 text-sm text-muted-foreground">
-                  {detail.crm.health.message}
-                </div>
-                {mapping?.matchedAt ? (
-                  <div className="mt-2 text-xs text-muted-foreground">
-                    Matched {formatDateTime(mapping.matchedAt)}
+          {canWriteLeads ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Partner operations</CardTitle>
+                <CardDescription>
+                  Update CRM mapping and downstream lifecycle without mixing
+                  them into Yelp-native thread history.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="rounded-lg border border-border/80 bg-muted/10 p-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <StatusChip status={mapping?.state ?? "UNRESOLVED"} />
+                    <StatusChip status={detail.crm.currentInternalStatus} />
+                    <StatusChip status={detail.crm.health.status} />
                   </div>
-                ) : null}
-              </div>
+                  <div className="mt-3 text-sm font-medium">
+                    {detail.crm.mappingReference}
+                  </div>
+                  <div className="mt-1 text-sm text-muted-foreground">
+                    {detail.crm.health.message}
+                  </div>
+                  {mapping?.matchedAt ? (
+                    <div className="mt-2 text-xs text-muted-foreground">
+                      Matched {formatDateTime(mapping.matchedAt)}
+                    </div>
+                  ) : null}
+                </div>
 
-              <Accordion defaultValue={["mapping"]} type="multiple">
-                <AccordionItem value="mapping">
-                  <AccordionTrigger className="text-base font-semibold hover:no-underline">
-                    Mapping and CRM IDs
-                  </AccordionTrigger>
-                  <AccordionContent className="space-y-4">
-                    <LeadCrmMappingForm
-                      defaultValues={{
-                        state:
-                          mapping?.state === "MATCHED"
-                            ? "MANUAL_OVERRIDE"
-                            : (mapping?.state ?? "UNRESOLVED"),
-                        externalCrmLeadId: mapping?.externalCrmLeadId ?? "",
-                        externalOpportunityId:
-                          mapping?.externalOpportunityId ?? "",
-                        externalJobId: mapping?.externalJobId ?? "",
-                        issueSummary: mapping?.issueSummary ?? "",
-                      }}
-                      leadId={detail.lead.id}
-                    />
-                  </AccordionContent>
-                </AccordionItem>
+                <Accordion defaultValue={["mapping"]} type="multiple">
+                  <AccordionItem value="mapping">
+                    <AccordionTrigger className="text-base font-semibold hover:no-underline">
+                      Mapping and CRM IDs
+                    </AccordionTrigger>
+                    <AccordionContent className="space-y-4">
+                      <LeadCrmMappingForm
+                        defaultValues={{
+                          state:
+                            mapping?.state === "MATCHED"
+                              ? "MANUAL_OVERRIDE"
+                              : (mapping?.state ?? "UNRESOLVED"),
+                          externalCrmLeadId: mapping?.externalCrmLeadId ?? "",
+                          externalOpportunityId:
+                            mapping?.externalOpportunityId ?? "",
+                          externalJobId: mapping?.externalJobId ?? "",
+                          issueSummary: mapping?.issueSummary ?? "",
+                        }}
+                        leadId={detail.lead.id}
+                      />
+                    </AccordionContent>
+                  </AccordionItem>
 
-                <AccordionItem value="lifecycle">
-                  <AccordionTrigger className="text-base font-semibold hover:no-underline">
-                    Add partner lifecycle update
-                  </AccordionTrigger>
-                  <AccordionContent className="space-y-4">
-                    <LeadCrmStatusForm
-                      disabled={!detail.crm.mappingResolved}
-                      leadId={detail.lead.id}
-                    />
-                  </AccordionContent>
-                </AccordionItem>
-              </Accordion>
-            </CardContent>
-          </Card>
+                  <AccordionItem value="lifecycle">
+                    <AccordionTrigger className="text-base font-semibold hover:no-underline">
+                      Add partner lifecycle update
+                    </AccordionTrigger>
+                    <AccordionContent className="space-y-4">
+                      <LeadCrmStatusForm
+                        disabled={!detail.crm.mappingResolved}
+                        leadId={detail.lead.id}
+                      />
+                    </AccordionContent>
+                  </AccordionItem>
+                </Accordion>
+              </CardContent>
+            </Card>
+          ) : null}
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Technical details</CardTitle>
-              <CardDescription>
-                Use this only when intake, sync, or payload evidence needs
-                review.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Accordion className="space-y-1" type="multiple">
-                <AccordionItem value="deliveries">
-                  <AccordionTrigger className="text-base font-semibold hover:no-underline">
-                    Webhook deliveries
-                  </AccordionTrigger>
-                  <AccordionContent className="space-y-3">
-                    {detail.lead.webhookEvents.length === 0 ? (
-                      <div className="rounded-lg border border-dashed border-border/80 bg-muted/10 px-4 py-5 text-sm text-muted-foreground">
-                        No raw webhook deliveries are linked to this lead. It
-                        may have entered through manual backfill.
-                      </div>
-                    ) : (
-                      detail.lead.webhookEvents.map((event) => (
-                        <div
-                          className="rounded-lg border border-border/80 p-4"
-                          key={event.id}
-                        >
-                          <div className="flex flex-wrap items-center justify-between gap-3">
-                            <div>
-                              <div className="font-medium">{event.topic}</div>
-                              <div className="text-sm text-muted-foreground">
-                                Received {formatDateTime(event.receivedAt)}
-                                {event.deliveryId
-                                  ? ` • ${event.deliveryId}`
-                                  : ""}
-                              </div>
-                            </div>
-                            <StatusChip status={event.status} />
-                          </div>
-                          {event.syncRun?.errors[0] ? (
-                            <div className="mt-3 text-sm text-muted-foreground">
-                              {event.syncRun.errors[0].message}
-                            </div>
-                          ) : null}
+          {canReadDiagnostics ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Technical details</CardTitle>
+                <CardDescription>
+                  Use this only when intake, sync, or payload evidence needs
+                  review.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Accordion className="space-y-1" type="multiple">
+                  <AccordionItem value="deliveries">
+                    <AccordionTrigger className="text-base font-semibold hover:no-underline">
+                      Webhook deliveries
+                    </AccordionTrigger>
+                    <AccordionContent className="space-y-3">
+                      {detail.lead.webhookEvents.length === 0 ? (
+                        <div className="rounded-lg border border-dashed border-border/80 bg-muted/10 px-4 py-5 text-sm text-muted-foreground">
+                          No raw webhook deliveries are linked to this lead. It
+                          may have entered through manual backfill.
                         </div>
-                      ))
-                    )}
-                  </AccordionContent>
-                </AccordionItem>
-
-                <AccordionItem value="processing">
-                  <AccordionTrigger className="text-base font-semibold hover:no-underline">
-                    Intake and processing issues
-                  </AccordionTrigger>
-                  <AccordionContent className="space-y-3">
-                    {detail.processingIssues.length === 0 &&
-                    detail.crm.issues.length === 0 ? (
-                      <div className="rounded-lg border border-dashed border-border/80 bg-muted/10 px-4 py-5 text-sm text-muted-foreground">
-                        No intake or CRM issues are currently recorded for this
-                        lead.
-                      </div>
-                    ) : (
-                      <>
-                        {detail.crm.issues.map((issue) => (
+                      ) : (
+                        detail.lead.webhookEvents.map((event) => (
                           <div
-                            className="rounded-lg border border-border/80 bg-muted/10 p-4"
-                            key={issue.code}
+                            className="rounded-lg border border-border/80 p-4"
+                            key={event.id}
                           >
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="text-sm font-medium">
-                                CRM enrichment
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                              <div>
+                                <div className="font-medium">{event.topic}</div>
+                                <div className="text-sm text-muted-foreground">
+                                  Received {formatDateTime(event.receivedAt)}
+                                  {event.deliveryId
+                                    ? ` • ${event.deliveryId}`
+                                    : ""}
+                                </div>
                               </div>
-                              <StatusChip
-                                status={
-                                  issue.code === "FAILED_SYNC"
-                                    ? "FAILED"
-                                    : issue.code
-                                }
-                              />
+                              <StatusChip status={event.status} />
                             </div>
-                            <div className="mt-2 text-sm text-muted-foreground">
-                              {issue.message}
-                            </div>
-                          </div>
-                        ))}
-                        {detail.processingIssues.map((issue) => (
-                          <div
-                            className="rounded-lg border border-border/80 bg-muted/10 p-4"
-                            key={issue.id}
-                          >
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="text-sm font-medium">
-                                {formatDateTime(issue.receivedAt)}
+                            {event.syncRun?.errors[0] ? (
+                              <div className="mt-3 text-sm text-muted-foreground">
+                                {event.syncRun.errors[0].message}
                               </div>
-                              <StatusChip status={issue.status} />
-                            </div>
-                            <div className="mt-2 text-sm text-muted-foreground">
-                              {issue.syncRun?.errors[0]?.message ??
-                                "The webhook failed during processing."}
-                            </div>
+                            ) : null}
                           </div>
-                        ))}
-                      </>
-                    )}
-                  </AccordionContent>
-                </AccordionItem>
+                        ))
+                      )}
+                    </AccordionContent>
+                  </AccordionItem>
 
-                <AccordionItem value="snapshots">
-                  <AccordionTrigger className="text-base font-semibold hover:no-underline">
-                    Snapshots and payload debug
-                  </AccordionTrigger>
-                  <AccordionContent className="space-y-5">
-                    {mapping?.rawSnapshotJson ? (
+                  <AccordionItem value="processing">
+                    <AccordionTrigger className="text-base font-semibold hover:no-underline">
+                      Intake and processing issues
+                    </AccordionTrigger>
+                    <AccordionContent className="space-y-3">
+                      {detail.processingIssues.length === 0 &&
+                      detail.crm.issues.length === 0 ? (
+                        <div className="rounded-lg border border-dashed border-border/80 bg-muted/10 px-4 py-5 text-sm text-muted-foreground">
+                          No intake or CRM issues are currently recorded for
+                          this lead.
+                        </div>
+                      ) : (
+                        <>
+                          {detail.crm.issues.map((issue) => (
+                            <div
+                              className="rounded-lg border border-border/80 bg-muted/10 p-4"
+                              key={issue.code}
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="text-sm font-medium">
+                                  CRM enrichment
+                                </div>
+                                <StatusChip
+                                  status={
+                                    issue.code === "FAILED_SYNC"
+                                      ? "FAILED"
+                                      : issue.code
+                                  }
+                                />
+                              </div>
+                              <div className="mt-2 text-sm text-muted-foreground">
+                                {issue.message}
+                              </div>
+                            </div>
+                          ))}
+                          {detail.processingIssues.map((issue) => (
+                            <div
+                              className="rounded-lg border border-border/80 bg-muted/10 p-4"
+                              key={issue.id}
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="text-sm font-medium">
+                                  {formatDateTime(issue.receivedAt)}
+                                </div>
+                                <StatusChip status={issue.status} />
+                              </div>
+                              <div className="mt-2 text-sm text-muted-foreground">
+                                {issue.syncRun?.errors[0]?.message ??
+                                  "The webhook failed during processing."}
+                              </div>
+                            </div>
+                          ))}
+                        </>
+                      )}
+                    </AccordionContent>
+                  </AccordionItem>
+
+                  <AccordionItem value="snapshots">
+                    <AccordionTrigger className="text-base font-semibold hover:no-underline">
+                      Snapshots and payload debug
+                    </AccordionTrigger>
+                    <AccordionContent className="space-y-5">
+                      {mapping?.rawSnapshotJson ? (
+                        <div className="space-y-2">
+                          <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                            Latest CRM snapshot
+                          </div>
+                          <JsonViewer value={mapping.rawSnapshotJson} />
+                        </div>
+                      ) : null}
+
                       <div className="space-y-2">
                         <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                          Latest CRM snapshot
+                          Latest Yelp snapshot
                         </div>
-                        <JsonViewer value={mapping.rawSnapshotJson} />
+                        <JsonViewer value={detail.lead.rawSnapshotJson} />
                       </div>
-                    ) : null}
 
-                    <div className="space-y-2">
-                      <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                        Latest Yelp snapshot
-                      </div>
-                      <JsonViewer value={detail.lead.rawSnapshotJson} />
-                    </div>
-
-                    {detail.lead.webhookEvents[0] ? (
-                      <>
-                        <div className="space-y-2">
-                          <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                            Latest delivery payload
-                          </div>
-                          <JsonViewer
-                            value={detail.lead.webhookEvents[0].payloadJson}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                            Latest delivery headers
-                          </div>
-                          <JsonViewer
-                            value={detail.lead.webhookEvents[0].headersJson}
-                          />
-                        </div>
-                        {detail.lead.webhookEvents[0].errorJson ? (
+                      {detail.lead.webhookEvents[0] ? (
+                        <>
                           <div className="space-y-2">
                             <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                              Latest delivery error
+                              Latest delivery payload
                             </div>
                             <JsonViewer
-                              value={detail.lead.webhookEvents[0].errorJson}
+                              value={detail.lead.webhookEvents[0].payloadJson}
                             />
                           </div>
-                        ) : null}
-                      </>
-                    ) : null}
-                  </AccordionContent>
-                </AccordionItem>
+                          <div className="space-y-2">
+                            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                              Latest delivery headers
+                            </div>
+                            <JsonViewer
+                              value={detail.lead.webhookEvents[0].headersJson}
+                            />
+                          </div>
+                          {detail.lead.webhookEvents[0].errorJson ? (
+                            <div className="space-y-2">
+                              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                                Latest delivery error
+                              </div>
+                              <JsonViewer
+                                value={detail.lead.webhookEvents[0].errorJson}
+                              />
+                            </div>
+                          ) : null}
+                        </>
+                      ) : null}
+                    </AccordionContent>
+                  </AccordionItem>
 
-                <AccordionItem value="boundaries">
-                  <AccordionTrigger className="text-base font-semibold hover:no-underline">
-                    Source boundaries
-                  </AccordionTrigger>
-                  <AccordionContent className="space-y-3">
-                    <div className="rounded-lg border border-border/80 p-4">
-                      <div className="flex items-center gap-2">
-                        <Badge>Yelp-native</Badge>
-                        <span className="font-medium">
-                          Thread events, lead IDs, read markers
-                        </span>
+                  <AccordionItem value="boundaries">
+                    <AccordionTrigger className="text-base font-semibold hover:no-underline">
+                      Source boundaries
+                    </AccordionTrigger>
+                    <AccordionContent className="space-y-3">
+                      <div className="rounded-lg border border-border/80 p-4">
+                        <div className="flex items-center gap-2">
+                          <Badge>Yelp-native</Badge>
+                          <span className="font-medium">
+                            Thread events, lead IDs, read markers
+                          </span>
+                        </div>
+                        <div className="mt-2 text-sm text-muted-foreground">
+                          {detail.sourceBoundaries.yelp}
+                        </div>
                       </div>
-                      <div className="mt-2 text-sm text-muted-foreground">
-                        {detail.sourceBoundaries.yelp}
+                      <div className="rounded-lg border border-border/80 p-4">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline">Partner lifecycle</Badge>
+                          <span className="font-medium">
+                            CRM IDs, mapping, lifecycle statuses
+                          </span>
+                        </div>
+                        <div className="mt-2 text-sm text-muted-foreground">
+                          {detail.sourceBoundaries.crm}
+                        </div>
                       </div>
-                    </div>
-                    <div className="rounded-lg border border-border/80 p-4">
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline">Partner lifecycle</Badge>
-                        <span className="font-medium">
-                          CRM IDs, mapping, lifecycle statuses
-                        </span>
+                      <div className="rounded-lg border border-border/80 p-4">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="secondary">Local</Badge>
+                          <span className="font-medium">
+                            Webhook processing and fallback delivery
+                          </span>
+                        </div>
+                        <div className="mt-2 text-sm text-muted-foreground">
+                          {detail.sourceBoundaries.local}
+                        </div>
                       </div>
-                      <div className="mt-2 text-sm text-muted-foreground">
-                        {detail.sourceBoundaries.crm}
+                      <div className="rounded-lg border border-border/80 p-4">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline">Automation</Badge>
+                          <span className="font-medium">
+                            Rules, rendered messages, local attempts
+                          </span>
+                        </div>
+                        <div className="mt-2 text-sm text-muted-foreground">
+                          {detail.sourceBoundaries.automation}
+                        </div>
                       </div>
-                    </div>
-                    <div className="rounded-lg border border-border/80 p-4">
-                      <div className="flex items-center gap-2">
-                        <Badge variant="secondary">Local</Badge>
-                        <span className="font-medium">
-                          Webhook processing and fallback delivery
-                        </span>
-                      </div>
-                      <div className="mt-2 text-sm text-muted-foreground">
-                        {detail.sourceBoundaries.local}
-                      </div>
-                    </div>
-                    <div className="rounded-lg border border-border/80 p-4">
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline">Automation</Badge>
-                        <span className="font-medium">
-                          Rules, rendered messages, local attempts
-                        </span>
-                      </div>
-                      <div className="mt-2 text-sm text-muted-foreground">
-                        {detail.sourceBoundaries.automation}
-                      </div>
-                    </div>
-                  </AccordionContent>
-                </AccordionItem>
-              </Accordion>
-            </CardContent>
-          </Card>
+                    </AccordionContent>
+                  </AccordionItem>
+                </Accordion>
+              </CardContent>
+            </Card>
+          ) : null}
         </div>
 
         <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Reply</CardTitle>
-              <CardDescription>
-                Primary operator action. Keep the response inside Yelp first.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <LeadReplyForm
-                leadId={detail.lead.id}
-                defaultChannel={detail.replyComposer.defaultChannel}
-                canUseYelpThread={detail.replyComposer.canUseYelpThread}
-                canUseEmail={detail.replyComposer.canUseEmail}
-                maskedEmail={detail.replyComposer.maskedEmail}
-                canMarkAsRead={detail.replyComposer.canMarkAsRead}
-                latestOutboundChannel={
-                  detail.replyComposer.latestOutboundChannel
-                }
-                canMarkAsReplied={detail.replyComposer.canMarkAsReplied}
-                canGenerateAiDrafts={detail.replyComposer.canGenerateAiDrafts}
-                conversationSuggestion={detail.conversationSuggestion}
-              />
-            </CardContent>
-          </Card>
+          {canReviewReplies ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Reply</CardTitle>
+                <CardDescription>
+                  Primary operator action. Keep the response inside Yelp first.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <LeadReplyForm
+                  leadId={detail.lead.id}
+                  defaultChannel={detail.replyComposer.defaultChannel}
+                  canUseYelpThread={detail.replyComposer.canUseYelpThread}
+                  canUseEmail={detail.replyComposer.canUseEmail}
+                  maskedEmail={detail.replyComposer.maskedEmail}
+                  canMarkAsRead={detail.replyComposer.canMarkAsRead}
+                  latestOutboundChannel={
+                    detail.replyComposer.latestOutboundChannel
+                  }
+                  canMarkAsReplied={detail.replyComposer.canMarkAsReplied}
+                  canGenerateAiDrafts={detail.replyComposer.canGenerateAiDrafts}
+                  conversationSuggestion={detail.conversationSuggestion}
+                />
+              </CardContent>
+            </Card>
+          ) : null}
 
-          <LeadAiSummaryPanel
-            leadId={detail.lead.id}
-            canGenerate={
-              detail.aiAssist.envConfigured && detail.aiAssist.enabled
-            }
-            modelLabel={
-              detail.aiAssist.envConfigured
-                ? detail.aiAssist.modelLabel
-                : "Model unavailable"
-            }
-          />
+          {canReviewReplies ? (
+            <LeadAiSummaryPanel
+              leadId={detail.lead.id}
+              canGenerate={
+                detail.aiAssist.envConfigured && detail.aiAssist.enabled
+              }
+              modelLabel={
+                detail.aiAssist.envConfigured
+                  ? detail.aiAssist.modelLabel
+                  : "Model unavailable"
+              }
+            />
+          ) : null}
 
           <Card>
             <CardHeader>

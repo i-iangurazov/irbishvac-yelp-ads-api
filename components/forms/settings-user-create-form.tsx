@@ -19,10 +19,15 @@ import {
 } from "@/components/ui/select";
 import { userCreateSchema } from "@/features/settings/schemas";
 import { apiFetch } from "@/lib/utils/client-api";
+import { roleLabels, type ProductionRoleCode } from "@/features/settings/roles";
 
 type SettingsUserCreateValues = z.infer<typeof userCreateSchema>;
 
-export function SettingsUserCreateForm() {
+export function SettingsUserCreateForm({
+  assignableRoles,
+}: {
+  assignableRoles: readonly ProductionRoleCode[];
+}) {
   const router = useRouter();
   const {
     register,
@@ -36,7 +41,7 @@ export function SettingsUserCreateForm() {
     defaultValues: {
       name: "",
       email: "",
-      roleCode: "OPERATOR",
+      roleCode: assignableRoles[0] ?? "VIEWER",
       password: "",
     },
   });
@@ -52,7 +57,7 @@ export function SettingsUserCreateForm() {
       reset({
         name: "",
         email: "",
-        roleCode: "OPERATOR",
+        roleCode: assignableRoles[0] ?? "VIEWER",
         password: "",
       });
       router.refresh();
@@ -103,10 +108,11 @@ export function SettingsUserCreateForm() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="OPERATOR">Operator</SelectItem>
-            <SelectItem value="ANALYST">Analyst</SelectItem>
-            <SelectItem value="VIEWER">Viewer</SelectItem>
-            <SelectItem value="ADMIN">Admin</SelectItem>
+            {assignableRoles.map((roleCode) => (
+              <SelectItem key={roleCode} value={roleCode}>
+                {roleLabels[roleCode]}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>

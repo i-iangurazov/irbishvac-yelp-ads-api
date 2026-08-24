@@ -57,8 +57,10 @@ type BulkActionResponse = {
 
 export function OperatorIssuesTable({
   issues,
+  canManage = false,
 }: {
   issues: OperatorQueueIssueRow[];
+  canManage?: boolean;
 }) {
   const router = useRouter();
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -187,7 +189,7 @@ export function OperatorIssuesTable({
 
   return (
     <div className="space-y-4">
-      {availability.selectedCount > 0 ? (
+      {canManage && availability.selectedCount > 0 ? (
         <div className="space-y-4 rounded-lg border border-border/80 bg-muted/10 p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="text-sm">
@@ -336,15 +338,17 @@ export function OperatorIssuesTable({
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead className="w-12">
-              <Checkbox
-                aria-label="Select all filtered issues"
-                checked={
-                  allSelected ? true : someSelected ? "indeterminate" : false
-                }
-                onCheckedChange={toggleAll}
-              />
-            </TableHead>
+            {canManage ? (
+              <TableHead className="w-12">
+                <Checkbox
+                  aria-label="Select all filtered issues"
+                  checked={
+                    allSelected ? true : someSelected ? "indeterminate" : false
+                  }
+                  onCheckedChange={toggleAll}
+                />
+              </TableHead>
+            ) : null}
             <TableHead>Issue</TableHead>
             <TableHead>Target</TableHead>
             <TableHead>Severity</TableHead>
@@ -362,15 +366,17 @@ export function OperatorIssuesTable({
                 className={selected ? "bg-muted/20" : undefined}
                 key={issue.id}
               >
-                <TableCell className="w-12">
-                  <Checkbox
-                    aria-label={`Select ${issue.typeLabel}`}
-                    checked={selected}
-                    onCheckedChange={(checked) =>
-                      toggleIssue(issue.id, checked)
-                    }
-                  />
-                </TableCell>
+                {canManage ? (
+                  <TableCell className="w-12">
+                    <Checkbox
+                      aria-label={`Select ${issue.typeLabel}`}
+                      checked={selected}
+                      onCheckedChange={(checked) =>
+                        toggleIssue(issue.id, checked)
+                      }
+                    />
+                  </TableCell>
+                ) : null}
                 <TableCell>
                   <Link
                     className="font-medium hover:underline"

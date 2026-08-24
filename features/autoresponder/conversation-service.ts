@@ -6,12 +6,12 @@ import type {
   LeadConversationDecision,
   LeadConversationStopReason,
   OperatorIssueSeverity,
-  Prisma
+  Prisma,
 } from "@prisma/client";
 
 import {
   leadAutomationStarterTemplates,
-  type LeadConversationIntentValue
+  type LeadConversationIntentValue,
 } from "@/features/autoresponder/constants";
 import {
   classifyInboundConversationEvent,
@@ -24,16 +24,19 @@ import {
   humanizeLeadConversationMode,
   humanizeLeadConversationStopReason,
   stripAutomationDisclosure,
-  type LeadConversationClassification
+  type LeadConversationClassification,
 } from "@/features/autoresponder/conversation";
-import { getLeadAutomationScopeConfig, resolveLeadAiModel } from "@/features/autoresponder/config";
+import {
+  getLeadAutomationScopeConfig,
+  resolveLeadAiModel,
+} from "@/features/autoresponder/config";
 import {
   applyLeadAutomationDisclosure,
   buildLeadAutomationVariables,
   hasHumanTakeoverSince,
   renderLeadAutomationTemplate,
   shouldStopForLifecycle,
-  type LeadAutomationCandidate
+  type LeadAutomationCandidate,
 } from "@/features/autoresponder/logic";
 import { readLeadAutomationTemplateMetadata } from "@/features/autoresponder/template-metadata";
 import { generateLeadAutomationAiMessageFromGuidance } from "@/features/autoresponder/ai-service";
@@ -45,10 +48,14 @@ import {
   getLeadAutomationCandidate,
   getLeadConversationAutomationTurnBySourceEventKey,
   listEnabledLeadAutomationTemplates,
-  upsertLeadConversationAutomationState
+  upsertLeadConversationAutomationState,
 } from "@/lib/db/autoresponder-repository";
 import { toJsonValue } from "@/lib/db/json";
-import { createOperatorIssue, getOperatorIssueByDedupeKey, updateOperatorIssue } from "@/lib/db/issues-repository";
+import {
+  createOperatorIssue,
+  getOperatorIssueByDedupeKey,
+  updateOperatorIssue,
+} from "@/lib/db/issues-repository";
 import { normalizeUnknownError } from "@/lib/yelp/errors";
 
 type ConversationTemplateKind = keyof typeof leadAutomationStarterTemplates;
@@ -69,7 +76,8 @@ function getLatestHumanTakeoverAt(lead: LeadAutomationCandidate) {
         (action) =>
           action.initiator === "OPERATOR" &&
           action.status === "SENT" &&
-          (action.actionType === "SEND_MESSAGE" || action.actionType === "MARK_REPLIED")
+          (action.actionType === "SEND_MESSAGE" ||
+            action.actionType === "MARK_REPLIED"),
       )
       .map((action) => action.completedAt ?? action.createdAt)
       .sort((left, right) => right.getTime() - left.getTime())[0] ?? null
@@ -88,18 +96,27 @@ function getLatestAutomatedReplyAt(lead: LeadAutomationCandidate) {
         (action) =>
           action.initiator === "AUTOMATION" &&
           action.status === "SENT" &&
-          (action.actionType === "SEND_MESSAGE" || action.actionType === "MARK_REPLIED")
+          (action.actionType === "SEND_MESSAGE" ||
+            action.actionType === "MARK_REPLIED"),
       )
       .map((action) => action.completedAt ?? action.createdAt)
       .filter((value): value is Date => value instanceof Date) ?? [];
-  const stateReplyTime = lead.conversationAutomationState?.lastAutomatedReplyAt ?? null;
+  const stateReplyTime =
+    lead.conversationAutomationState?.lastAutomatedReplyAt ?? null;
 
-  return [...attemptReplyTimes, ...actionReplyTimes, ...(stateReplyTime ? [stateReplyTime] : [])].sort(
-    (left, right) => right.getTime() - left.getTime()
-  )[0] ?? null;
+  return (
+    [
+      ...attemptReplyTimes,
+      ...actionReplyTimes,
+      ...(stateReplyTime ? [stateReplyTime] : []),
+    ].sort((left, right) => right.getTime() - left.getTime())[0] ?? null
+  );
 }
 
-function excerptForDecisionTrace(value: string | null | undefined, maxLength = 320) {
+function excerptForDecisionTrace(
+  value: string | null | undefined,
+  maxLength = 320,
+) {
   if (!value) {
     return null;
   }
@@ -113,7 +130,9 @@ function excerptForDecisionTrace(value: string | null | undefined, maxLength = 3
   return `${normalized.slice(0, maxLength - 1).trimEnd()}…`;
 }
 
-function getStarterTemplate(kind: ConversationTemplateKind): ConversationTemplateSource {
+function getStarterTemplate(
+  kind: ConversationTemplateKind,
+): ConversationTemplateSource {
   const starter = leadAutomationStarterTemplates[kind];
 
   return {
@@ -123,10 +142,10 @@ function getStarterTemplate(kind: ConversationTemplateKind): ConversationTemplat
     metadataJson: {
       templateKind: kind,
       renderMode: starter.aiPrompt ? "AI_ASSISTED" : "STATIC",
-      aiPrompt: starter.aiPrompt ?? null
+      aiPrompt: starter.aiPrompt ?? null,
     },
     subjectTemplate: starter.subject,
-    bodyTemplate: starter.body
+    bodyTemplate: starter.body,
   };
 }
 
@@ -138,10 +157,16 @@ function selectConversationTemplateSource(params: {
   const matchingTemplates = params.templates
     .filter((template) => template.channel === "YELP_THREAD")
     .filter((template) => {
-      const metadata = readLeadAutomationTemplateMetadata(template.metadataJson);
+      const metadata = readLeadAutomationTemplateMetadata(
+        template.metadataJson,
+      );
       return metadata.templateKind === params.templateKind;
     })
-    .filter((template) => !template.businessId || template.businessId === params.lead.business?.id)
+    .filter(
+      (template) =>
+        !template.businessId ||
+        template.businessId === params.lead.business?.id,
+    )
     .sort((left, right) => {
       const leftScoped = Number(Boolean(left.businessId));
       const rightScoped = Number(Boolean(right.businessId));
@@ -165,7 +190,7 @@ function selectConversationTemplateSource(params: {
     channel: matchedTemplate.channel,
     metadataJson: matchedTemplate.metadataJson,
     subjectTemplate: matchedTemplate.subjectTemplate,
-    bodyTemplate: matchedTemplate.bodyTemplate
+    bodyTemplate: matchedTemplate.bodyTemplate,
   } satisfies ConversationTemplateSource;
 }
 
@@ -175,6 +200,11 @@ async function renderConversationTemplate(params: {
   settings: {
     aiAssistEnabled: boolean;
     aiModel: string;
+    aiMonthlyBudgetUsd: number;
+    aiMonthlyMessageLimit: number;
+    aiMonthlyTokenLimit: number;
+    aiUsageWarningPercent: number;
+    aiAgencyMarkupPercent: number;
   };
   template: ConversationTemplateSource;
   classification: LeadConversationClassification;
@@ -182,13 +212,25 @@ async function renderConversationTemplate(params: {
 }) {
   const variables = buildLeadAutomationVariables(params.lead);
   const fallbackSubject =
-    stripAutomationDisclosure(renderLeadAutomationTemplate(params.template.subjectTemplate ?? "", variables)) ?? "";
+    stripAutomationDisclosure(
+      renderLeadAutomationTemplate(
+        params.template.subjectTemplate ?? "",
+        variables,
+      ),
+    ) ?? "";
   const fallbackBody =
-    stripAutomationDisclosure(renderLeadAutomationTemplate(params.template.bodyTemplate, variables)) ??
-    renderLeadAutomationTemplate(params.template.bodyTemplate, variables);
-  const metadata = readLeadAutomationTemplateMetadata(params.template.metadataJson);
+    stripAutomationDisclosure(
+      renderLeadAutomationTemplate(params.template.bodyTemplate, variables),
+    ) ?? renderLeadAutomationTemplate(params.template.bodyTemplate, variables);
+  const metadata = readLeadAutomationTemplateMetadata(
+    params.template.metadataJson,
+  );
 
-  if (metadata.renderMode !== "AI_ASSISTED" || !params.settings.aiAssistEnabled || !metadata.aiPrompt) {
+  if (
+    metadata.renderMode !== "AI_ASSISTED" ||
+    !params.settings.aiAssistEnabled ||
+    !metadata.aiPrompt
+  ) {
     return {
       subject: fallbackSubject,
       body: params.forAutoSend
@@ -196,14 +238,14 @@ async function renderConversationTemplate(params: {
             channel: "YELP_THREAD",
             subject: fallbackSubject,
             body: fallbackBody,
-            businessName: params.lead.business?.name ?? null
+            businessName: params.lead.business?.name ?? null,
           }).body
         : fallbackBody,
       contentMetadata: {
         contentSource: "TEMPLATE",
         templateKind: metadata.templateKind,
-        templateRenderMode: metadata.renderMode
-      }
+        templateRenderMode: metadata.renderMode,
+      },
     };
   }
 
@@ -219,17 +261,24 @@ async function renderConversationTemplate(params: {
     contextLabel: `Conversation automation • ${humanizeLeadConversationIntent(params.classification.intent)}`,
     extraContext: {
       inboundIntent: params.classification.intent,
-      inboundMessage: params.classification.messageText
-    }
+      inboundMessage: params.classification.messageText,
+    },
+    usageLimits: {
+      monthlyBudgetUsd: params.settings.aiMonthlyBudgetUsd,
+      monthlyMessageLimit: params.settings.aiMonthlyMessageLimit,
+      monthlyTokenLimit: params.settings.aiMonthlyTokenLimit,
+      warningPercent: params.settings.aiUsageWarningPercent,
+      agencyMarkupPercent: params.settings.aiAgencyMarkupPercent,
+    },
   });
   const renderedBody = params.forAutoSend
     ? applyLeadAutomationDisclosure({
         channel: "YELP_THREAD",
         subject: aiResult.subject,
         body: aiResult.body,
-        businessName: params.lead.business?.name ?? null
+        businessName: params.lead.business?.name ?? null,
       }).body
-    : stripAutomationDisclosure(aiResult.body) ?? fallbackBody;
+    : (stripAutomationDisclosure(aiResult.body) ?? fallbackBody);
 
   return {
     subject: aiResult.subject,
@@ -239,13 +288,19 @@ async function renderConversationTemplate(params: {
       templateKind: metadata.templateKind,
       templateRenderMode: metadata.renderMode,
       aiModel: aiResult.model,
-      ...(aiResult.fallbackReason ? { fallbackReason: aiResult.fallbackReason } : {}),
-      ...(aiResult.warningCodes.length > 0 ? { warningCodes: aiResult.warningCodes } : {})
-    }
+      ...(aiResult.fallbackReason
+        ? { fallbackReason: aiResult.fallbackReason }
+        : {}),
+      ...(aiResult.warningCodes.length > 0
+        ? { warningCodes: aiResult.warningCodes }
+        : {}),
+    },
   };
 }
 
-function getConversationIssueSeverity(stopReason: LeadConversationStopReason | null): OperatorIssueSeverity {
+function getConversationIssueSeverity(
+  stopReason: LeadConversationStopReason | null,
+): OperatorIssueSeverity {
   switch (stopReason) {
     case "CUSTOMER_ESCALATION":
       return "CRITICAL";
@@ -304,7 +359,7 @@ function buildConversationHandoffAcknowledgement(params: {
     channel: "YELP_THREAD",
     subject,
     body,
-    businessName: params.lead.business?.name ?? null
+    businessName: params.lead.business?.name ?? null,
   });
 }
 
@@ -331,9 +386,12 @@ async function upsertConversationIssue(params: {
     sourceEventKey: params.sourceEventKey,
     intent: params.classification.intent,
     confidence: params.classification.confidence,
-    message: params.classification.messageText
+    message: params.classification.messageText,
   };
-  const existing = await getOperatorIssueByDedupeKey(params.tenantId, dedupeKey);
+  const existing = await getOperatorIssueByDedupeKey(
+    params.tenantId,
+    dedupeKey,
+  );
 
   if (!existing) {
     await createOperatorIssue(params.tenantId, {
@@ -345,8 +403,9 @@ async function upsertConversationIssue(params: {
       summary,
       detailsJson: toJsonValue(details),
       businessId: params.lead.business?.id ?? null,
-      locationId: params.lead.location?.id ?? params.lead.business?.location?.id ?? null,
-      leadId: params.lead.id
+      locationId:
+        params.lead.location?.id ?? params.lead.business?.location?.id ?? null,
+      leadId: params.lead.id,
     });
     return;
   }
@@ -358,7 +417,7 @@ async function upsertConversationIssue(params: {
     detailsJson: toJsonValue(details),
     status: "OPEN",
     detectedCount: {
-      increment: 1
+      increment: 1,
     },
     lastDetectedAt: new Date(),
     resolvedAt: null,
@@ -366,7 +425,7 @@ async function upsertConversationIssue(params: {
     resolutionReason: null,
     resolutionNote: null,
     ignoredAt: null,
-    ignoredById: null
+    ignoredById: null,
   });
 }
 
@@ -386,13 +445,17 @@ function buildStateUpdate(params: {
   automatedTurnDelta?: number;
   lastAutomatedReplyAt?: Date | null;
 }) {
-  const latestHumanTakeoverAt = getLatestHumanTakeoverAt(params.lead) ?? params.lead.conversationAutomationState?.humanTakeoverAt ?? null;
+  const latestHumanTakeoverAt =
+    getLatestHumanTakeoverAt(params.lead) ??
+    params.lead.conversationAutomationState?.humanTakeoverAt ??
+    null;
   const nextAutomatedTurnCount =
-    getAutomatedConversationReplyCount(params.lead) + (params.automatedTurnDelta ?? 0);
+    getAutomatedConversationReplyCount(params.lead) +
+    (params.automatedTurnDelta ?? 0);
   const rollout = getLeadConversationRolloutState({
     enabled: params.settings.conversationAutomationEnabled,
     paused: params.settings.conversationGlobalPauseEnabled ?? false,
-    mode: params.settings.conversationMode
+    mode: params.settings.conversationMode,
   });
 
   return {
@@ -404,7 +467,10 @@ function buildStateUpdate(params: {
       params.lead.conversationAutomationState?.lastAutomatedReplyAt ??
       null,
     lastProcessedEventKey: params.sourceEventKey,
-    lastInboundAt: params.occurredAt ?? params.lead.conversationAutomationState?.lastInboundAt ?? null,
+    lastInboundAt:
+      params.occurredAt ??
+      params.lead.conversationAutomationState?.lastInboundAt ??
+      null,
     lastIntent: params.intent,
     lastDecision: params.decision,
     lastStopReason: params.stopReason,
@@ -415,7 +481,7 @@ function buildStateUpdate(params: {
     escalatedAt:
       params.decision === "HUMAN_HANDOFF" && params.stopReason
         ? new Date()
-        : params.lead.conversationAutomationState?.escalatedAt ?? null,
+        : (params.lead.conversationAutomationState?.escalatedAt ?? null),
     humanTakeoverAt: latestHumanTakeoverAt,
     metadataJson: toJsonValue({
       lastUpdatedBy: "conversation-automation",
@@ -424,9 +490,12 @@ function buildStateUpdate(params: {
       automatedTurnCount: nextAutomatedTurnCount,
       maxAutomatedTurns: params.settings.conversationMaxAutomatedTurns,
       lastProcessedDecision: params.decision,
-      lastProcessedStopReason: params.stopReason
-    })
-  } satisfies Omit<Prisma.LeadConversationAutomationStateUncheckedCreateInput, "tenantId" | "leadId">;
+      lastProcessedStopReason: params.stopReason,
+    }),
+  } satisfies Omit<
+    Prisma.LeadConversationAutomationStateUncheckedCreateInput,
+    "tenantId" | "leadId"
+  >;
 }
 
 export async function processLeadConversationAutomationForInboundMessage(params: {
@@ -436,27 +505,37 @@ export async function processLeadConversationAutomationForInboundMessage(params:
 }) {
   const [lead, templates] = await Promise.all([
     getLeadAutomationCandidate(params.tenantId, params.leadId),
-    listEnabledLeadAutomationTemplates(params.tenantId)
+    listEnabledLeadAutomationTemplates(params.tenantId),
   ]);
-  const settingsScope = await getLeadAutomationScopeConfig(params.tenantId, lead.business?.id ?? null);
-  const sourceEvent = findNextInboundConversationEvent(lead, params.sourceEventId, {
-    after: getLatestAutomatedReplyAt(lead)
-  });
+  const settingsScope = await getLeadAutomationScopeConfig(
+    params.tenantId,
+    lead.business?.id ?? null,
+  );
+  const sourceEvent = findNextInboundConversationEvent(
+    lead,
+    params.sourceEventId,
+    {
+      after: getLatestAutomatedReplyAt(lead),
+    },
+  );
 
   if (!sourceEvent?.eventKey) {
     return {
       processed: false,
-      reason: "NO_NEW_INBOUND_EVENT"
+      reason: "NO_NEW_INBOUND_EVENT",
     };
   }
 
-  const existingTurn = await getLeadConversationAutomationTurnBySourceEventKey(params.tenantId, sourceEvent.eventKey);
+  const existingTurn = await getLeadConversationAutomationTurnBySourceEventKey(
+    params.tenantId,
+    sourceEvent.eventKey,
+  );
 
   if (existingTurn) {
     return {
       processed: false,
       reason: "DUPLICATE_EVENT",
-      turnId: existingTurn.id
+      turnId: existingTurn.id,
     };
   }
 
@@ -465,7 +544,7 @@ export async function processLeadConversationAutomationForInboundMessage(params:
   if (!classification) {
     return {
       processed: false,
-      reason: "NO_MESSAGE_TEXT"
+      reason: "NO_MESSAGE_TEXT",
     };
   }
 
@@ -480,8 +559,8 @@ export async function processLeadConversationAutomationForInboundMessage(params:
         occurredAt: sourceEvent.occurredAt,
         intent: classification.intent,
         decision: "HUMAN_HANDOFF",
-        stopReason: "LIFECYCLE_STOPPED"
-      })
+        stopReason: "LIFECYCLE_STOPPED",
+      }),
     );
     const turn = await createLeadConversationAutomationTurn({
       tenantId: params.tenantId,
@@ -501,39 +580,44 @@ export async function processLeadConversationAutomationForInboundMessage(params:
         classification: {
           intent: classification.intent,
           confidence: classification.confidence,
-          templateKind: classification.templateKind
+          templateKind: classification.templateKind,
         },
         rollout: getLeadConversationRolloutState({
-          enabled: settingsScope.effectiveSettings.conversationAutomationEnabled,
-          paused: settingsScope.effectiveSettings.conversationGlobalPauseEnabled,
-          mode: settingsScope.effectiveSettings.conversationMode
+          enabled:
+            settingsScope.effectiveSettings.conversationAutomationEnabled,
+          paused:
+            settingsScope.effectiveSettings.conversationGlobalPauseEnabled,
+          mode: settingsScope.effectiveSettings.conversationMode,
         }),
         mode: {
           value: settingsScope.effectiveSettings.conversationMode,
-          label: humanizeLeadConversationMode(settingsScope.effectiveSettings.conversationMode)
+          label: humanizeLeadConversationMode(
+            settingsScope.effectiveSettings.conversationMode,
+          ),
         },
         decisionSummary: {
           decision: "HUMAN_HANDOFF",
           decisionLabel: humanizeLeadConversationDecision("HUMAN_HANDOFF"),
           stopReason: "LIFECYCLE_STOPPED",
-          stopReasonLabel: humanizeLeadConversationStopReason("LIFECYCLE_STOPPED"),
-          issueCreated: false
-        }
+          stopReasonLabel:
+            humanizeLeadConversationStopReason("LIFECYCLE_STOPPED"),
+          issueCreated: false,
+        },
       }),
-      completedAt: new Date()
+      completedAt: new Date(),
     });
     await recordConversationDecisionMetric({
       tenantId: params.tenantId,
       decision: turn.decision,
       stopReason: turn.stopReason,
       mode: settingsScope.effectiveSettings.conversationMode,
-      confidence: classification.confidence
+      confidence: classification.confidence,
     });
 
     return {
       processed: true,
       decision: turn.decision,
-      stopReason: turn.stopReason
+      stopReason: turn.stopReason,
     };
   }
 
@@ -541,15 +625,17 @@ export async function processLeadConversationAutomationForInboundMessage(params:
     settings: settingsScope.effectiveSettings,
     lead,
     classification,
-    hasHumanTakeover: hasHumanTakeoverSince(lead, null)
+    hasHumanTakeover: hasHumanTakeoverSince(lead, null),
   });
 
   const selectedTemplate = selectConversationTemplateSource({
     templates,
     lead,
-    templateKind: classification.templateKind
+    templateKind: classification.templateKind,
   });
-  const selectedTemplateMetadata = readLeadAutomationTemplateMetadata(selectedTemplate.metadataJson);
+  const selectedTemplateMetadata = readLeadAutomationTemplateMetadata(
+    selectedTemplate.metadataJson,
+  );
   const automatedTurnCountBefore = getAutomatedConversationReplyCount(lead);
   const buildTurnMetadata = (params: {
     decision: LeadConversationDecision;
@@ -562,71 +648,92 @@ export async function processLeadConversationAutomationForInboundMessage(params:
   }) =>
     toJsonValue({
       inboundMessage: classification.messageText,
-      inboundMessageExcerpt: excerptForDecisionTrace(classification.messageText),
+      inboundMessageExcerpt: excerptForDecisionTrace(
+        classification.messageText,
+      ),
       sourceEventOccurredAt: sourceEvent.occurredAt?.toISOString() ?? null,
       sourceExternalEventId: sourceEvent.externalEventId ?? null,
       classification: {
         intent: classification.intent,
         confidence: classification.confidence,
-        templateKind: classification.templateKind
+        templateKind: classification.templateKind,
       },
       sourceContext: {
-        customerMessageExcerpt: excerptForDecisionTrace(classification.messageText),
+        customerMessageExcerpt: excerptForDecisionTrace(
+          classification.messageText,
+        ),
         sourceEventKey: sourceEvent.eventKey,
         sourceExternalEventId: sourceEvent.externalEventId ?? null,
-        sourceEventOccurredAt: sourceEvent.occurredAt?.toISOString() ?? null
+        sourceEventOccurredAt: sourceEvent.occurredAt?.toISOString() ?? null,
       },
       decisionSummary: {
         decision: params.decision,
         decisionLabel: humanizeLeadConversationDecision(params.decision),
         stopReason: params.stopReason,
-        stopReasonLabel: params.stopReason ? humanizeLeadConversationStopReason(params.stopReason) : null,
+        stopReasonLabel: params.stopReason
+          ? humanizeLeadConversationStopReason(params.stopReason)
+          : null,
         issueCreated: params.issueCreated ?? false,
-        errorSummary: params.errorSummary ?? null
+        errorSummary: params.errorSummary ?? null,
       },
       reviewState: {
         operatorReviewRequired: params.decision !== "AUTO_REPLY",
-        operatorEditStatus: params.decision === "REVIEW_ONLY" ? "WAITING_FOR_OPERATOR" : "NOT_APPLICABLE",
-        handoffRequired: params.decision === "HUMAN_HANDOFF"
+        operatorEditStatus:
+          params.decision === "REVIEW_ONLY"
+            ? "WAITING_FOR_OPERATOR"
+            : "NOT_APPLICABLE",
+        handoffRequired: params.decision === "HUMAN_HANDOFF",
       },
       rollout: getLeadConversationRolloutState({
         enabled: settingsScope.effectiveSettings.conversationAutomationEnabled,
         paused: settingsScope.effectiveSettings.conversationGlobalPauseEnabled,
-        mode: settingsScope.effectiveSettings.conversationMode
+        mode: settingsScope.effectiveSettings.conversationMode,
       }),
       mode: {
         value: settingsScope.effectiveSettings.conversationMode,
-        label: humanizeLeadConversationMode(settingsScope.effectiveSettings.conversationMode)
+        label: humanizeLeadConversationMode(
+          settingsScope.effectiveSettings.conversationMode,
+        ),
       },
       template: {
         id: selectedTemplate.id,
         name: selectedTemplate.name,
         kind: selectedTemplateMetadata.templateKind,
         renderMode: selectedTemplateMetadata.renderMode,
-        promptSource: selectedTemplateMetadata.aiPrompt ? "TEMPLATE_AI_PROMPT" : "STATIC_TEMPLATE",
+        promptSource: selectedTemplateMetadata.aiPrompt
+          ? "TEMPLATE_AI_PROMPT"
+          : "STATIC_TEMPLATE",
         aiPromptConfigured: Boolean(selectedTemplateMetadata.aiPrompt),
-        aiPromptPreview: excerptForDecisionTrace(selectedTemplateMetadata.aiPrompt, 260)
+        aiPromptPreview: excerptForDecisionTrace(
+          selectedTemplateMetadata.aiPrompt,
+          260,
+        ),
       },
       routing: {
         ruleId: null,
         ruleName: null,
-        ruleSource: "Conversation routing uses inbound intent classification and template family matching. Cadence rules are not used for conversation turns."
+        ruleSource:
+          "Conversation routing uses inbound intent classification and template family matching. Cadence rules are not used for conversation turns.",
       },
       automatedTurns: {
         before: automatedTurnCountBefore,
         after: automatedTurnCountBefore + (params.automatedTurnDelta ?? 0),
-        max: settingsScope.effectiveSettings.conversationMaxAutomatedTurns
+        max: settingsScope.effectiveSettings.conversationMaxAutomatedTurns,
       },
       rendering: {
         contentSource: params.renderedMetadata?.contentSource ?? null,
-        templateKind: params.renderedMetadata?.templateKind ?? selectedTemplateMetadata.templateKind,
-        templateRenderMode: params.renderedMetadata?.templateRenderMode ?? selectedTemplateMetadata.renderMode,
+        templateKind:
+          params.renderedMetadata?.templateKind ??
+          selectedTemplateMetadata.templateKind,
+        templateRenderMode:
+          params.renderedMetadata?.templateRenderMode ??
+          selectedTemplateMetadata.renderMode,
         aiModel: params.renderedMetadata?.aiModel ?? null,
         fallbackReason: params.renderedMetadata?.fallbackReason ?? null,
-        warningCodes: params.renderedMetadata?.warningCodes ?? []
+        warningCodes: params.renderedMetadata?.warningCodes ?? [],
       },
       ...(params.renderedMetadata ?? {}),
-      ...(params.delivery ? { delivery: params.delivery } : {})
+      ...(params.delivery ? { delivery: params.delivery } : {}),
     });
 
   if (decision.decision === "AUTO_REPLY") {
@@ -636,7 +743,7 @@ export async function processLeadConversationAutomationForInboundMessage(params:
       settings: settingsScope.effectiveSettings,
       template: selectedTemplate,
       classification,
-      forAutoSend: true
+      forAutoSend: true,
     });
     const delivery = await deliverLeadAutomationMessage({
       tenantId: params.tenantId,
@@ -648,7 +755,7 @@ export async function processLeadConversationAutomationForInboundMessage(params:
       renderedBody: rendered.body,
       recipient: null,
       allowEmailFallback: false,
-      idempotencyKey: `conversation-turn:${sourceEvent.eventKey}`
+      idempotencyKey: `conversation-turn:${sourceEvent.eventKey}`,
     });
 
     if (delivery.status === "FAILED") {
@@ -663,8 +770,8 @@ export async function processLeadConversationAutomationForInboundMessage(params:
           occurredAt: sourceEvent.occurredAt,
           intent: classification.intent,
           decision: "HUMAN_HANDOFF",
-          stopReason: "SEND_FAILED"
-        })
+          stopReason: "SEND_FAILED",
+        }),
       );
       const turn = await createLeadConversationAutomationTurn({
         tenantId: params.tenantId,
@@ -684,11 +791,12 @@ export async function processLeadConversationAutomationForInboundMessage(params:
         metadataJson: buildTurnMetadata({
           decision: "HUMAN_HANDOFF",
           stopReason: "SEND_FAILED",
-          issueCreated: settingsScope.effectiveSettings.conversationEscalateToIssueQueue,
+          issueCreated:
+            settingsScope.effectiveSettings.conversationEscalateToIssueQueue,
           renderedMetadata: rendered.contentMetadata,
-          errorSummary: normalized.message
+          errorSummary: normalized.message,
         }),
-        completedAt: new Date()
+        completedAt: new Date(),
       });
 
       if (settingsScope.effectiveSettings.conversationEscalateToIssueQueue) {
@@ -697,7 +805,7 @@ export async function processLeadConversationAutomationForInboundMessage(params:
           lead,
           sourceEventKey: sourceEvent.eventKey,
           classification,
-          stopReason: "SEND_FAILED"
+          stopReason: "SEND_FAILED",
         });
       }
 
@@ -710,26 +818,26 @@ export async function processLeadConversationAutomationForInboundMessage(params:
         upstreamReference: lead.externalLeadId,
         requestSummary: toJsonValue({
           intent: classification.intent,
-          mode: settingsScope.effectiveSettings.conversationMode
+          mode: settingsScope.effectiveSettings.conversationMode,
         }),
         responseSummary: toJsonValue({
           decision: turn.decision,
           stopReason: turn.stopReason,
-          message: normalized.message
-        })
+          message: normalized.message,
+        }),
       });
       await recordConversationDecisionMetric({
         tenantId: params.tenantId,
         decision: turn.decision,
         stopReason: turn.stopReason,
         mode: settingsScope.effectiveSettings.conversationMode,
-        confidence: classification.confidence
+        confidence: classification.confidence,
       });
 
       return {
         processed: true,
         decision: turn.decision,
-        stopReason: turn.stopReason
+        stopReason: turn.stopReason,
       };
     }
 
@@ -746,8 +854,8 @@ export async function processLeadConversationAutomationForInboundMessage(params:
         decision: "AUTO_REPLY",
         stopReason: null,
         automatedTurnDelta: 1,
-        lastAutomatedReplyAt: completedAt
-      })
+        lastAutomatedReplyAt: completedAt,
+      }),
     );
     const turn = await createLeadConversationAutomationTurn({
       tenantId: params.tenantId,
@@ -770,10 +878,10 @@ export async function processLeadConversationAutomationForInboundMessage(params:
         delivery: {
           deliveryStatus: delivery.status,
           deliveryChannel: delivery.deliveryChannel,
-          warning: delivery.warning ?? null
-        }
+          warning: delivery.warning ?? null,
+        },
       }),
-      completedAt
+      completedAt,
     });
 
     await recordAuditEvent({
@@ -785,25 +893,25 @@ export async function processLeadConversationAutomationForInboundMessage(params:
       upstreamReference: lead.externalLeadId,
       requestSummary: toJsonValue({
         intent: classification.intent,
-        mode: settingsScope.effectiveSettings.conversationMode
+        mode: settingsScope.effectiveSettings.conversationMode,
       }),
       responseSummary: toJsonValue({
         decision: turn.decision,
-        contentSource: rendered.contentMetadata.contentSource
-      })
+        contentSource: rendered.contentMetadata.contentSource,
+      }),
     });
     await recordConversationDecisionMetric({
       tenantId: params.tenantId,
       decision: turn.decision,
       stopReason: null,
       mode: settingsScope.effectiveSettings.conversationMode,
-      confidence: classification.confidence
+      confidence: classification.confidence,
     });
 
     return {
       processed: true,
       decision: turn.decision,
-      stopReason: null
+      stopReason: null,
     };
   }
 
@@ -814,7 +922,7 @@ export async function processLeadConversationAutomationForInboundMessage(params:
       settings: settingsScope.effectiveSettings,
       template: selectedTemplate,
       classification,
-      forAutoSend: false
+      forAutoSend: false,
     });
     const savedState = await upsertLeadConversationAutomationState(
       params.tenantId,
@@ -826,8 +934,8 @@ export async function processLeadConversationAutomationForInboundMessage(params:
         occurredAt: sourceEvent.occurredAt,
         intent: classification.intent,
         decision: "REVIEW_ONLY",
-        stopReason: decision.stopReason
-      })
+        stopReason: decision.stopReason,
+      }),
     );
     const turn = await createLeadConversationAutomationTurn({
       tenantId: params.tenantId,
@@ -846,9 +954,9 @@ export async function processLeadConversationAutomationForInboundMessage(params:
       metadataJson: buildTurnMetadata({
         decision: "REVIEW_ONLY",
         stopReason: decision.stopReason,
-        renderedMetadata: rendered.contentMetadata
+        renderedMetadata: rendered.contentMetadata,
       }),
-      completedAt: new Date()
+      completedAt: new Date(),
     });
 
     await recordAuditEvent({
@@ -860,33 +968,36 @@ export async function processLeadConversationAutomationForInboundMessage(params:
       upstreamReference: lead.externalLeadId,
       requestSummary: toJsonValue({
         intent: classification.intent,
-        mode: settingsScope.effectiveSettings.conversationMode
+        mode: settingsScope.effectiveSettings.conversationMode,
       }),
       responseSummary: toJsonValue({
         decision: turn.decision,
-        stopReason: turn.stopReason
-      })
+        stopReason: turn.stopReason,
+      }),
     });
     await recordConversationDecisionMetric({
       tenantId: params.tenantId,
       decision: turn.decision,
       stopReason: turn.stopReason,
       mode: settingsScope.effectiveSettings.conversationMode,
-      confidence: classification.confidence
+      confidence: classification.confidence,
     });
 
     return {
       processed: true,
       decision: turn.decision,
-      stopReason: turn.stopReason
+      stopReason: turn.stopReason,
     };
   }
 
-  const shouldSendHandoffAcknowledgement = shouldSendConversationHandoffAcknowledgement({
-    settings: settingsScope.effectiveSettings,
-    stopReason: decision.stopReason
-  });
-  let handoffDelivery: Awaited<ReturnType<typeof deliverLeadAutomationMessage>> | null = null;
+  const shouldSendHandoffAcknowledgement =
+    shouldSendConversationHandoffAcknowledgement({
+      settings: settingsScope.effectiveSettings,
+      stopReason: decision.stopReason,
+    });
+  let handoffDelivery: Awaited<
+    ReturnType<typeof deliverLeadAutomationMessage>
+  > | null = null;
   let handoffRenderedSubject: string | null = null;
   let handoffRenderedBody: string | null = null;
   let handoffErrorSummary: string | null = null;
@@ -897,7 +1008,7 @@ export async function processLeadConversationAutomationForInboundMessage(params:
   if (shouldSendHandoffAcknowledgement) {
     const rendered = buildConversationHandoffAcknowledgement({
       lead,
-      stopReason: decision.stopReason
+      stopReason: decision.stopReason,
     });
 
     handoffRenderedSubject = rendered.subject || null;
@@ -912,7 +1023,7 @@ export async function processLeadConversationAutomationForInboundMessage(params:
       renderedBody: rendered.body,
       recipient: null,
       allowEmailFallback: false,
-      idempotencyKey: `conversation-handoff:${sourceEvent.eventKey}`
+      idempotencyKey: `conversation-handoff:${sourceEvent.eventKey}`,
     });
 
     if (handoffDelivery.status === "FAILED") {
@@ -936,8 +1047,8 @@ export async function processLeadConversationAutomationForInboundMessage(params:
       decision: "HUMAN_HANDOFF",
       stopReason: finalStopReason,
       automatedTurnDelta,
-      lastAutomatedReplyAt
-    })
+      lastAutomatedReplyAt,
+    }),
   );
   const turn = await createLeadConversationAutomationTurn({
     tenantId: params.tenantId,
@@ -963,19 +1074,19 @@ export async function processLeadConversationAutomationForInboundMessage(params:
         ? {
             contentSource: "STATIC_HANDOFF_ACKNOWLEDGEMENT",
             templateKind: selectedTemplateMetadata.templateKind,
-            templateRenderMode: "STATIC"
+            templateRenderMode: "STATIC",
           }
         : undefined,
       delivery: handoffDelivery
         ? {
             deliveryStatus: handoffDelivery.status,
             deliveryChannel: handoffDelivery.deliveryChannel,
-            warning: handoffDelivery.warning ?? null
+            warning: handoffDelivery.warning ?? null,
           }
         : undefined,
-      errorSummary: handoffErrorSummary
+      errorSummary: handoffErrorSummary,
     }),
-    completedAt: new Date()
+    completedAt: new Date(),
   });
 
   if (decision.shouldCreateIssue && finalStopReason) {
@@ -984,7 +1095,7 @@ export async function processLeadConversationAutomationForInboundMessage(params:
       lead,
       sourceEventKey: sourceEvent.eventKey,
       classification,
-      stopReason: finalStopReason
+      stopReason: finalStopReason,
     });
   }
 
@@ -997,30 +1108,32 @@ export async function processLeadConversationAutomationForInboundMessage(params:
     upstreamReference: lead.externalLeadId,
     requestSummary: toJsonValue({
       intent: classification.intent,
-      mode: settingsScope.effectiveSettings.conversationMode
-      }),
-      responseSummary: toJsonValue({
-        decision: turn.decision,
-        stopReason: turn.stopReason,
-        handoffAcknowledgementSent: handoffDelivery?.status === "SENT"
-      })
-    });
+      mode: settingsScope.effectiveSettings.conversationMode,
+    }),
+    responseSummary: toJsonValue({
+      decision: turn.decision,
+      stopReason: turn.stopReason,
+      handoffAcknowledgementSent: handoffDelivery?.status === "SENT",
+    }),
+  });
   await recordConversationDecisionMetric({
     tenantId: params.tenantId,
     decision: turn.decision,
     stopReason: turn.stopReason,
     mode: settingsScope.effectiveSettings.conversationMode,
-    confidence: classification.confidence
+    confidence: classification.confidence,
   });
 
   return {
     processed: true,
     decision: turn.decision,
-    stopReason: turn.stopReason
+    stopReason: turn.stopReason,
   };
 }
 
-export function formatConversationIntentLabels(intents: LeadConversationIntentValue[] | null | undefined) {
+export function formatConversationIntentLabels(
+  intents: LeadConversationIntentValue[] | null | undefined,
+) {
   if (!intents || intents.length === 0) {
     return "No auto-reply intents";
   }
@@ -1028,7 +1141,10 @@ export function formatConversationIntentLabels(intents: LeadConversationIntentVa
   return intents.map(humanizeLeadConversationIntent).join(", ");
 }
 
-export function getConversationRecommendedNextAction(decision: LeadConversationDecision, stopReason: LeadConversationStopReason | null) {
+export function getConversationRecommendedNextAction(
+  decision: LeadConversationDecision,
+  stopReason: LeadConversationStopReason | null,
+) {
   if (decision === "AUTO_REPLY") {
     return "Automation already replied in the Yelp thread.";
   }

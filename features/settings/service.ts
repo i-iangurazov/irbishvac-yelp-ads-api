@@ -18,9 +18,11 @@ import {
 } from "@/features/settings/schemas";
 import {
   countActiveUsersByRole,
+  countActiveUsersByRoleGlobally,
   createTenantUser,
   findUserByEmail,
   getTenantUserById,
+  getUserById,
   listUsersByTenant,
   updateUserRole,
 } from "@/lib/db/users-repository";
@@ -30,6 +32,7 @@ import {
   updateCredentialTestResult,
   upsertCredentialSet,
 } from "@/lib/db/credentials-repository";
+import { listLeadBusinessOptions } from "@/lib/db/leads-repository";
 import {
   getSystemSetting,
   upsertSystemSetting,
@@ -43,10 +46,16 @@ import { YelpBusinessMatchClient } from "@/lib/yelp/business-match-client";
 import { YelpDataIngestionClient } from "@/lib/yelp/data-ingestion-client";
 import { YelpFeaturesClient } from "@/lib/yelp/features-client";
 import { YelpReportingClient } from "@/lib/yelp/reporting-client";
-import { getCapabilityFlags, getCredentialConfig } from "@/lib/yelp/runtime";
+import {
+  ensureYelpLeadsAccess,
+  getCapabilityFlags,
+  getCredentialConfig,
+} from "@/lib/yelp/runtime";
+import { YelpLeadsClient } from "@/lib/yelp/leads-client";
 import { normalizeUnknownError, YelpValidationError } from "@/lib/yelp/errors";
 import { ServiceTitanClient } from "@/lib/servicetitan/client";
 import { getDefaultServiceTitanUrls } from "@/lib/servicetitan/runtime";
+import { canAssignRole } from "@/features/settings/roles";
 
 type TestableConnectionClient = {
   testConnection: (path?: string) => Promise<unknown>;
@@ -363,6 +372,12 @@ export async function createSettingsUser(
   input: unknown,
 ) {
   const values = userCreateSchema.parse(input);
+  const actor = await getUserById(actorId);
+
+  if (!canAssignRole(actor.role.code, values.roleCode)) {
+    throw new YelpValidationError("You are not allowed to assign this role.");
+  }
+
   const existing = await findUserByEmail(values.email);
 
   if (existing) {
@@ -405,18 +420,42 @@ export async function saveUserRole(
   userId: string,
   roleCode: RoleCode,
 ) {
+  const actor = await getUserById(actorId);
+
+  if (!canAssignRole(actor.role.code, roleCode)) {
+    throw new YelpValidationError("You are not allowed to assign this role.");
+  }
+
   const existing = await getTenantUserById(userId, tenantId);
 
   if (
-    existing.role.code === "ADMIN" &&
-    roleCode !== "ADMIN" &&
+    existing.role.code === "CLIENT_ADMIN" &&
+    roleCode !== "CLIENT_ADMIN" &&
     existing.isActive
   ) {
-    const activeAdminCount = await countActiveUsersByRole(tenantId, "ADMIN");
+    const activeAdminCount = await countActiveUsersByRole(
+      tenantId,
+      "CLIENT_ADMIN",
+    );
 
     if (activeAdminCount <= 1) {
       throw new YelpValidationError(
-        "At least one active Admin must remain assigned to this tenant.",
+        "At least one active Client administrator must remain assigned to this tenant.",
+      );
+    }
+  }
+
+  if (
+    existing.role.code === "PLATFORM_ADMIN" &&
+    roleCode !== "PLATFORM_ADMIN" &&
+    existing.isActive
+  ) {
+    const activePlatformAdminCount =
+      await countActiveUsersByRoleGlobally("PLATFORM_ADMIN");
+
+    if (activePlatformAdminCount <= 1) {
+      throw new YelpValidationError(
+        "At least one active Platform administrator must remain assigned.",
       );
     }
   }
@@ -460,8 +499,28 @@ async function getConnectionTester(
   switch (kind) {
     case "ADS_BASIC_AUTH":
       return new YelpAdsClient(credential);
-    case "REPORTING_FUSION":
-      return new YelpReportingClient(credential);
+    case "REPORTING_FUSION": {
+      const businesses = await listLeadBusinessOptions(tenantId);
+      const business = businesses.find((entry) =>
+        Boolean(entry.encryptedYelpBusinessId),
+      );
+
+      if (!business?.encryptedYelpBusinessId) {
+        return new YelpReportingClient(credential);
+      }
+
+      const { credential: leadsCredential } =
+        await ensureYelpLeadsAccess(tenantId);
+      const leadsClient = new YelpLeadsClient(leadsCredential);
+
+      return {
+        testConnection: () =>
+          leadsClient.getBusinessLeadIds(business.encryptedYelpBusinessId!, {
+            limit: 1,
+            offset: 0,
+          }),
+      };
+    }
     case "BUSINESS_MATCH":
       return new YelpBusinessMatchClient(credential);
     case "DATA_INGESTION":

@@ -3,9 +3,12 @@ import { NextResponse } from "next/server";
 import { markLeadAsReadWorkflow } from "@/features/leads/messaging-service";
 import { handleRouteError, requireApiPermission } from "@/lib/utils/http";
 
-export async function POST(_request: Request, context: { params: Promise<{ leadId: string }> }) {
+export async function POST(
+  _request: Request,
+  context: { params: Promise<{ leadId: string }> },
+) {
   try {
-    const user = await requireApiPermission("leads:write");
+    const user = await requireApiPermission("replies:review");
 
     if (user instanceof NextResponse) {
       return user;

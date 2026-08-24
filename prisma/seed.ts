@@ -1,6 +1,14 @@
 import { existsSync } from "node:fs";
 import { loadEnvFile } from "node:process";
-import { PrismaClient, CredentialKind, ProgramStatus, ProgramType, ReportGranularity, ReportStatus, RoleCode } from "@prisma/client";
+import {
+  PrismaClient,
+  CredentialKind,
+  ProgramStatus,
+  ProgramType,
+  ReportGranularity,
+  ReportStatus,
+  RoleCode,
+} from "@prisma/client";
 import bcrypt from "bcryptjs";
 
 if (existsSync(".env")) {
@@ -10,6 +18,86 @@ if (existsSync(".env")) {
 const prisma = new PrismaClient();
 
 const defaultPermissions = {
+  PLATFORM_ADMIN: ["*"],
+  AGENCY_OPERATOR: [
+    "tenants:switch",
+    "settings:read",
+    "credentials:manage",
+    "autoresponder:manage",
+    "businesses:read",
+    "businesses:write",
+    "programs:read",
+    "programs:write",
+    "programs:terminate",
+    "features:read",
+    "features:write",
+    "leads:read",
+    "leads:write",
+    "leads:sync",
+    "replies:review",
+    "reports:read",
+    "reports:request",
+    "locations:read",
+    "services:read",
+    "integrations:read",
+    "sync:read",
+    "sync:retry",
+    "audit:read",
+  ],
+  CLIENT_ADMIN: [
+    "settings:read",
+    "users:manage",
+    "credentials:manage",
+    "autoresponder:manage",
+    "businesses:read",
+    "businesses:write",
+    "programs:read",
+    "programs:write",
+    "programs:terminate",
+    "features:read",
+    "features:write",
+    "leads:read",
+    "leads:write",
+    "replies:review",
+    "reports:read",
+    "reports:request",
+    "locations:read",
+    "services:read",
+    "integrations:read",
+    "sync:read",
+    "sync:retry",
+    "audit:read",
+  ],
+  CLIENT_MANAGER: [
+    "settings:read",
+    "autoresponder:manage",
+    "businesses:read",
+    "programs:read",
+    "programs:write",
+    "features:read",
+    "features:write",
+    "leads:read",
+    "leads:write",
+    "replies:review",
+    "reports:read",
+    "reports:request",
+    "locations:read",
+    "services:read",
+    "integrations:read",
+    "sync:read",
+    "audit:read",
+  ],
+  REVIEWER: [
+    "businesses:read",
+    "programs:read",
+    "features:read",
+    "leads:read",
+    "replies:review",
+    "reports:read",
+    "locations:read",
+    "services:read",
+    "audit:read",
+  ],
   ADMIN: ["*"],
   OPERATOR: [
     "businesses:read",
@@ -28,7 +116,7 @@ const defaultPermissions = {
     "integrations:read",
     "sync:read",
     "sync:retry",
-    "audit:read"
+    "audit:read",
   ],
   ANALYST: [
     "businesses:read",
@@ -41,7 +129,7 @@ const defaultPermissions = {
     "services:read",
     "integrations:read",
     "sync:read",
-    "audit:read"
+    "audit:read",
   ],
   VIEWER: [
     "businesses:read",
@@ -53,8 +141,8 @@ const defaultPermissions = {
     "services:read",
     "integrations:read",
     "sync:read",
-    "audit:read"
-  ]
+    "audit:read",
+  ],
 };
 
 async function main() {
@@ -63,8 +151,8 @@ async function main() {
     update: {},
     create: {
       name: "Default Tenant",
-      slug: "default"
-    }
+      slug: "default",
+    },
   });
 
   const roles = await Promise.all(
@@ -74,25 +162,32 @@ async function main() {
         update: {
           name: code.charAt(0) + code.slice(1).toLowerCase(),
           description: `${code} role`,
-          permissionsJson: permissions
+          permissionsJson: permissions,
         },
         create: {
           code: code as RoleCode,
           name: code.charAt(0) + code.slice(1).toLowerCase(),
           description: `${code} role`,
-          permissionsJson: permissions
-        }
-      })
-    )
+          permissionsJson: permissions,
+        },
+      }),
+    ),
   );
 
   const roleMap = Object.fromEntries(roles.map((role) => [role.code, role.id]));
-  const defaultEmail = process.env.SEED_ADMIN_EMAIL?.trim().toLowerCase() || "admin@yelp-console.local";
+  const defaultEmail =
+    process.env.SEED_ADMIN_EMAIL?.trim().toLowerCase() ||
+    "admin@yelp-console.local";
   const defaultName = process.env.SEED_ADMIN_NAME?.trim() || "Admin User";
   const defaultPassword = process.env.SEED_ADMIN_PASSWORD ?? "ChangeMe123!";
 
-  if (process.env.NODE_ENV === "production" && (!process.env.SEED_ADMIN_PASSWORD || defaultPassword === "ChangeMe123!")) {
-    throw new Error("SEED_ADMIN_PASSWORD must be explicitly set to a strong value before running the seed in production.");
+  if (
+    process.env.NODE_ENV === "production" &&
+    (!process.env.SEED_ADMIN_PASSWORD || defaultPassword === "ChangeMe123!")
+  ) {
+    throw new Error(
+      "SEED_ADMIN_PASSWORD must be explicitly set to a strong value before running the seed in production.",
+    );
   }
 
   const passwordHash = await bcrypt.hash(defaultPassword, 12);
@@ -103,15 +198,15 @@ async function main() {
       name: defaultName,
       passwordHash,
       tenantId: tenant.id,
-      roleId: roleMap.ADMIN
+      roleId: roleMap.PLATFORM_ADMIN,
     },
     create: {
       email: defaultEmail,
       name: defaultName,
       passwordHash,
       tenantId: tenant.id,
-      roleId: roleMap.ADMIN
-    }
+      roleId: roleMap.PLATFORM_ADMIN,
+    },
   });
 
   await prisma.systemSetting.upsert({
@@ -129,8 +224,8 @@ async function main() {
         reportingApiEnabled: false,
         dataIngestionApiEnabled: false,
         businessMatchApiEnabled: false,
-        demoModeEnabled: process.env.DEMO_MODE === "true"
-      }
+        demoModeEnabled: process.env.DEMO_MODE === "true",
+      },
     },
     create: {
       tenantId: tenant.id,
@@ -147,9 +242,9 @@ async function main() {
         reportingApiEnabled: false,
         dataIngestionApiEnabled: false,
         businessMatchApiEnabled: false,
-        demoModeEnabled: process.env.DEMO_MODE === "true"
-      }
-    }
+        demoModeEnabled: process.env.DEMO_MODE === "true",
+      },
+    },
   });
 
   if (process.env.DEMO_MODE !== "true") {
@@ -160,20 +255,23 @@ async function main() {
     where: {
       tenantId_encryptedYelpBusinessId: {
         tenantId: tenant.id,
-        encryptedYelpBusinessId: "enc_demo_business_001"
-      }
+        encryptedYelpBusinessId: "enc_demo_business_001",
+      },
     },
     update: {
       name: "Northwind HVAC",
       city: "San Francisco",
       state: "CA",
       country: "US",
-      categoriesJson: ["Heating & Air Conditioning/HVAC", "Water Heater Installation/Repair"],
+      categoriesJson: [
+        "Heating & Air Conditioning/HVAC",
+        "Water Heater Installation/Repair",
+      ],
       readinessJson: {
         hasAboutText: true,
         hasCategories: true,
-        missingItems: []
-      }
+        missingItems: [],
+      },
     },
     create: {
       tenantId: tenant.id,
@@ -182,21 +280,24 @@ async function main() {
       city: "San Francisco",
       state: "CA",
       country: "US",
-      categoriesJson: ["Heating & Air Conditioning/HVAC", "Water Heater Installation/Repair"],
+      categoriesJson: [
+        "Heating & Air Conditioning/HVAC",
+        "Water Heater Installation/Repair",
+      ],
       readinessJson: {
         hasAboutText: true,
         hasCategories: true,
-        missingItems: []
-      }
-    }
+        missingItems: [],
+      },
+    },
   });
 
   const location = await prisma.location.upsert({
     where: {
       tenantId_externalCrmLocationId: {
         tenantId: tenant.id,
-        externalCrmLocationId: "st_location_sf_001"
-      }
+        externalCrmLocationId: "st_location_sf_001",
+      },
     },
     update: {
       name: "San Francisco Dispatch",
@@ -204,7 +305,7 @@ async function main() {
       city: "San Francisco",
       state: "CA",
       country: "US",
-      timezone: "America/Los_Angeles"
+      timezone: "America/Los_Angeles",
     },
     create: {
       tenantId: tenant.id,
@@ -214,36 +315,42 @@ async function main() {
       city: "San Francisco",
       state: "CA",
       country: "US",
-      timezone: "America/Los_Angeles"
-    }
+      timezone: "America/Los_Angeles",
+    },
   });
 
   await prisma.business.update({
     where: { id: business.id },
     data: {
-      locationId: location.id
-    }
+      locationId: location.id,
+    },
   });
 
   await prisma.serviceCategory.upsert({
     where: {
       tenantId_slug: {
         tenantId: tenant.id,
-        slug: "hvac-repair"
-      }
+        slug: "hvac-repair",
+      },
     },
     update: {
       name: "HVAC Repair",
-      yelpAliasesJson: ["heatingairconditioninghvac", "waterheaterinstallrepair"],
-      crmCodesJson: ["HVAC_REPAIR"]
+      yelpAliasesJson: [
+        "heatingairconditioninghvac",
+        "waterheaterinstallrepair",
+      ],
+      crmCodesJson: ["HVAC_REPAIR"],
     },
     create: {
       tenantId: tenant.id,
       slug: "hvac-repair",
       name: "HVAC Repair",
-      yelpAliasesJson: ["heatingairconditioninghvac", "waterheaterinstallrepair"],
-      crmCodesJson: ["HVAC_REPAIR"]
-    }
+      yelpAliasesJson: [
+        "heatingairconditioninghvac",
+        "waterheaterinstallrepair",
+      ],
+      crmCodesJson: ["HVAC_REPAIR"],
+    },
   });
 
   const program = await prisma.program.upsert({
@@ -263,9 +370,9 @@ async function main() {
       configurationJson: {
         scheduledBudgetChange: {
           effectiveDate: "2026-04-01",
-          budgetCents: 275000
-        }
-      }
+          budgetCents: 275000,
+        },
+      },
     },
     create: {
       id: "demo-program-cpc",
@@ -283,10 +390,10 @@ async function main() {
       configurationJson: {
         scheduledBudgetChange: {
           effectiveDate: "2026-04-01",
-          budgetCents: 275000
-        }
-      }
-    }
+          budgetCents: 275000,
+        },
+      },
+    },
   });
 
   await prisma.programFeatureSnapshot.createMany({
@@ -298,8 +405,8 @@ async function main() {
         type: "LINK_TRACKING",
         valueJson: {
           destinationUrl: "https://northwindhvac.example/offer",
-          trackingTemplate: "https://tracking.example/click?src=yelp"
-        }
+          trackingTemplate: "https://tracking.example/click?src=yelp",
+        },
       },
       {
         tenantId: tenant.id,
@@ -307,11 +414,11 @@ async function main() {
         programId: program.id,
         type: "NEGATIVE_KEYWORD_TARGETING",
         valueJson: {
-          keywords: ["jobs", "careers"]
-        }
-      }
+          keywords: ["jobs", "careers"],
+        },
+      },
     ],
-    skipDuplicates: true
+    skipDuplicates: true,
   });
 
   const reportRequest = await prisma.reportRequest.upsert({
@@ -323,7 +430,7 @@ async function main() {
       status: ReportStatus.READY,
       startDate: new Date("2026-03-01"),
       endDate: new Date("2026-03-07"),
-      requestedBusinessIdsJson: [business.id]
+      requestedBusinessIdsJson: [business.id],
     },
     create: {
       id: "demo-report-request",
@@ -333,8 +440,8 @@ async function main() {
       status: ReportStatus.READY,
       startDate: new Date("2026-03-01"),
       endDate: new Date("2026-03-07"),
-      requestedBusinessIdsJson: [business.id]
-    }
+      requestedBusinessIdsJson: [business.id],
+    },
   });
 
   await prisma.reportResult.upsert({
@@ -350,18 +457,39 @@ async function main() {
           clicks: 290,
           adSpendCents: 128900,
           calls: 42,
-          websiteLeads: 18
+          websiteLeads: 18,
         },
         rows: [
-          { date: "2026-03-01", impressions: 600, clicks: 44, adSpendCents: 18000, calls: 5, websiteLeads: 3 },
-          { date: "2026-03-02", impressions: 575, clicks: 37, adSpendCents: 17400, calls: 4, websiteLeads: 2 },
-          { date: "2026-03-03", impressions: 640, clicks: 45, adSpendCents: 19200, calls: 6, websiteLeads: 3 }
-        ]
+          {
+            date: "2026-03-01",
+            impressions: 600,
+            clicks: 44,
+            adSpendCents: 18000,
+            calls: 5,
+            websiteLeads: 3,
+          },
+          {
+            date: "2026-03-02",
+            impressions: 575,
+            clicks: 37,
+            adSpendCents: 17400,
+            calls: 4,
+            websiteLeads: 2,
+          },
+          {
+            date: "2026-03-03",
+            impressions: 640,
+            clicks: 45,
+            adSpendCents: 19200,
+            calls: 6,
+            websiteLeads: 3,
+          },
+        ],
       },
       metricsSummaryJson: {
         ctr: 0.069,
-        cpcCents: 444
-      }
+        cpcCents: 444,
+      },
     },
     create: {
       tenantId: tenant.id,
@@ -375,19 +503,40 @@ async function main() {
           clicks: 290,
           adSpendCents: 128900,
           calls: 42,
-          websiteLeads: 18
+          websiteLeads: 18,
         },
         rows: [
-          { date: "2026-03-01", impressions: 600, clicks: 44, adSpendCents: 18000, calls: 5, websiteLeads: 3 },
-          { date: "2026-03-02", impressions: 575, clicks: 37, adSpendCents: 17400, calls: 4, websiteLeads: 2 },
-          { date: "2026-03-03", impressions: 640, clicks: 45, adSpendCents: 19200, calls: 6, websiteLeads: 3 }
-        ]
+          {
+            date: "2026-03-01",
+            impressions: 600,
+            clicks: 44,
+            adSpendCents: 18000,
+            calls: 5,
+            websiteLeads: 3,
+          },
+          {
+            date: "2026-03-02",
+            impressions: 575,
+            clicks: 37,
+            adSpendCents: 17400,
+            calls: 4,
+            websiteLeads: 2,
+          },
+          {
+            date: "2026-03-03",
+            impressions: 640,
+            clicks: 45,
+            adSpendCents: 19200,
+            calls: 6,
+            websiteLeads: 3,
+          },
+        ],
       },
       metricsSummaryJson: {
         ctr: 0.069,
-        cpcCents: 444
-      }
-    }
+        cpcCents: 444,
+      },
+    },
   });
 }
 

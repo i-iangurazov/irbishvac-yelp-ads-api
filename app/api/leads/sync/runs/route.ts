@@ -5,14 +5,18 @@ import { handleRouteError, requireApiPermission } from "@/lib/utils/http";
 
 export async function POST(request: Request) {
   try {
-    const user = await requireApiPermission("leads:write");
+    const user = await requireApiPermission("leads:sync");
 
     if (user instanceof NextResponse) {
       return user;
     }
 
     const body = await request.json();
-    const result = await createLeadBackfillRunWorkflow(user.tenantId, user.id, body);
+    const result = await createLeadBackfillRunWorkflow(
+      user.tenantId,
+      user.id,
+      body,
+    );
 
     return NextResponse.json(result);
   } catch (error) {

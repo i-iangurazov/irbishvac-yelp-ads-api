@@ -41,6 +41,7 @@ export function LeadAutoresponderSettingsForm({
   aiAssistConfigured,
   availableModels,
   businesses,
+  canManageAiPlan,
 }: {
   defaultValues: LeadAutoresponderSettingsValues;
   smtpConfigured: boolean;
@@ -55,6 +56,7 @@ export function LeadAutoresponderSettingsForm({
     name: string;
     yelpBusinessId: string | null;
   }>;
+  canManageAiPlan: boolean;
 }) {
   const router = useRouter();
   const {
@@ -94,6 +96,7 @@ export function LeadAutoresponderSettingsForm({
   );
   const conversationMode = watch("conversationMode");
   const conversationAllowedIntents = watch("conversationAllowedIntents");
+  const aiAllowedModels = watch("aiAllowedModels");
 
   const toggleScopedBusiness = (businessId: string, checked: boolean) => {
     const next = checked
@@ -124,6 +127,17 @@ export function LeadAutoresponderSettingsForm({
     });
   };
 
+  const toggleAllowedModel = (
+    model: LeadAutoresponderSettingsValues["aiAllowedModels"][number],
+    checked: boolean,
+  ) => {
+    const next = checked
+      ? Array.from(new Set([...(aiAllowedModels ?? []), model]))
+      : (aiAllowedModels ?? []).filter((candidate) => candidate !== model);
+
+    setValue("aiAllowedModels", next, { shouldValidate: true });
+  };
+
   return (
     <Card className="shadow-none">
       <CardHeader className="pb-3">
@@ -135,6 +149,26 @@ export function LeadAutoresponderSettingsForm({
       </CardHeader>
       <CardContent>
         <form className="space-y-5" onSubmit={submit}>
+          <div className="flex items-center justify-between gap-4 rounded-lg border border-destructive/40 bg-destructive/5 p-4">
+            <div>
+              <div className="text-sm font-semibold text-destructive">
+                Tenant emergency stop
+              </div>
+              <div className="text-xs text-muted-foreground">
+                Immediately blocks new Claude generation and all automatic
+                replies for every business in this tenant.
+              </div>
+            </div>
+            <Switch
+              aria-label="Tenant emergency stop"
+              checked={watch("tenantKillSwitchEnabled")}
+              onCheckedChange={(checked) =>
+                setValue("tenantKillSwitchEnabled", checked, {
+                  shouldDirty: true,
+                })
+              }
+            />
+          </div>
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
             <div className="space-y-4 rounded-lg border border-border/80 bg-muted/10 p-4">
               <div className="flex items-center justify-between gap-3">
@@ -384,7 +418,7 @@ export function LeadAutoresponderSettingsForm({
             </div>
 
             {aiAssistConfigured && aiAssistEnabled ? (
-              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_14rem]">
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <div className="space-y-2">
                   <Label>AI model</Label>
                   <Select
@@ -400,11 +434,17 @@ export function LeadAutoresponderSettingsForm({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {availableModels.map((model) => (
-                        <SelectItem key={model.value} value={model.value}>
-                          {model.value} • {model.label}
-                        </SelectItem>
-                      ))}
+                      {availableModels
+                        .filter((model) =>
+                          aiAllowedModels.includes(
+                            model.value as LeadAutoresponderSettingsValues["aiAllowedModels"][number],
+                          ),
+                        )
+                        .map((model) => (
+                          <SelectItem key={model.value} value={model.value}>
+                            {model.value} • {model.label}
+                          </SelectItem>
+                        ))}
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
@@ -413,21 +453,214 @@ export function LeadAutoresponderSettingsForm({
                     )?.description ?? "Approved model"}
                   </p>
                 </div>
-                <div className="rounded-lg border border-border/70 bg-background px-3 py-3 text-xs text-muted-foreground">
-                  <div className="font-medium text-foreground">
-                    Live AI guardrails
+                {canManageAiPlan ? (
+                  <>
+                    <div className="space-y-2 md:col-span-2 xl:col-span-3">
+                      <Label>Client tier allowlist</Label>
+                      <div className="grid gap-2 sm:grid-cols-3">
+                        {availableModels.map((model) => (
+                          <label
+                            key={model.value}
+                            className="flex items-start gap-2 rounded-lg border border-border/70 bg-background p-3"
+                          >
+                            <Checkbox
+                              checked={aiAllowedModels.includes(
+                                model.value as LeadAutoresponderSettingsValues["aiAllowedModels"][number],
+                              )}
+                              onCheckedChange={(checked) =>
+                                toggleAllowedModel(
+                                  model.value as LeadAutoresponderSettingsValues["aiAllowedModels"][number],
+                                  checked === true,
+                                )
+                              }
+                            />
+                            <span className="text-xs">
+                              <span className="block font-medium text-foreground">
+                                {model.label}
+                              </span>
+                              {model.value}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Business managers can choose only from the tiers enabled
+                        here.
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="aiMonthlyBudgetUsd">
+                        Monthly AI budget
+                      </Label>
+                      <div className="relative">
+                        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                          $
+                        </span>
+                        <Input
+                          id="aiMonthlyBudgetUsd"
+                          className="pl-7"
+                          min={1}
+                          max={10000}
+                          step={1}
+                          type="number"
+                          value={watch("aiMonthlyBudgetUsd")}
+                          onChange={(event) =>
+                            setValue(
+                              "aiMonthlyBudgetUsd",
+                              Number(event.target.value),
+                              { shouldValidate: true },
+                            )
+                          }
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Hard monthly tenant cap based on Claude token usage.
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="aiMonthlyMessageLimit">
+                        Monthly messages
+                      </Label>
+                      <Input
+                        id="aiMonthlyMessageLimit"
+                        min={1}
+                        max={1000000}
+                        type="number"
+                        value={watch("aiMonthlyMessageLimit")}
+                        onChange={(event) =>
+                          setValue(
+                            "aiMonthlyMessageLimit",
+                            Number(event.target.value),
+                            {
+                              shouldValidate: true,
+                            },
+                          )
+                        }
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Hard generation-count limit.
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="aiMonthlyTokenLimit">
+                        Monthly tokens
+                      </Label>
+                      <Input
+                        id="aiMonthlyTokenLimit"
+                        min={1000}
+                        max={1000000000}
+                        step={1000}
+                        type="number"
+                        value={watch("aiMonthlyTokenLimit")}
+                        onChange={(event) =>
+                          setValue(
+                            "aiMonthlyTokenLimit",
+                            Number(event.target.value),
+                            {
+                              shouldValidate: true,
+                            },
+                          )
+                        }
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Includes input, output and cache tokens.
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="aiUsageWarningPercent">
+                        Warning threshold
+                      </Label>
+                      <div className="relative">
+                        <Input
+                          id="aiUsageWarningPercent"
+                          className="pr-7"
+                          min={1}
+                          max={99}
+                          type="number"
+                          value={watch("aiUsageWarningPercent")}
+                          onChange={(event) =>
+                            setValue(
+                              "aiUsageWarningPercent",
+                              Number(event.target.value),
+                              {
+                                shouldValidate: true,
+                              },
+                            )
+                          }
+                        />
+                        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                          %
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Warn before any hard limit is reached.
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="aiAgencyMarkupPercent">
+                        Agency markup
+                      </Label>
+                      <div className="relative">
+                        <Input
+                          id="aiAgencyMarkupPercent"
+                          className="pr-7"
+                          min={0}
+                          max={1000}
+                          step={0.1}
+                          type="number"
+                          value={watch("aiAgencyMarkupPercent")}
+                          onChange={(event) =>
+                            setValue(
+                              "aiAgencyMarkupPercent",
+                              Number(event.target.value),
+                              {
+                                shouldValidate: true,
+                              },
+                            )
+                          }
+                        />
+                        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                          %
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Used only for billable usage reporting.
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-border/70 bg-background px-3 py-3 text-xs text-muted-foreground md:col-span-2 xl:col-span-3">
+                      <div className="font-medium text-foreground">
+                        Live AI guardrails
+                      </div>
+                      <div className="mt-1">
+                        Rules decide eligibility. Unsafe or unavailable output
+                        uses the deterministic fallback; no other AI provider is
+                        called.
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-end">
+                      <Button asChild type="button" variant="outline">
+                        <a
+                          href={`/api/usage/ai/export?month=${new Date().toISOString().slice(0, 7)}`}
+                        >
+                          Export monthly usage
+                        </a>
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="rounded-lg border border-border/70 bg-background px-3 py-3 text-xs text-muted-foreground md:col-span-2 xl:col-span-3">
+                    Claude tier access, monthly limits, warning thresholds, and
+                    billing markup are controlled by the platform administrator.
+                    Your selected model must remain inside the approved tenant
+                    allowlist.
                   </div>
-                  <div className="mt-1">
-                    Rules still decide eligibility. Static fallback still exists
-                    if AI output is unsafe or unavailable.
-                  </div>
-                </div>
+                )}
               </div>
             ) : (
               <div className="text-xs text-muted-foreground">
                 {aiAssistConfigured
                   ? "AI assist is off."
-                  : "Add `OPENAI_API_KEY` before enabling AI assist."}
+                  : "Add `ANTHROPIC_API_KEY` before enabling Claude assist."}
               </div>
             )}
           </div>

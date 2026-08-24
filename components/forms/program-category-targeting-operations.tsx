@@ -26,6 +26,10 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  campaignLayerLabels,
+  normalizeCampaignLayer,
+} from "@/features/ads-programs/layers";
 import { apiFetch } from "@/lib/utils/client-api";
 import { normalizeYelpCategories } from "@/lib/yelp/categories";
 
@@ -47,10 +51,12 @@ export function ProgramCategoryTargetingOperations({
   programId,
   currentCategories,
   listingCategories,
+  currentCampaignLayer,
 }: {
   programId: string;
   currentCategories: unknown;
   listingCategories: unknown;
+  currentCampaignLayer: unknown;
 }) {
   const router = useRouter();
   const catalog = useMemo(
@@ -65,6 +71,7 @@ export function ProgramCategoryTargetingOperations({
     [currentCategories],
   );
   const [selectedAliases, setSelectedAliases] = useState(currentAliases);
+  const campaignLayer = normalizeCampaignLayer(currentCampaignLayer);
   const [internalNote, setInternalNote] = useState("");
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -97,6 +104,7 @@ export function ProgramCategoryTargetingOperations({
           method: "POST",
           body: JSON.stringify({
             adCategories: sortedSelectedAliases,
+            campaignLayer,
             internalNote,
           }),
         },
@@ -172,6 +180,17 @@ export function ProgramCategoryTargetingOperations({
             </div>
 
             <div className="space-y-2">
+              <Label>Campaign layer</Label>
+              <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
+                {campaignLayerLabels[campaignLayer]}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Campaign layers are fixed after creation. This operation changes
+                Yelp category aliases only.
+              </p>
+            </div>
+
+            <div className="space-y-2">
               <Label htmlFor="categoryTargetingInternalNote">
                 Internal audit note
               </Label>
@@ -211,7 +230,8 @@ export function ProgramCategoryTargetingOperations({
                     <span className="font-mono">
                       {sortedSelectedAliases.join(", ")}
                     </span>
-                    .
+                    . Internal campaign layer:{" "}
+                    {campaignLayerLabels[campaignLayer]}.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>

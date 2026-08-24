@@ -34,7 +34,8 @@ import { readLocationRecipientOverridesJson } from "@/features/report-delivery/r
 import { describeSchedule } from "@/features/report-delivery/schedule";
 import { getReportDeliveryAdminState } from "@/features/report-delivery/service";
 import { getReportingIndex } from "@/features/reporting/service";
-import { requireUser } from "@/lib/auth/service";
+import { requirePermission } from "@/lib/auth/service";
+import { hasPermission } from "@/lib/permissions";
 import { formatDateTime } from "@/lib/utils/format";
 
 export default async function ReportingPage({
@@ -45,7 +46,8 @@ export default async function ReportingPage({
     page?: string;
   }>;
 }) {
-  const user = await requireUser();
+  const user = await requirePermission("reports:read");
+  const canRequestReports = hasPermission(user.role.code, "reports:request");
   const params = await searchParams;
   const [
     reports,
@@ -205,19 +207,19 @@ export default async function ReportingPage({
       </Card>
 
       <div className="mt-6">
-        {businesses.length > 0 ? (
+        {canRequestReports && businesses.length > 0 ? (
           <ReportRequestForm
             businesses={businesses.map((business) => ({
               id: business.id,
               name: business.name,
             }))}
           />
-        ) : (
+        ) : canRequestReports ? (
           <EmptyState
             title="No businesses available for reporting"
             description="Save at least one business before requesting a Yelp report snapshot."
           />
-        )}
+        ) : null}
       </div>
 
       <div className="mt-6 space-y-6">
@@ -307,14 +309,18 @@ export default async function ReportingPage({
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap gap-2">
-                          <ReportScheduleGenerateButton
-                            scheduleId={schedule.id}
-                          />
-                          <Button asChild size="sm" variant="ghost">
-                            <Link href={`/reporting?schedule=${schedule.id}`}>
-                              Edit
-                            </Link>
-                          </Button>
+                          {canRequestReports ? (
+                            <ReportScheduleGenerateButton
+                              scheduleId={schedule.id}
+                            />
+                          ) : null}
+                          {canRequestReports ? (
+                            <Button asChild size="sm" variant="ghost">
+                              <Link href={`/reporting?schedule=${schedule.id}`}>
+                                Edit
+                              </Link>
+                            </Button>
+                          ) : null}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -325,47 +331,49 @@ export default async function ReportingPage({
           </CardContent>
         </Card>
 
-        <ReportScheduleForm
-          locations={deliveryAdminState.locations}
-          initialValues={
-            deliveryAdminState.selectedSchedule
-              ? {
-                  id: deliveryAdminState.selectedSchedule.id,
-                  name: deliveryAdminState.selectedSchedule.name,
-                  cadence: deliveryAdminState.selectedSchedule.cadence,
-                  deliveryScope:
-                    deliveryAdminState.selectedSchedule.deliveryScope,
-                  timezone: deliveryAdminState.selectedSchedule.timezone,
-                  sendDayOfWeek:
-                    deliveryAdminState.selectedSchedule.sendDayOfWeek ??
-                    undefined,
-                  sendDayOfMonth:
-                    deliveryAdminState.selectedSchedule.sendDayOfMonth ??
-                    undefined,
-                  sendHour: deliveryAdminState.selectedSchedule.sendHour,
-                  sendMinute: deliveryAdminState.selectedSchedule.sendMinute,
-                  deliverPerLocation:
-                    deliveryAdminState.selectedSchedule.deliverPerLocation,
-                  isEnabled: deliveryAdminState.selectedSchedule.isEnabled,
-                  recipientEmails: Array.isArray(
-                    deliveryAdminState.selectedSchedule.recipientEmailsJson,
-                  )
-                    ? deliveryAdminState.selectedSchedule.recipientEmailsJson.join(
-                        "\n",
-                      )
-                    : "",
-                  locationRecipientOverrides:
-                    readLocationRecipientOverridesJson(
-                      deliveryAdminState.selectedSchedule
-                        .locationRecipientOverridesJson,
-                    ).map((override) => ({
-                      locationId: override.locationId,
-                      recipientEmails: override.recipientEmails.join("\n"),
-                    })),
-                }
-              : null
-          }
-        />
+        {canRequestReports ? (
+          <ReportScheduleForm
+            locations={deliveryAdminState.locations}
+            initialValues={
+              deliveryAdminState.selectedSchedule
+                ? {
+                    id: deliveryAdminState.selectedSchedule.id,
+                    name: deliveryAdminState.selectedSchedule.name,
+                    cadence: deliveryAdminState.selectedSchedule.cadence,
+                    deliveryScope:
+                      deliveryAdminState.selectedSchedule.deliveryScope,
+                    timezone: deliveryAdminState.selectedSchedule.timezone,
+                    sendDayOfWeek:
+                      deliveryAdminState.selectedSchedule.sendDayOfWeek ??
+                      undefined,
+                    sendDayOfMonth:
+                      deliveryAdminState.selectedSchedule.sendDayOfMonth ??
+                      undefined,
+                    sendHour: deliveryAdminState.selectedSchedule.sendHour,
+                    sendMinute: deliveryAdminState.selectedSchedule.sendMinute,
+                    deliverPerLocation:
+                      deliveryAdminState.selectedSchedule.deliverPerLocation,
+                    isEnabled: deliveryAdminState.selectedSchedule.isEnabled,
+                    recipientEmails: Array.isArray(
+                      deliveryAdminState.selectedSchedule.recipientEmailsJson,
+                    )
+                      ? deliveryAdminState.selectedSchedule.recipientEmailsJson.join(
+                          "\n",
+                        )
+                      : "",
+                    locationRecipientOverrides:
+                      readLocationRecipientOverridesJson(
+                        deliveryAdminState.selectedSchedule
+                          .locationRecipientOverridesJson,
+                      ).map((override) => ({
+                        locationId: override.locationId,
+                        recipientEmails: override.recipientEmails.join("\n"),
+                      })),
+                  }
+                : null
+            }
+          />
+        ) : null}
       </div>
 
       <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -481,7 +489,8 @@ export default async function ReportingPage({
                             </Link>
                           </Button>
                         ) : null}
-                        {run.generationStatus === "READY" &&
+                        {canRequestReports &&
+                        run.generationStatus === "READY" &&
                         run.deliveryStatus !== "SKIPPED" ? (
                           <ReportScheduleResendButton runId={run.id} />
                         ) : null}

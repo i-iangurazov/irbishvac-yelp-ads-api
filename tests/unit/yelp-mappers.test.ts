@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { mapCreateProgramFormToDto, mapYelpJobStatusReceipt } from "@/lib/yelp/mappers";
+import {
+  mapCreateProgramFormToDto,
+  mapYelpJobStatusReceipt,
+} from "@/lib/yelp/mappers";
 import { yelpJobStatusResponseSchema } from "@/lib/yelp/schemas";
 
 describe("Yelp mappers", () => {
@@ -9,8 +12,10 @@ describe("Yelp mappers", () => {
       {
         businessId: "business_1",
         programType: "CPC",
+        campaignLayer: "GENERAL",
         currency: "USD",
         startDate: "2026-03-20",
+        endDate: "2026-08-31",
         monthlyBudgetDollars: "650.50",
         isAutobid: false,
         maxBidDollars: "24.75",
@@ -19,14 +24,15 @@ describe("Yelp mappers", () => {
         adCategories: ["HVAC"],
         scheduledBudgetEffectiveDate: "",
         scheduledBudgetDollars: "",
-        notes: "Upgrade budget"
+        notes: "Upgrade budget",
       },
-      "enc_business_1"
+      "enc_business_1",
     );
 
     expect(payload.business_id).toBe("enc_business_1");
     expect(payload.program_name).toBe("CPC");
     expect(payload.start).toBe("2026-03-20");
+    expect(payload.end).toBe("2026-08-31");
     expect(payload.budget).toBe(65050);
     expect(payload.max_bid).toBe(2475);
     expect(payload.fee_period).toBe("CALENDAR_MONTH");
@@ -41,18 +47,18 @@ describe("Yelp mappers", () => {
             {
               status: "COMPLETED",
               identifier_type: "PROGRAM",
-              identifier: "program_123"
-            }
-          ]
+              identifier: "program_123",
+            },
+          ],
         },
         "CREATE_PROGRAM",
-        "2026-03-10"
-      )
+        "2026-03-10",
+      ),
     ).toEqual({
       jobStatus: "COMPLETED",
       programStatus: "ACTIVE",
       isTerminal: true,
-      upstreamProgramId: "program_123"
+      upstreamProgramId: "program_123",
     });
   });
 
@@ -68,19 +74,21 @@ describe("Yelp mappers", () => {
             program_added: {
               status: "COMPLETED",
               program_id: {
-                requested_value: "program_456"
-              }
-            }
-          }
-        }
-      ]
+                requested_value: "program_456",
+              },
+            },
+          },
+        },
+      ],
     });
 
-    expect(mapYelpJobStatusReceipt(receipt, "CREATE_PROGRAM", "2026-03-10")).toEqual({
+    expect(
+      mapYelpJobStatusReceipt(receipt, "CREATE_PROGRAM", "2026-03-10"),
+    ).toEqual({
       jobStatus: "COMPLETED",
       programStatus: "ACTIVE",
       isTerminal: true,
-      upstreamProgramId: "program_456"
+      upstreamProgramId: "program_456",
     });
   });
 });

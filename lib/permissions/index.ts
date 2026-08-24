@@ -3,8 +3,15 @@ import type { RoleCode } from "@prisma/client";
 export const PERMISSIONS = {
   "settings:write": "settings:write",
   "settings:read": "settings:read",
+  "tenants:manage": "tenants:manage",
+  "tenants:switch": "tenants:switch",
+  "users:manage": "users:manage",
+  "credentials:manage": "credentials:manage",
+  "autoresponder:manage": "autoresponder:manage",
+  "billing:manage": "billing:manage",
   "businesses:read": "businesses:read",
   "businesses:write": "businesses:write",
+  "businesses:delete": "businesses:delete",
   "programs:read": "programs:read",
   "programs:write": "programs:write",
   "programs:terminate": "programs:terminate",
@@ -12,6 +19,8 @@ export const PERMISSIONS = {
   "features:write": "features:write",
   "leads:read": "leads:read",
   "leads:write": "leads:write",
+  "leads:sync": "leads:sync",
+  "replies:review": "replies:review",
   "reports:read": "reports:read",
   "reports:request": "reports:request",
   "locations:read": "locations:read",
@@ -19,12 +28,96 @@ export const PERMISSIONS = {
   "integrations:read": "integrations:read",
   "sync:read": "sync:read",
   "sync:retry": "sync:retry",
-  "audit:read": "audit:read"
+  "audit:read": "audit:read",
+  "diagnostics:read": "diagnostics:read",
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
 
 const permissionMap: Record<RoleCode, Permission[] | ["*"]> = {
+  PLATFORM_ADMIN: ["*"],
+  AGENCY_OPERATOR: [
+    PERMISSIONS["tenants:switch"],
+    PERMISSIONS["settings:read"],
+    PERMISSIONS["credentials:manage"],
+    PERMISSIONS["autoresponder:manage"],
+    PERMISSIONS["businesses:read"],
+    PERMISSIONS["businesses:write"],
+    PERMISSIONS["businesses:delete"],
+    PERMISSIONS["programs:read"],
+    PERMISSIONS["programs:write"],
+    PERMISSIONS["programs:terminate"],
+    PERMISSIONS["features:read"],
+    PERMISSIONS["features:write"],
+    PERMISSIONS["leads:read"],
+    PERMISSIONS["leads:write"],
+    PERMISSIONS["leads:sync"],
+    PERMISSIONS["replies:review"],
+    PERMISSIONS["reports:read"],
+    PERMISSIONS["reports:request"],
+    PERMISSIONS["locations:read"],
+    PERMISSIONS["services:read"],
+    PERMISSIONS["integrations:read"],
+    PERMISSIONS["sync:read"],
+    PERMISSIONS["sync:retry"],
+    PERMISSIONS["audit:read"],
+    PERMISSIONS["diagnostics:read"],
+  ],
+  CLIENT_ADMIN: [
+    PERMISSIONS["settings:read"],
+    PERMISSIONS["users:manage"],
+    PERMISSIONS["credentials:manage"],
+    PERMISSIONS["autoresponder:manage"],
+    PERMISSIONS["businesses:read"],
+    PERMISSIONS["businesses:write"],
+    PERMISSIONS["businesses:delete"],
+    PERMISSIONS["programs:read"],
+    PERMISSIONS["programs:write"],
+    PERMISSIONS["programs:terminate"],
+    PERMISSIONS["features:read"],
+    PERMISSIONS["features:write"],
+    PERMISSIONS["leads:read"],
+    PERMISSIONS["leads:write"],
+    PERMISSIONS["replies:review"],
+    PERMISSIONS["reports:read"],
+    PERMISSIONS["reports:request"],
+    PERMISSIONS["locations:read"],
+    PERMISSIONS["services:read"],
+    PERMISSIONS["integrations:read"],
+    PERMISSIONS["sync:read"],
+    PERMISSIONS["sync:retry"],
+    PERMISSIONS["audit:read"],
+  ],
+  CLIENT_MANAGER: [
+    PERMISSIONS["settings:read"],
+    PERMISSIONS["autoresponder:manage"],
+    PERMISSIONS["businesses:read"],
+    PERMISSIONS["programs:read"],
+    PERMISSIONS["programs:write"],
+    PERMISSIONS["features:read"],
+    PERMISSIONS["features:write"],
+    PERMISSIONS["leads:read"],
+    PERMISSIONS["leads:write"],
+    PERMISSIONS["replies:review"],
+    PERMISSIONS["reports:read"],
+    PERMISSIONS["reports:request"],
+    PERMISSIONS["locations:read"],
+    PERMISSIONS["services:read"],
+    PERMISSIONS["integrations:read"],
+    PERMISSIONS["sync:read"],
+    PERMISSIONS["audit:read"],
+  ],
+  REVIEWER: [
+    PERMISSIONS["businesses:read"],
+    PERMISSIONS["programs:read"],
+    PERMISSIONS["features:read"],
+    PERMISSIONS["leads:read"],
+    PERMISSIONS["replies:review"],
+    PERMISSIONS["reports:read"],
+    PERMISSIONS["locations:read"],
+    PERMISSIONS["services:read"],
+    PERMISSIONS["audit:read"],
+  ],
   ADMIN: ["*"],
   OPERATOR: [
     PERMISSIONS["settings:read"],
@@ -37,6 +130,8 @@ const permissionMap: Record<RoleCode, Permission[] | ["*"]> = {
     PERMISSIONS["features:write"],
     PERMISSIONS["leads:read"],
     PERMISSIONS["leads:write"],
+    PERMISSIONS["leads:sync"],
+    PERMISSIONS["replies:review"],
     PERMISSIONS["reports:read"],
     PERMISSIONS["reports:request"],
     PERMISSIONS["locations:read"],
@@ -44,7 +139,7 @@ const permissionMap: Record<RoleCode, Permission[] | ["*"]> = {
     PERMISSIONS["integrations:read"],
     PERMISSIONS["sync:read"],
     PERMISSIONS["sync:retry"],
-    PERMISSIONS["audit:read"]
+    PERMISSIONS["audit:read"],
   ],
   ANALYST: [
     PERMISSIONS["settings:read"],
@@ -52,13 +147,14 @@ const permissionMap: Record<RoleCode, Permission[] | ["*"]> = {
     PERMISSIONS["programs:read"],
     PERMISSIONS["features:read"],
     PERMISSIONS["leads:read"],
+    PERMISSIONS["replies:review"],
     PERMISSIONS["reports:read"],
     PERMISSIONS["reports:request"],
     PERMISSIONS["locations:read"],
     PERMISSIONS["services:read"],
     PERMISSIONS["integrations:read"],
     PERMISSIONS["sync:read"],
-    PERMISSIONS["audit:read"]
+    PERMISSIONS["audit:read"],
   ],
   VIEWER: [
     PERMISSIONS["settings:read"],
@@ -71,8 +167,8 @@ const permissionMap: Record<RoleCode, Permission[] | ["*"]> = {
     PERMISSIONS["services:read"],
     PERMISSIONS["integrations:read"],
     PERMISSIONS["sync:read"],
-    PERMISSIONS["audit:read"]
-  ]
+    PERMISSIONS["audit:read"],
+  ],
 };
 
 export function getPermissionsForRole(roleCode: RoleCode) {
@@ -81,5 +177,8 @@ export function getPermissionsForRole(roleCode: RoleCode) {
 
 export function hasPermission(roleCode: RoleCode, permission: Permission) {
   const permissions = getPermissionsForRole(roleCode);
-  return (permissions as readonly string[]).includes("*") || (permissions as readonly string[]).includes(permission);
+  return (
+    (permissions as readonly string[]).includes("*") ||
+    (permissions as readonly string[]).includes(permission)
+  );
 }

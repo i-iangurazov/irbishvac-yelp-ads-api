@@ -9,10 +9,14 @@ const createLeadAutomationRuleWorkflow = vi.fn();
 const updateLeadAutomationRuleWorkflow = vi.fn();
 
 vi.mock("@/lib/utils/http", () => ({
-  requireApiPermission: vi.fn(async () => ({ id: "user_1", tenantId: "tenant_1", role: { code: "ADMIN" } })),
+  requireApiPermission: vi.fn(async () => ({
+    id: "user_1",
+    tenantId: "tenant_1",
+    role: { code: "ADMIN" },
+  })),
   handleRouteError: vi.fn((error) => {
     throw error;
-  })
+  }),
 }));
 
 vi.mock("@/features/autoresponder/service", () => ({
@@ -22,7 +26,7 @@ vi.mock("@/features/autoresponder/service", () => ({
   createLeadAutomationTemplateWorkflow,
   updateLeadAutomationTemplateWorkflow,
   createLeadAutomationRuleWorkflow,
-  updateLeadAutomationRuleWorkflow
+  updateLeadAutomationRuleWorkflow,
 }));
 
 describe("autoresponder settings routes", () => {
@@ -32,7 +36,7 @@ describe("autoresponder settings routes", () => {
       defaultChannel: "EMAIL",
       emailFallbackEnabled: true,
       aiAssistEnabled: true,
-      aiModel: "gpt-5-nano"
+      aiModel: "claude-haiku-4-5",
     });
 
     const { POST } = await import("@/app/api/settings/autoresponder/route");
@@ -40,16 +44,16 @@ describe("autoresponder settings routes", () => {
       new Request("http://localhost/api/settings/autoresponder", {
         method: "POST",
         headers: {
-          "content-type": "application/json"
+          "content-type": "application/json",
         },
         body: JSON.stringify({
           isEnabled: true,
           defaultChannel: "EMAIL",
           emailFallbackEnabled: true,
           aiAssistEnabled: true,
-          aiModel: "gpt-5-nano"
-        })
-      })
+          aiModel: "claude-haiku-4-5",
+        }),
+      }),
     );
 
     expect(response.status).toBe(200);
@@ -61,33 +65,37 @@ describe("autoresponder settings routes", () => {
         defaultChannel: "EMAIL",
         emailFallbackEnabled: true,
         aiAssistEnabled: true,
-        aiModel: "gpt-5-nano"
-      })
+        aiModel: "claude-haiku-4-5",
+      }),
     );
   });
 
   it("creates or updates business-specific autoresponder overrides", async () => {
     saveLeadAutomationBusinessOverrideWorkflow.mockResolvedValueOnce({
       businessId: "business_1",
-      isEnabled: true
+      isEnabled: true,
     });
 
-    const { POST } = await import("@/app/api/settings/autoresponder/business-overrides/route");
+    const { POST } =
+      await import("@/app/api/settings/autoresponder/business-overrides/route");
     const response = await POST(
-      new Request("http://localhost/api/settings/autoresponder/business-overrides", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json"
+      new Request(
+        "http://localhost/api/settings/autoresponder/business-overrides",
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            businessId: "business_1",
+            isEnabled: true,
+            defaultChannel: "YELP_THREAD",
+            emailFallbackEnabled: false,
+            aiAssistEnabled: true,
+            aiModel: "claude-sonnet-4-6",
+          }),
         },
-        body: JSON.stringify({
-          businessId: "business_1",
-          isEnabled: true,
-          defaultChannel: "YELP_THREAD",
-          emailFallbackEnabled: false,
-          aiAssistEnabled: true,
-          aiModel: "gpt-5-mini"
-        })
-      })
+      ),
     );
 
     expect(response.status).toBe(200);
@@ -98,41 +106,48 @@ describe("autoresponder settings routes", () => {
         businessId: "business_1",
         defaultChannel: "YELP_THREAD",
         emailFallbackEnabled: false,
-        aiModel: "gpt-5-mini"
-      })
+        aiModel: "claude-sonnet-4-6",
+      }),
     );
   });
 
   it("deletes business-specific autoresponder overrides", async () => {
     deleteLeadAutomationBusinessOverrideWorkflow.mockResolvedValueOnce({
-      deleted: true
+      deleted: true,
     });
 
-    const { DELETE } = await import("@/app/api/settings/autoresponder/business-overrides/[businessId]/route");
-    const response = await DELETE(new Request("http://localhost/api/settings/autoresponder/business-overrides/business_1"), {
-      params: Promise.resolve({ businessId: "business_1" })
-    });
+    const { DELETE } =
+      await import("@/app/api/settings/autoresponder/business-overrides/[businessId]/route");
+    const response = await DELETE(
+      new Request(
+        "http://localhost/api/settings/autoresponder/business-overrides/business_1",
+      ),
+      {
+        params: Promise.resolve({ businessId: "business_1" }),
+      },
+    );
 
     expect(response.status).toBe(200);
     expect(deleteLeadAutomationBusinessOverrideWorkflow).toHaveBeenCalledWith(
       "tenant_1",
       "user_1",
-      "business_1"
+      "business_1",
     );
   });
 
   it("creates automation templates through the template route", async () => {
     createLeadAutomationTemplateWorkflow.mockResolvedValueOnce({
       id: "template_1",
-      name: "Default template"
+      name: "Default template",
     });
 
-    const { POST } = await import("@/app/api/settings/autoresponder/templates/route");
+    const { POST } =
+      await import("@/app/api/settings/autoresponder/templates/route");
     const response = await POST(
       new Request("http://localhost/api/settings/autoresponder/templates", {
         method: "POST",
         headers: {
-          "content-type": "application/json"
+          "content-type": "application/json",
         },
         body: JSON.stringify({
           name: "Default template",
@@ -140,9 +155,9 @@ describe("autoresponder settings routes", () => {
           channel: "EMAIL",
           templateKind: "CANNOT_ESTIMATE",
           isEnabled: true,
-          bodyTemplate: "Hello"
-        })
-      })
+          bodyTemplate: "Hello",
+        }),
+      }),
     );
 
     expect(response.status).toBe(200);
@@ -153,23 +168,24 @@ describe("autoresponder settings routes", () => {
         name: "Default template",
         businessId: "business_1",
         channel: "EMAIL",
-        templateKind: "CANNOT_ESTIMATE"
-      })
+        templateKind: "CANNOT_ESTIMATE",
+      }),
     );
   });
 
   it("updates automation rules through the rule route", async () => {
     updateLeadAutomationRuleWorkflow.mockResolvedValueOnce({
       id: "rule_1",
-      name: "Weekday default"
+      name: "Weekday default",
     });
 
-    const { PATCH } = await import("@/app/api/settings/autoresponder/rules/[ruleId]/route");
+    const { PATCH } =
+      await import("@/app/api/settings/autoresponder/rules/[ruleId]/route");
     const response = await PATCH(
       new Request("http://localhost/api/settings/autoresponder/rules/rule_1", {
         method: "PATCH",
         headers: {
-          "content-type": "application/json"
+          "content-type": "application/json",
         },
         body: JSON.stringify({
           name: "Weekday default",
@@ -179,12 +195,12 @@ describe("autoresponder settings routes", () => {
           isEnabled: true,
           priority: 100,
           onlyDuringWorkingHours: false,
-          workingDays: [1, 2, 3, 4, 5]
-        })
+          workingDays: [1, 2, 3, 4, 5],
+        }),
       }),
       {
-        params: Promise.resolve({ ruleId: "rule_1" })
-      }
+        params: Promise.resolve({ ruleId: "rule_1" }),
+      },
     );
 
     expect(response.status).toBe(200);
@@ -194,8 +210,8 @@ describe("autoresponder settings routes", () => {
       "rule_1",
       expect.objectContaining({
         name: "Weekday default",
-        businessId: "business_1"
-      })
+        businessId: "business_1",
+      }),
     );
   });
 });

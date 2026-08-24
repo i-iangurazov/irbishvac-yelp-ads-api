@@ -17,10 +17,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { getLocationsOverview } from "@/features/operations/service";
-import { requireUser } from "@/lib/auth/service";
+import { requirePermission } from "@/lib/auth/service";
 
 export default async function LocationsPage() {
-  const user = await requireUser();
+  const user = await requirePermission("locations:read");
   const overview = await getLocationsOverview(user.tenantId);
 
   return (

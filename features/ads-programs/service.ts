@@ -7,6 +7,21 @@ import {
   normalizeProgramCategoryAliases,
 } from "@/features/ads-programs/conflicts";
 import {
+  evaluateMonthlyBudgetChange,
+  getMonthlyBudgetPolicyState,
+  YELP_MONTHLY_BUDGET_CAP_CENTS,
+} from "@/features/ads-programs/budget-policy";
+import {
+  getProgramCampaignLayer,
+  isTemporaryAugustCampaignLayer,
+  temporaryAugustCampaigns,
+  type CampaignLayer,
+} from "@/features/ads-programs/layers";
+import {
+  planTemporaryAugustCampaignReconciliation,
+  verifyTemporaryAugustCampaignReadBack,
+} from "@/features/ads-programs/temporary-reconciliation";
+import {
   isBusinessEligibleForProgramInventory,
   isCurrentLocalProgramStatus,
 } from "@/features/ads-programs/status";
@@ -25,10 +40,14 @@ import {
   editProgramFormSchema,
   programBudgetOperationSchema,
   programCategoryTargetingOperationSchema,
+  temporaryAugustCampaignReconcileSchema,
   terminateProgramFormSchema,
 } from "@/features/ads-programs/schemas";
 import { recordAuditEvent } from "@/features/audit/service";
-import { getBusinessById } from "@/lib/db/businesses-repository";
+import {
+  findBusinessByEncryptedYelpBusinessId,
+  getBusinessById,
+} from "@/lib/db/businesses-repository";
 import { updateBusinessRecord } from "@/lib/db/businesses-repository";
 import { toJsonValue } from "@/lib/db/json";
 import {
@@ -59,6 +78,7 @@ import { summarizeYelpJobIssue } from "@/lib/yelp/job-status";
 import { parseCurrencyToCents } from "@/lib/utils/format";
 import { pollUntil } from "@/lib/utils/polling";
 import { extractYelpCategoryAliases } from "@/lib/yelp/categories";
+import type { YelpUpstreamProgramDto } from "@/lib/yelp/schemas";
 
 function mergeConfigurationJson(
   existing: unknown,
@@ -103,6 +123,9 @@ function deriveProgramUpdateFromEditRequest(
       : {}),
     ...(Array.isArray(request.ad_categories)
       ? { adCategories: request.ad_categories }
+      : {}),
+    ...(typeof request._campaignLayer === "string"
+      ? { campaignLayer: request._campaignLayer }
       : {}),
   });
 
@@ -192,6 +215,7 @@ function assertNoConflictingCpcPrograms(
   requestedCategories: unknown,
   listingCategoryAliases: unknown,
   excludeProgramId?: string,
+  requestedCampaignLayer: CampaignLayer = "GENERAL",
 ) {
   const conflicts = findConflictingCpcPrograms(
     programs,
@@ -199,6 +223,7 @@ function assertNoConflictingCpcPrograms(
     excludeProgramId,
     {
       listingCategoryAliases,
+      requestedCampaignLayer,
     },
   );
 
@@ -216,6 +241,45 @@ function assertNoConflictingCpcPrograms(
   throw new YelpValidationError(
     `A CPC program already exists for this business with overlapping category targeting. Existing program(s): ${conflictReferences}. Edit the existing program or terminate it before creating another.`,
   );
+}
+
+function assertMonthlyBudgetPolicy(
+  programs: Awaited<ReturnType<typeof listPrograms>>,
+  proposedBudgetCents: number,
+  excludeProgramId?: string,
+) {
+  const policy = evaluateMonthlyBudgetChange(
+    programs,
+    proposedBudgetCents,
+    excludeProgramId,
+  );
+
+  if (policy.isAllowed) {
+    return;
+  }
+
+  throw new YelpValidationError(
+    `This campaign would have a $${(policy.projectedBudgetCents / 100).toLocaleString("en-US", { maximumFractionDigits: 2 })} monthly budget. The approved maximum for each Yelp campaign is $${(YELP_MONTHLY_BUDGET_CAP_CENTS / 100).toLocaleString("en-US")}.`,
+  );
+}
+
+export function deduplicateProgramsByUpstreamId<
+  T extends { id: string; upstreamProgramId: string | null; updatedAt: Date },
+>(programs: T[]) {
+  const unique = new Map<string, T>();
+
+  for (const program of programs) {
+    const key = program.upstreamProgramId
+      ? `yelp:${program.upstreamProgramId}`
+      : `local:${program.id}`;
+    const existing = unique.get(key);
+
+    if (!existing || program.updatedAt > existing.updatedAt) {
+      unique.set(key, program);
+    }
+  }
+
+  return [...unique.values()];
 }
 
 function assertProgramCanBeTerminated(
@@ -282,11 +346,17 @@ function assertProgramCanBeMutated(
 
 export async function getProgramsIndex(tenantId: string) {
   const programs = await listPrograms(tenantId);
-  return programs.filter(
-    (program) =>
-      isCurrentLocalProgramStatus(program.status) &&
-      isBusinessEligibleForProgramInventory(program.business),
+  return deduplicateProgramsByUpstreamId(
+    programs.filter(
+      (program) =>
+        isCurrentLocalProgramStatus(program.status) &&
+        isBusinessEligibleForProgramInventory(program.business),
+    ),
   );
+}
+
+export async function getProgramBudgetPolicy(tenantId: string) {
+  return getMonthlyBudgetPolicyState(await getProgramsIndex(tenantId));
 }
 
 export async function getProgramDetail(tenantId: string, programId: string) {
@@ -330,6 +400,7 @@ export async function syncBusinessProgramsFromYelpWorkflow(
   let createdPrograms = 0;
   let updatedPrograms = 0;
   let skippedPrograms = 0;
+  let endedPrograms = 0;
 
   for (const upstreamProgram of upstreamPrograms) {
     const programType = resolveSynchronizedProgramType(
@@ -432,6 +503,34 @@ export async function syncBusinessProgramsFromYelpWorkflow(
     });
   }
 
+  const upstreamProgramIds = new Set(
+    upstreamPrograms.map(
+      (program: YelpUpstreamProgramDto) => program.program_id,
+    ),
+  );
+
+  for (const existingProgram of business.programs) {
+    if (
+      !existingProgram.upstreamProgramId ||
+      !isCurrentLocalProgramStatus(existingProgram.status) ||
+      upstreamProgramIds.has(existingProgram.upstreamProgramId)
+    ) {
+      continue;
+    }
+
+    await updateProgramRecord(existingProgram.id, tenantId, {
+      status: "ENDED",
+      lastSyncedAt: syncedAt,
+      configurationJson: toJsonValue(
+        mergeConfigurationJson(existingProgram.configurationJson, {
+          lastUpstreamProgramStatus: "MISSING_FROM_PROGRAM_LIST",
+          missingFromProgramListAt: syncedAt.toISOString(),
+        }),
+      ),
+    });
+    endedPrograms += 1;
+  }
+
   const nextRawSnapshot =
     typeof business.rawSnapshotJson === "object" &&
     business.rawSnapshotJson !== null
@@ -481,6 +580,7 @@ export async function syncBusinessProgramsFromYelpWorkflow(
       createdPrograms,
       updatedPrograms,
       skippedPrograms,
+      endedPrograms,
       totalPrograms: upstreamPrograms.length,
       targetingIssues: targetingIssues.map((issue) => ({
         code: issue.code,
@@ -496,13 +596,311 @@ export async function syncBusinessProgramsFromYelpWorkflow(
     createdPrograms,
     updatedPrograms,
     skippedPrograms,
+    endedPrograms,
     totalPrograms: upstreamPrograms.length,
     targetingIssues,
     syncedAt: syncedAt.toISOString(),
     message:
       targetingIssues.length > 0
-        ? `Imported ${createdPrograms} and refreshed ${updatedPrograms} Yelp programs. Targeting review required: ${targetingIssues.map((issue) => issue.title).join("; ")}.`
-        : `Imported ${createdPrograms} and refreshed ${updatedPrograms} Yelp programs. CPC targeting checks passed.`,
+        ? `Imported ${createdPrograms}, refreshed ${updatedPrograms}, and retired ${endedPrograms} stale local programs. Targeting review required: ${targetingIssues.map((issue) => issue.title).join("; ")}.`
+        : `Imported ${createdPrograms}, refreshed ${updatedPrograms}, and retired ${endedPrograms} stale local programs. CPC targeting checks passed.`,
+  };
+}
+
+export async function syncAllCurrentProgramsFromYelpWorkflow(
+  tenantId: string,
+  actorId: string,
+) {
+  const currentPrograms = await getProgramsIndex(tenantId);
+  const businessIds = [
+    ...new Set(currentPrograms.map((program) => program.businessId)),
+  ];
+  const results = [];
+
+  for (const businessId of businessIds) {
+    results.push(
+      await syncBusinessProgramsFromYelpWorkflow(tenantId, actorId, businessId),
+    );
+  }
+
+  const createdPrograms = results.reduce(
+    (total, result) => total + result.createdPrograms,
+    0,
+  );
+  const updatedPrograms = results.reduce(
+    (total, result) => total + result.updatedPrograms,
+    0,
+  );
+  const endedPrograms = results.reduce(
+    (total, result) => total + result.endedPrograms,
+    0,
+  );
+
+  return {
+    businessCount: businessIds.length,
+    createdPrograms,
+    updatedPrograms,
+    endedPrograms,
+    message: `Yelp-reported billing-period spend refreshed for ${updatedPrograms} current programs across ${businessIds.length} business records; ${endedPrograms} stale local records retired.`,
+  };
+}
+
+export async function reconcileTemporaryAugustCampaignWorkflow(
+  tenantId: string,
+  actorId: string,
+  input: unknown,
+) {
+  const values = temporaryAugustCampaignReconcileSchema.parse(input);
+  const business = await getBusinessById(values.businessId, tenantId);
+  const { credential } = await ensureYelpAccess({
+    tenantId,
+    capabilityKey: "adsApiEnabled",
+    credentialKind: "ADS_BASIC_AUTH",
+  });
+  const client = new YelpAdsClient(credential);
+  const inventoryResponse = await client.listPrograms(
+    business.encryptedYelpBusinessId,
+  );
+  const inventoryBusiness = inventoryResponse.data.businesses.find(
+    (entry) => entry.yelp_business_id === business.encryptedYelpBusinessId,
+  );
+
+  if (!inventoryBusiness) {
+    throw new YelpValidationError(
+      "Yelp did not return the selected canonical business during the required read-only inventory.",
+    );
+  }
+
+  if (
+    inventoryBusiness.destination_yelp_business_id &&
+    inventoryBusiness.destination_yelp_business_id !==
+      business.encryptedYelpBusinessId
+  ) {
+    const destination = await findBusinessByEncryptedYelpBusinessId(
+      tenantId,
+      inventoryBusiness.destination_yelp_business_id,
+    );
+    throw new YelpValidationError(
+      destination
+        ? `The selected Yelp business redirects to canonical local business ${destination.id}. Run reconciliation from that business record.`
+        : "The selected Yelp business redirects to a canonical Yelp destination that is not saved locally. Save the destination business before campaign mutation.",
+    );
+  }
+
+  const upstreamPrograms = inventoryBusiness.programs;
+  const plan = planTemporaryAugustCampaignReconciliation({
+    layer: values.campaignLayer,
+    localPrograms: business.programs,
+    upstreamPrograms,
+  });
+
+  await recordAuditEvent({
+    tenantId,
+    actorId,
+    businessId: business.id,
+    actionType: "program.temporary.inventory",
+    status: plan.action === "BLOCKED" ? "FAILED" : "SUCCESS",
+    correlationId: inventoryResponse.correlationId,
+    requestSummary: toJsonValue({
+      campaignLayer: values.campaignLayer,
+      dryRun: values.dryRun,
+      source: "yelp_program_list",
+    }),
+    responseSummary: toJsonValue({
+      plan,
+      upstreamPrograms: upstreamPrograms.map(
+        (program: YelpUpstreamProgramDto) => ({
+          programId: program.program_id,
+          type: program.program_type,
+          status: program.program_status,
+          categories: program.ad_categories,
+          budgetCents: program.program_metrics?.budget ?? null,
+          startDate: program.start_date ?? null,
+          endDate: program.end_date ?? null,
+        }),
+      ),
+    }),
+  });
+
+  if (values.dryRun) {
+    return {
+      dryRun: true,
+      plan,
+      canonicalBusinessId: business.id,
+      upstreamProgramCount: upstreamPrograms.length,
+    };
+  }
+
+  if (plan.action === "BLOCKED") {
+    throw new YelpValidationError(plan.reason);
+  }
+
+  const specification = temporaryAugustCampaigns[values.campaignLayer];
+  let programId = plan.localProgramId;
+  let upstreamProgramId = plan.upstreamProgramId;
+  let jobId: string | null = null;
+
+  if (!programId && upstreamProgramId) {
+    await syncBusinessProgramsFromYelpWorkflow(tenantId, actorId, business.id);
+    const synchronized = (await listPrograms(tenantId, business.id)).find(
+      (program) => program.upstreamProgramId === upstreamProgramId,
+    );
+
+    if (!synchronized) {
+      throw new YelpValidationError(
+        "The canonical Yelp program could not be linked to a local tenant-scoped record.",
+      );
+    }
+
+    programId = synchronized.id;
+  }
+
+  if (plan.action === "CREATE") {
+    const created = await createProgramWorkflow(tenantId, actorId, {
+      businessId: business.id,
+      programType: "CPC",
+      currency: "USD",
+      endDate: specification.endDate,
+      monthlyBudgetDollars: specification.monthlyBudgetDollars,
+      isAutobid: true,
+      pacingMethod: "paced",
+      feePeriod: "CALENDAR_MONTH",
+      campaignLayer: values.campaignLayer,
+      adCategories: [specification.categoryAlias],
+      notes: "Approved temporary campaign through August 31, 2026.",
+    });
+    programId = created.programId;
+    jobId = created.jobId;
+  }
+
+  if (plan.action === "UPDATE") {
+    if (!programId) {
+      throw new YelpValidationError(
+        "The canonical program is missing its tenant-scoped local record.",
+      );
+    }
+
+    const program = await getProgramById(programId, tenantId);
+
+    if (program.isAutobid === false && !program.maxBidCents) {
+      throw new YelpValidationError(
+        "The existing manual-bid campaign has no max bid, so it cannot be updated safely.",
+      );
+    }
+
+    const edited = await editProgramWorkflow(tenantId, actorId, {
+      businessId: business.id,
+      programId,
+      programType: "CPC",
+      currency: program.currency,
+      startDate: program.startDate
+        ? program.startDate.toISOString().slice(0, 10)
+        : undefined,
+      endDate: specification.endDate,
+      monthlyBudgetDollars: specification.monthlyBudgetDollars,
+      isAutobid: program.isAutobid ?? true,
+      maxBidDollars:
+        program.isAutobid === false && program.maxBidCents
+          ? String(program.maxBidCents / 100)
+          : undefined,
+      pacingMethod:
+        normalizeStoredPacingMethod(program.pacingMethod) === "unpaced"
+          ? "unpaced"
+          : "paced",
+      feePeriod:
+        program.feePeriod === "ROLLING_MONTH"
+          ? "ROLLING_MONTH"
+          : "CALENDAR_MONTH",
+      campaignLayer: values.campaignLayer,
+      adCategories: [specification.categoryAlias],
+      notes: "Approved temporary campaign through August 31, 2026.",
+    });
+    jobId = edited.jobId;
+  }
+
+  if (jobId) {
+    const completedJob = await pollProgramJobWorkflow(tenantId, jobId);
+
+    if (completedJob.status !== "COMPLETED") {
+      throw new YelpValidationError(
+        `Yelp did not confirm the temporary campaign mutation. Job status: ${completedJob.status}.`,
+      );
+    }
+
+    upstreamProgramId = completedJob.program?.upstreamProgramId ?? null;
+  }
+
+  if (!programId || !upstreamProgramId) {
+    throw new YelpValidationError(
+      "The temporary campaign does not have confirmed local and Yelp program IDs after reconciliation.",
+    );
+  }
+
+  const refreshedResponse = await client.listPrograms(
+    business.encryptedYelpBusinessId,
+  );
+  const refreshedPrograms =
+    refreshedResponse.data.businesses.find(
+      (entry) => entry.yelp_business_id === business.encryptedYelpBusinessId,
+    )?.programs ?? [];
+  const verification = verifyTemporaryAugustCampaignReadBack({
+    layer: values.campaignLayer,
+    upstreamProgramId,
+    upstreamPrograms: refreshedPrograms,
+  });
+
+  if (!verification.verified) {
+    await recordAuditEvent({
+      tenantId,
+      actorId,
+      businessId: business.id,
+      programId,
+      actionType: "program.temporary.read-back",
+      status: "FAILED",
+      correlationId: refreshedResponse.correlationId,
+      upstreamReference: upstreamProgramId,
+      requestSummary: toJsonValue({ campaignLayer: values.campaignLayer }),
+      responseSummary: toJsonValue(verification),
+    });
+    throw new YelpValidationError(verification.reason);
+  }
+
+  const localProgram = await getProgramById(programId, tenantId);
+  await updateProgramRecord(programId, tenantId, {
+    configurationJson: toJsonValue(
+      mergeConfigurationJson(localProgram.configurationJson, {
+        campaignLayer: values.campaignLayer,
+        temporaryCampaignVerifiedAt: new Date().toISOString(),
+      }),
+    ),
+  });
+  await syncBusinessProgramsFromYelpWorkflow(tenantId, actorId, business.id);
+  await recordAuditEvent({
+    tenantId,
+    actorId,
+    businessId: business.id,
+    programId,
+    actionType: "program.temporary.read-back",
+    status: "SUCCESS",
+    correlationId: refreshedResponse.correlationId,
+    upstreamReference: upstreamProgramId,
+    requestSummary: toJsonValue({ campaignLayer: values.campaignLayer }),
+    responseSummary: toJsonValue({
+      verification,
+      budgetCents: Number(specification.monthlyBudgetDollars) * 100,
+      endDate: specification.endDate,
+      categoryAlias: specification.categoryAlias,
+    }),
+  });
+
+  return {
+    dryRun: false,
+    action: plan.action,
+    programId,
+    upstreamProgramId,
+    jobId,
+    verified: true,
+    verification: verification.reason,
   };
 }
 
@@ -515,12 +913,35 @@ export async function createProgramWorkflow(
   const business = await getBusinessById(values.businessId, tenantId);
 
   if (values.programType === "CPC") {
-    const existingPrograms = await listPrograms(tenantId, business.id);
+    const allPrograms = await listPrograms(tenantId);
+    const existingPrograms = allPrograms.filter(
+      (program) => program.businessId === business.id,
+    );
     assertNoConflictingCpcPrograms(
       existingPrograms,
       values.adCategories,
       extractYelpCategoryAliases(business.categoriesJson),
+      undefined,
+      values.campaignLayer,
     );
+    assertMonthlyBudgetPolicy(
+      allPrograms,
+      parseCurrencyToCents(values.monthlyBudgetDollars ?? "0"),
+    );
+
+    if (isTemporaryAugustCampaignLayer(values.campaignLayer)) {
+      const duplicateLayer = existingPrograms.find(
+        (program) =>
+          getProgramCampaignLayer(program.configurationJson) ===
+            values.campaignLayer && isCurrentLocalProgramStatus(program.status),
+      );
+
+      if (duplicateLayer) {
+        throw new YelpValidationError(
+          "This approved temporary August campaign already exists for the selected business.",
+        );
+      }
+    }
   }
 
   const requestPayload = mapCreateProgramFormToDto(
@@ -539,6 +960,7 @@ export async function createProgramWorkflow(
     adCategoriesJson: values.adCategories,
     configurationJson: values,
     startDate: values.startDate ? new Date(values.startDate) : null,
+    endDate: values.endDate ? new Date(values.endDate) : null,
   });
 
   const correlationId = randomUUID();
@@ -666,8 +1088,13 @@ export async function editProgramWorkflow(
     requestedCategories,
     program.adCategoriesJson,
   );
+  const campaignLayerChanged =
+    values.campaignLayer !== getProgramCampaignLayer(program.configurationJson);
 
-  if (values.programType === "CPC" && categoriesChanged) {
+  if (
+    values.programType === "CPC" &&
+    (categoriesChanged || campaignLayerChanged)
+  ) {
     if (requestedCategories.length === 0) {
       throw new YelpValidationError(
         "Clearing categories on an existing Yelp program is ambiguous because an empty query is omitted. Use the focused category-targeting operation and select explicit listing categories.",
@@ -680,17 +1107,35 @@ export async function editProgramWorkflow(
       requestedCategories,
       extractYelpCategoryAliases(business.categoriesJson),
       program.id,
+      values.campaignLayer,
+    );
+  }
+
+  if (
+    values.programType === "CPC" &&
+    typeof mappedRequest.budget === "number"
+  ) {
+    assertMonthlyBudgetPolicy(
+      await listPrograms(tenantId),
+      mappedRequest.budget,
+      program.id,
     );
   }
 
   const currentStartDate = program.startDate
     ? program.startDate.toISOString().slice(0, 10)
     : undefined;
+  const currentEndDate = program.endDate
+    ? program.endDate.toISOString().slice(0, 10)
+    : undefined;
   const requestPayload = {
     ...(program.status !== "ACTIVE" &&
     mappedRequest.start &&
     mappedRequest.start !== currentStartDate
       ? { start: mappedRequest.start }
+      : {}),
+    ...(mappedRequest.end && mappedRequest.end !== currentEndDate
+      ? { end: mappedRequest.end }
       : {}),
     ...(mappedRequest.budget != null &&
     mappedRequest.budget !== program.budgetCents
@@ -724,7 +1169,10 @@ export async function editProgramWorkflow(
     type: "EDIT_PROGRAM",
     status: "QUEUED",
     correlationId,
-    requestJson: toJsonValue(requestPayload),
+    requestJson: toJsonValue({
+      ...requestPayload,
+      _campaignLayer: values.campaignLayer,
+    }),
   });
 
   try {
@@ -982,6 +1430,11 @@ export async function updateProgramBudgetWorkflow(
     actionType = "program.bid-strategy.update";
   }
 
+  if (typeof requestPayload?.budget === "number") {
+    const programs = await listPrograms(tenantId);
+    assertMonthlyBudgetPolicy(programs, requestPayload.budget, program.id);
+  }
+
   const job = await createProgramJob(tenantId, program.businessId, {
     programId: program.id,
     type: "EDIT_PROGRAM",
@@ -1070,10 +1523,19 @@ export async function updateProgramCategoryTargetingWorkflow(
 ) {
   const values = programCategoryTargetingOperationSchema.parse(input);
   const program = await getProgramById(programId, tenantId);
+  const currentCampaignLayer = getProgramCampaignLayer(
+    program.configurationJson,
+  );
 
   if (program.type !== "CPC") {
     throw new YelpValidationError(
       "Category targeting operations are available for CPC programs only.",
+    );
+  }
+
+  if (values.campaignLayer !== currentCampaignLayer) {
+    throw new YelpValidationError(
+      "Campaign layers are fixed after creation. Create an approved separate layer instead of relabeling a live campaign.",
     );
   }
 
@@ -1108,6 +1570,7 @@ export async function updateProgramCategoryTargetingWorkflow(
     requestedAliases,
     listingAliases,
     program.id,
+    values.campaignLayer,
   );
 
   const correlationId = randomUUID();
@@ -1116,6 +1579,7 @@ export async function updateProgramCategoryTargetingWorkflow(
   };
   const afterConfiguration = mergeConfigurationJson(program.configurationJson, {
     adCategories: requestedAliases,
+    campaignLayer: values.campaignLayer,
     categoryTargetingUpdatedAt: new Date().toISOString(),
     categoryTargetingInternalNote: values.internalNote ?? "",
   });
@@ -1127,6 +1591,7 @@ export async function updateProgramCategoryTargetingWorkflow(
     requestJson: toJsonValue({
       ...requestPayload,
       _operation: "CATEGORY_TARGETING",
+      _campaignLayer: values.campaignLayer,
       _internalNote: values.internalNote ?? "",
     }),
   });

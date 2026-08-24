@@ -3,13 +3,14 @@ import "server-only";
 import { incrementOperationalMetricCounter } from "@/lib/db/metrics-repository";
 import { YelpValidationError } from "@/lib/yelp/errors";
 
-type ProviderName = "YELP" | "SMTP" | "OPENAI" | "SERVICETITAN";
+type ProviderName = "YELP" | "SMTP" | "OPENAI" | "ANTHROPIC" | "SERVICETITAN";
 
 const hourlyProviderBudgets: Record<ProviderName, number> = {
   YELP: 600,
   SMTP: 250,
   OPENAI: 300,
-  SERVICETITAN: 500
+  ANTHROPIC: 300,
+  SERVICETITAN: 500,
 };
 
 export async function claimProviderRequestBudget(params: {
@@ -24,8 +25,8 @@ export async function claimProviderRequestBudget(params: {
     metricKey: providerMetricKey,
     bucketMinutes: 60,
     dimensions: {
-      provider: params.provider
-    }
+      provider: params.provider,
+    },
   });
 
   await incrementOperationalMetricCounter({
@@ -35,8 +36,8 @@ export async function claimProviderRequestBudget(params: {
     dimensions: {
       provider: params.provider,
       operation: params.operation,
-      ...(params.businessId ? { businessId: params.businessId } : {})
-    }
+      ...(params.businessId ? { businessId: params.businessId } : {}),
+    },
   });
 
   const limit = hourlyProviderBudgets[params.provider];
@@ -48,12 +49,12 @@ export async function claimProviderRequestBudget(params: {
       bucketMinutes: 60,
       dimensions: {
         provider: params.provider,
-        operation: params.operation
-      }
+        operation: params.operation,
+      },
     });
 
     throw new YelpValidationError(
-      `${params.provider} request budget exceeded for this tenant. Pause retries and review provider health before continuing.`
+      `${params.provider} request budget exceeded for this tenant. Pause retries and review provider health before continuing.`,
     );
   }
 
@@ -61,6 +62,6 @@ export async function claimProviderRequestBudget(params: {
     provider: params.provider,
     operation: params.operation,
     used: total.totalValue,
-    limit
+    limit,
   };
 }

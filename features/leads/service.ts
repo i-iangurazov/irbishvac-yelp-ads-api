@@ -5,7 +5,7 @@ import type { SyncRunStatus } from "@prisma/client";
 import { getLeadAutomationScopeConfig } from "@/features/autoresponder/config";
 import {
   formatConversationIntentLabels,
-  getConversationRecommendedNextAction
+  getConversationRecommendedNextAction,
 } from "@/features/autoresponder/conversation-service";
 import {
   extractLeadConversationMessage,
@@ -14,27 +14,47 @@ import {
   humanizeLeadConversationIntent,
   humanizeLeadConversationMode,
   humanizeLeadConversationStopReason,
-  isCustomerConversationEvent
+  isCustomerConversationEvent,
 } from "@/features/autoresponder/conversation";
-import { buildLeadAutomationHistory, buildLeadAutomationSummary } from "@/features/autoresponder/normalize";
+import {
+  buildLeadAutomationHistory,
+  buildLeadAutomationSummary,
+} from "@/features/autoresponder/normalize";
 import { processLeadConversationAutomationForInboundMessage } from "@/features/autoresponder/conversation-service";
 import { processLeadAutoresponderForNewLead } from "@/features/autoresponder/service";
 import { recordAuditEvent } from "@/features/audit/service";
-import { buildLeadCrmSummary, getLeadConversionSummary } from "@/features/crm-enrichment/service";
+import {
+  buildLeadCrmSummary,
+  getLeadConversionSummary,
+} from "@/features/crm-enrichment/service";
 import { getAiReplyAssistantState } from "@/features/leads/ai-reply-service";
-import { recordWebhookIntakeMetric, recordWebhookReconcileMetric } from "@/features/operations/observability-service";
+import {
+  recordWebhookIntakeMetric,
+  recordWebhookReconcileMetric,
+} from "@/features/operations/observability-service";
 import {
   buildLeadConversationActionTimeline,
   buildLeadListEntry,
   buildLeadTimeline,
   buildWebhookEventKey,
   type LeadListEntry,
-  type ParsedLeadWebhookUpdate
+  type ParsedLeadWebhookUpdate,
 } from "@/features/leads/normalize";
 import { getLeadReplyComposerState } from "@/features/leads/messaging-service";
-import { extractLeadIdsResponse, syncLeadSnapshotFromYelp } from "@/features/leads/yelp-sync";
-import { leadBackfillSchema, leadFiltersSchema, type LeadFiltersInput } from "@/features/leads/schemas";
+import {
+  extractLeadIdsResponse,
+  syncLeadSnapshotFromYelp,
+} from "@/features/leads/yelp-sync";
+import {
+  leadBackfillSchema,
+  leadFiltersSchema,
+  type LeadFiltersInput,
+} from "@/features/leads/schemas";
 import { getBusinessById } from "@/lib/db/businesses-repository";
+import {
+  getCredentialSet,
+  updateCredentialTestResult,
+} from "@/lib/db/credentials-repository";
 import {
   countLeadRecordsByBusiness,
   countLeadRecords,
@@ -56,62 +76,113 @@ import {
   updateLeadWebhookSnapshot,
   updateWebhookEventRecord,
   upsertLeadEventRecords,
-  upsertLeadRecord
+  upsertLeadRecord,
 } from "@/lib/db/leads-repository";
 import { toJsonValue } from "@/lib/db/json";
-import { getDefaultTenant } from "@/lib/db/tenant";
 import { listTenantIds } from "@/lib/db/settings-repository";
-import { listOpenOperatorIssuesForLead, listOpenOperatorIssuesForLeadIds } from "@/lib/db/issues-repository";
+import {
+  listOpenOperatorIssuesForLead,
+  listOpenOperatorIssuesForLeadIds,
+} from "@/lib/db/issues-repository";
 import { logError, logInfo } from "@/lib/utils/logging";
-import { normalizeUnknownError, YelpApiError, YelpValidationError } from "@/lib/yelp/errors";
+import {
+  normalizeUnknownError,
+  YelpApiError,
+  YelpValidationError,
+} from "@/lib/yelp/errors";
+import { isYelpCredentialAuthFailure } from "@/lib/yelp/credential-state";
 import { yelpLeadWebhookPayloadSchema } from "@/lib/yelp/schemas";
 import { ensureYelpLeadsAccess, getCapabilityFlags } from "@/lib/yelp/runtime";
 import { YelpLeadsClient } from "@/lib/yelp/leads-client";
+import {
+  getNextWebhookAttemptAt,
+  getWebhookRetryState,
+  isWebhookRetryDue,
+  YELP_WEBHOOK_MAX_RETRIES,
+} from "@/features/leads/webhook-retry";
 
 export const YELP_LEAD_IMPORT_PAGE_SIZE = 20;
 export const YELP_LEAD_IMPORT_MAX_LEADS_PER_RUN = 300;
 export const YELP_LEAD_IMPORT_MAX_PAGES_PER_RUN = Math.ceil(
-  YELP_LEAD_IMPORT_MAX_LEADS_PER_RUN / YELP_LEAD_IMPORT_PAGE_SIZE
+  YELP_LEAD_IMPORT_MAX_LEADS_PER_RUN / YELP_LEAD_IMPORT_PAGE_SIZE,
 );
 export const YELP_LEAD_IMPORT_CONCURRENCY = 5;
 export const DEFAULT_LEADS_PAGE_SIZE = 25;
 export const LEADS_PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
 
 function normalizeHeaders(headers: Headers | Record<string, string>) {
-  if (headers instanceof Headers) {
-    return Object.fromEntries(headers.entries());
-  }
+  const normalized =
+    headers instanceof Headers
+      ? Object.fromEntries(headers.entries())
+      : Object.fromEntries(
+          Object.entries(headers).map(([key, value]) => [
+            key.toLowerCase(),
+            value,
+          ]),
+        );
+  const safeHeaderNames = new Set([
+    "content-type",
+    "user-agent",
+    "x-correlation-id",
+    "x-request-id",
+    "x-yelp-delivery-id",
+  ]);
 
-  return Object.fromEntries(Object.entries(headers).map(([key, value]) => [key.toLowerCase(), value]));
+  return Object.fromEntries(
+    Object.entries(normalized).filter(([key]) => safeHeaderNames.has(key)),
+  );
 }
 
 function resolveDeliveryId(headers: Record<string, string>) {
-  return headers["x-yelp-delivery-id"] ?? headers["x-request-id"] ?? headers["x-correlation-id"] ?? null;
+  return (
+    headers["x-yelp-delivery-id"] ??
+    headers["x-request-id"] ??
+    headers["x-correlation-id"] ??
+    null
+  );
 }
 
 async function resolveTenantContext(externalBusinessId: string) {
-  const [matches, defaultTenant] = await Promise.all([
-    findBusinessesByExternalYelpBusinessId(externalBusinessId),
-    getDefaultTenant()
-  ]);
-  const defaultMatch = matches.find((match) => match.tenantId === defaultTenant.id) ?? null;
-  const business = defaultMatch ?? matches[0] ?? null;
+  const matches =
+    await findBusinessesByExternalYelpBusinessId(externalBusinessId);
+
+  if (matches.length === 0) {
+    throw new YelpValidationError(
+      "The Yelp webhook business is not mapped to an active tenant.",
+    );
+  }
+
+  const tenantIds = new Set(matches.map((match) => match.tenantId));
+
+  if (matches.length !== 1 || tenantIds.size !== 1) {
+    throw new YelpValidationError(
+      "The Yelp webhook business is mapped more than once. Resolve the tenant mapping before processing leads.",
+    );
+  }
+
+  const business = matches[0];
 
   return {
-    tenantId: business?.tenantId ?? defaultTenant.id,
-    business
+    tenantId: business.tenantId,
+    business,
   };
 }
 
 function parseWebhookUpdate(raw: Record<string, unknown>) {
-  const interactionTime = typeof raw.interaction_time === "string" ? new Date(raw.interaction_time) : null;
+  const interactionTime =
+    typeof raw.interaction_time === "string"
+      ? new Date(raw.interaction_time)
+      : null;
 
   return {
     eventType: String(raw.event_type),
     eventId: typeof raw.event_id === "string" ? raw.event_id : null,
     leadId: String(raw.lead_id),
-    interactionTime: interactionTime && !Number.isNaN(interactionTime.getTime()) ? interactionTime : null,
-    raw
+    interactionTime:
+      interactionTime && !Number.isNaN(interactionTime.getTime())
+        ? interactionTime
+        : null,
+    raw,
   } satisfies ParsedLeadWebhookUpdate;
 }
 
@@ -123,17 +194,40 @@ function isRetryable(error: YelpApiError) {
   return error.status >= 500 || error.status === 429;
 }
 
+async function isYelpLeadsCredentialCircuitOpen(tenantId: string) {
+  const credential = await getCredentialSet(tenantId, "REPORTING_FUSION");
+
+  return (
+    credential?.isEnabled === true && isYelpCredentialAuthFailure(credential)
+  );
+}
+
+async function recordYelpLeadsCredentialFailure(
+  tenantId: string,
+  error: ReturnType<typeof normalizeUnknownError>,
+) {
+  if (error.code !== "AUTH_FAILURE") {
+    return;
+  }
+
+  const credential = await getCredentialSet(tenantId, "REPORTING_FUSION");
+
+  if (!credential) {
+    return;
+  }
+
+  await updateCredentialTestResult(
+    tenantId,
+    "REPORTING_FUSION",
+    "FAILED",
+    error.message,
+  );
+}
+
 function asRecord(value: unknown) {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
-}
-
-function getRetryCount(statsJson: unknown) {
-  const record = asRecord(statsJson);
-  return typeof record?.retryCount === "number" && Number.isFinite(record.retryCount)
-    ? record.retryCount
-    : 0;
 }
 
 function getProcessingStats(statsJson: unknown) {
@@ -153,7 +247,7 @@ function getYelpConnectionSummary(params: {
     return {
       status: "UNRESOLVED",
       label: "Missing Yelp business",
-      detail: "This lead is not mapped to a configured Yelp business."
+      detail: "This lead is not mapped to a configured Yelp business.",
     };
   }
 
@@ -161,7 +255,9 @@ function getYelpConnectionSummary(params: {
     return {
       status: "FAILED",
       label: "Webhook failed",
-      detail: params.latestWebhookErrorSummary ?? "The latest Yelp webhook delivery failed during processing."
+      detail:
+        params.latestWebhookErrorSummary ??
+        "The latest Yelp webhook delivery failed during processing.",
     };
   }
 
@@ -169,18 +265,22 @@ function getYelpConnectionSummary(params: {
     return {
       status: "FAILED",
       label: "Intake failed",
-      detail: params.latestIntakeErrorSummary ?? "The latest Yelp intake run failed."
+      detail:
+        params.latestIntakeErrorSummary ?? "The latest Yelp intake run failed.",
     };
   }
 
-  if (params.latestWebhookStatus === "PARTIAL" || params.latestIntakeStatus === "PARTIAL") {
+  if (
+    params.latestWebhookStatus === "PARTIAL" ||
+    params.latestIntakeStatus === "PARTIAL"
+  ) {
     return {
       status: "PARTIAL",
       label: "Needs review",
       detail:
         params.latestWebhookErrorSummary ??
         params.latestIntakeErrorSummary ??
-        "Yelp intake partially completed and should be reviewed."
+        "Yelp intake partially completed and should be reviewed.",
     };
   }
 
@@ -188,30 +288,37 @@ function getYelpConnectionSummary(params: {
     return {
       status: "ACTIVE",
       label: "Webhook received",
-      detail: "This lead has live Yelp webhook proof."
+      detail: "This lead has live Yelp webhook proof.",
     };
   }
 
-  if (params.latestIntakeStatus === "COMPLETED" || params.latestIntakeStatus === "SKIPPED") {
+  if (
+    params.latestIntakeStatus === "COMPLETED" ||
+    params.latestIntakeStatus === "SKIPPED"
+  ) {
     return {
       status: "READY",
       label: "Intake recorded",
-      detail: "This lead has a completed Yelp intake or backfill run."
+      detail: "This lead has a completed Yelp intake or backfill run.",
     };
   }
 
-  if (params.latestIntakeStatus === "QUEUED" || params.latestIntakeStatus === "PROCESSING") {
+  if (
+    params.latestIntakeStatus === "QUEUED" ||
+    params.latestIntakeStatus === "PROCESSING"
+  ) {
     return {
       status: "PROCESSING",
       label: "Intake running",
-      detail: "Yelp intake is queued or processing for this lead."
+      detail: "Yelp intake is queued or processing for this lead.",
     };
   }
 
   return {
     status: "UNKNOWN",
     label: "No delivery proof",
-    detail: "No webhook or completed backfill proof is recorded for this lead yet."
+    detail:
+      "No webhook or completed backfill proof is recorded for this lead yet.",
   };
 }
 
@@ -226,7 +333,9 @@ function getNestedRecord(value: unknown, key: string) {
 
 function getStringMetadata(value: unknown, key: string) {
   const candidate = getRecordValue(value, key);
-  return typeof candidate === "string" && candidate.trim().length > 0 ? candidate.trim() : null;
+  return typeof candidate === "string" && candidate.trim().length > 0
+    ? candidate.trim()
+    : null;
 }
 
 function getBooleanMetadata(value: unknown, key: string) {
@@ -237,7 +346,10 @@ function getBooleanMetadata(value: unknown, key: string) {
 function getStringArrayMetadata(value: unknown, key: string) {
   const candidate = getRecordValue(value, key);
   return Array.isArray(candidate)
-    ? candidate.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+    ? candidate.filter(
+        (entry): entry is string =>
+          typeof entry === "string" && entry.trim().length > 0,
+      )
     : [];
 }
 
@@ -272,10 +384,19 @@ function buildLeadContactSummary(lead: {
   customerPhone: string | null;
   metadataJson: unknown;
 }) {
-  const phoneSource = getStringMetadata(lead.metadataJson, "customerPhoneSource");
-  const phoneExpiresAt = getDateMetadata(lead.metadataJson, "customerPhoneExpiresAt");
-  const phoneBecameAvailable = getBooleanMetadata(lead.metadataJson, "customerPhoneBecameAvailable") ?? false;
-  const phoneChanged = getBooleanMetadata(lead.metadataJson, "customerPhoneChanged") ?? false;
+  const phoneSource = getStringMetadata(
+    lead.metadataJson,
+    "customerPhoneSource",
+  );
+  const phoneExpiresAt = getDateMetadata(
+    lead.metadataJson,
+    "customerPhoneExpiresAt",
+  );
+  const phoneBecameAvailable =
+    getBooleanMetadata(lead.metadataJson, "customerPhoneBecameAvailable") ??
+    false;
+  const phoneChanged =
+    getBooleanMetadata(lead.metadataJson, "customerPhoneChanged") ?? false;
 
   return {
     name: lead.customerName,
@@ -283,11 +404,14 @@ function buildLeadContactSummary(lead: {
     phone: lead.customerPhone,
     phoneSource,
     phoneSourceLabel: humanizeLeadPhoneSource(phoneSource),
-    phoneVerifiedDirect: getBooleanMetadata(lead.metadataJson, "customerPhoneVerifiedDirect") ?? false,
+    phoneVerifiedDirect:
+      getBooleanMetadata(lead.metadataJson, "customerPhoneVerifiedDirect") ??
+      false,
     phoneExpiresAt,
     phoneBecameAvailable,
     phoneChanged,
-    phoneAvailabilityEvent: getBooleanMetadata(lead.metadataJson, "phoneAvailabilityEvent") ?? false
+    phoneAvailabilityEvent:
+      getBooleanMetadata(lead.metadataJson, "phoneAvailabilityEvent") ?? false,
   };
 }
 
@@ -304,7 +428,10 @@ function humanizeConversationContentSource(value: string | null) {
   }
 }
 
-function humanizeConversationPromptSource(value: string | null, promptConfigured: boolean | null) {
+function humanizeConversationPromptSource(
+  value: string | null,
+  promptConfigured: boolean | null,
+) {
   if (value === "TEMPLATE_AI_PROMPT" || promptConfigured) {
     return "Template AI prompt";
   }
@@ -316,7 +443,10 @@ function humanizeConversationPromptSource(value: string | null, promptConfigured
   return "Not recorded";
 }
 
-function buildConversationDecisionTrace(metadataJson: unknown, fallbackTemplateName: string | null) {
+function buildConversationDecisionTrace(
+  metadataJson: unknown,
+  fallbackTemplateName: string | null,
+) {
   const classification = getNestedRecord(metadataJson, "classification");
   const sourceContext = getNestedRecord(metadataJson, "sourceContext");
   const decisionSummary = getNestedRecord(metadataJson, "decisionSummary");
@@ -329,7 +459,8 @@ function buildConversationDecisionTrace(metadataJson: unknown, fallbackTemplateN
   const flatFallbackReason = getStringMetadata(metadataJson, "fallbackReason");
   const flatWarningCodes = getStringArrayMetadata(metadataJson, "warningCodes");
   const promptConfigured = getBooleanMetadata(template, "aiPromptConfigured");
-  const contentSource = getStringMetadata(rendering, "contentSource") ?? flatContentSource;
+  const contentSource =
+    getStringMetadata(rendering, "contentSource") ?? flatContentSource;
   const warningCodes = getStringArrayMetadata(rendering, "warningCodes");
 
   return {
@@ -340,22 +471,31 @@ function buildConversationDecisionTrace(metadataJson: unknown, fallbackTemplateN
     classificationIntent: getStringMetadata(classification, "intent"),
     classificationConfidence: getStringMetadata(classification, "confidence"),
     templateName: getStringMetadata(template, "name") ?? fallbackTemplateName,
-    templateKind: getStringMetadata(template, "kind") ?? getStringMetadata(classification, "templateKind"),
+    templateKind:
+      getStringMetadata(template, "kind") ??
+      getStringMetadata(classification, "templateKind"),
     templateRenderMode:
       getStringMetadata(template, "renderMode") ??
       getStringMetadata(rendering, "templateRenderMode") ??
       getStringMetadata(metadataJson, "templateRenderMode"),
-    promptSourceLabel: humanizeConversationPromptSource(getStringMetadata(template, "promptSource"), promptConfigured),
+    promptSourceLabel: humanizeConversationPromptSource(
+      getStringMetadata(template, "promptSource"),
+      promptConfigured,
+    ),
     aiPromptPreview: getStringMetadata(template, "aiPromptPreview"),
     routingLabel: getStringMetadata(routing, "ruleSource"),
     contentSource,
     contentSourceLabel: humanizeConversationContentSource(contentSource),
     aiModel: getStringMetadata(rendering, "aiModel") ?? flatAiModel,
-    fallbackReason: getStringMetadata(rendering, "fallbackReason") ?? flatFallbackReason,
+    fallbackReason:
+      getStringMetadata(rendering, "fallbackReason") ?? flatFallbackReason,
     warningCodes: warningCodes.length > 0 ? warningCodes : flatWarningCodes,
-    operatorReviewRequired: getBooleanMetadata(reviewState, "operatorReviewRequired"),
+    operatorReviewRequired: getBooleanMetadata(
+      reviewState,
+      "operatorReviewRequired",
+    ),
     operatorEditStatus: getStringMetadata(reviewState, "operatorEditStatus"),
-    decisionErrorSummary: getStringMetadata(decisionSummary, "errorSummary")
+    decisionErrorSummary: getStringMetadata(decisionSummary, "errorSummary"),
   };
 }
 
@@ -393,11 +533,13 @@ function buildLatestInboundConversationEventProof(lead: {
     .filter((event) => isCustomerConversationEvent(event))
     .map((event) => ({
       event,
-      messageText: extractLeadConversationMessage(event.payloadJson)
+      messageText: extractLeadConversationMessage(event.payloadJson),
     }))
     .sort((left, right) => {
-      const leftTime = left.event.occurredAt?.getTime() ?? left.event.createdAt.getTime();
-      const rightTime = right.event.occurredAt?.getTime() ?? right.event.createdAt.getTime();
+      const leftTime =
+        left.event.occurredAt?.getTime() ?? left.event.createdAt.getTime();
+      const rightTime =
+        right.event.occurredAt?.getTime() ?? right.event.createdAt.getTime();
       return rightTime - leftTime;
     })[0];
 
@@ -405,14 +547,17 @@ function buildLatestInboundConversationEventProof(lead: {
     return null;
   }
 
-  const lastProcessedEventKey = lead.conversationAutomationState?.lastProcessedEventKey ?? null;
+  const lastProcessedEventKey =
+    lead.conversationAutomationState?.lastProcessedEventKey ?? null;
   const lastInboundAt = lead.conversationAutomationState?.lastInboundAt ?? null;
-  const processedByKey = Boolean(lastProcessedEventKey && latest.event.eventKey === lastProcessedEventKey);
+  const processedByKey = Boolean(
+    lastProcessedEventKey && latest.event.eventKey === lastProcessedEventKey,
+  );
   const processedByTime = Boolean(
     !processedByKey &&
-      lastInboundAt &&
-      latest.event.occurredAt &&
-      latest.event.occurredAt.getTime() <= lastInboundAt.getTime()
+    lastInboundAt &&
+    latest.event.occurredAt &&
+    latest.event.occurredAt.getTime() <= lastInboundAt.getTime(),
   );
   const processedByAutomation = processedByKey || processedByTime;
 
@@ -426,19 +571,23 @@ function buildLatestInboundConversationEventProof(lead: {
     messageExcerpt: excerptText(latest.messageText),
     hasMessageText: Boolean(latest.messageText),
     processedByAutomation,
-    processingLabel: processedByAutomation ? "Already processed" : "Waiting for automation",
+    processingLabel: processedByAutomation
+      ? "Already processed"
+      : "Waiting for automation",
     processingDetail: processedByKey
       ? "This Yelp event key matches the last processed conversation event."
       : processedByTime
         ? "This Yelp event is not newer than the last processed inbound timestamp."
-        : "This looks newer than the last processed conversation event. The next reconcile should evaluate it."
+        : "This looks newer than the last processed conversation event. The next reconcile should evaluate it.",
   };
 }
 
 function buildConversationProof(params: {
   enabled: boolean;
   paused: boolean;
-  latestInboundEvent: ReturnType<typeof buildLatestInboundConversationEventProof>;
+  latestInboundEvent: ReturnType<
+    typeof buildLatestInboundConversationEventProof
+  >;
   latestTurn: {
     sourceEventKey: string;
     sourceExternalEventId: string | null;
@@ -455,16 +604,18 @@ function buildConversationProof(params: {
   if (params.paused) {
     return {
       diagnosticLabel: "Conversation automation paused",
-      diagnosticDetail: "New inbound customer messages stay with operators until the pause is removed.",
-      diagnosticTone: "warning" as const
+      diagnosticDetail:
+        "New inbound customer messages stay with operators until the pause is removed.",
+      diagnosticTone: "warning" as const,
     };
   }
 
   if (!params.enabled) {
     return {
       diagnosticLabel: "Conversation automation off",
-      diagnosticDetail: "This lead scope is not configured to process follow-up customer messages automatically.",
-      diagnosticTone: "outline" as const
+      diagnosticDetail:
+        "This lead scope is not configured to process follow-up customer messages automatically.",
+      diagnosticTone: "outline" as const,
     };
   }
 
@@ -473,7 +624,7 @@ function buildConversationProof(params: {
       diagnosticLabel: "No customer message event captured",
       diagnosticDetail:
         "Yelp intake is syncing leads, but no inbound customer thread message is stored for conversation automation yet.",
-      diagnosticTone: "warning" as const
+      diagnosticTone: "warning" as const,
     };
   }
 
@@ -482,7 +633,7 @@ function buildConversationProof(params: {
       diagnosticLabel: "Latest customer event has no message text",
       diagnosticDetail:
         "Yelp delivered a customer-side event, but the payload does not contain readable message text for AI classification.",
-      diagnosticTone: "warning" as const
+      diagnosticTone: "warning" as const,
     };
   }
 
@@ -491,15 +642,19 @@ function buildConversationProof(params: {
       diagnosticLabel: "Latest customer message is unprocessed",
       diagnosticDetail:
         "The newest captured customer message has not been matched to a conversation automation decision yet.",
-      diagnosticTone: "warning" as const
+      diagnosticTone: "warning" as const,
     };
   }
 
-  if (params.latestTurn?.sourceEventKey === params.latestInboundEvent.eventKey) {
+  if (
+    params.latestTurn?.sourceEventKey === params.latestInboundEvent.eventKey
+  ) {
     return {
       diagnosticLabel: "Latest customer message processed",
       diagnosticDetail: `Conversation automation handled this event as ${params.latestTurn.decisionLabel.toLowerCase()}.`,
-      diagnosticTone: params.latestTurn.errorSummary ? ("destructive" as const) : ("success" as const)
+      diagnosticTone: params.latestTurn.errorSummary
+        ? ("destructive" as const)
+        : ("success" as const),
     };
   }
 
@@ -507,7 +662,7 @@ function buildConversationProof(params: {
     diagnosticLabel: "No newer inbound message",
     diagnosticDetail:
       "The latest captured customer message is at or before the last processed inbound boundary.",
-    diagnosticTone: "outline" as const
+    diagnosticTone: "outline" as const,
   };
 }
 
@@ -517,33 +672,41 @@ function parseQueuedWebhookPayload(payloadJson: unknown) {
   const update = asRecord(payload?.update);
 
   if (!delivery || !update) {
-    throw new YelpValidationError("The saved Yelp webhook payload is incomplete.");
+    throw new YelpValidationError(
+      "The saved Yelp webhook payload is incomplete.",
+    );
   }
 
   const validatedDelivery = yelpLeadWebhookPayloadSchema.safeParse(delivery);
 
   if (!validatedDelivery.success) {
-    throw new YelpValidationError("The saved Yelp webhook payload can no longer be parsed.", {
-      issues: validatedDelivery.error.issues
-    });
+    throw new YelpValidationError(
+      "The saved Yelp webhook payload can no longer be parsed.",
+      {
+        issues: validatedDelivery.error.issues,
+      },
+    );
   }
 
   return {
     delivery: validatedDelivery.data,
-    update: parseWebhookUpdate(update)
+    update: parseWebhookUpdate(update),
   };
 }
 
 function parseBackfillRequest(payloadJson: unknown) {
   const payload = asRecord(payloadJson);
-  const businessId = typeof payload?.businessId === "string" ? payload.businessId : null;
+  const businessId =
+    typeof payload?.businessId === "string" ? payload.businessId : null;
 
   if (!businessId) {
-    throw new YelpValidationError("The saved lead backfill request is missing its business reference.");
+    throw new YelpValidationError(
+      "The saved lead backfill request is missing its business reference.",
+    );
   }
 
   return {
-    businessId
+    businessId,
   };
 }
 
@@ -565,11 +728,13 @@ function shapeBackfillRunStats(params: {
     pagesFetched: params.pagesFetched,
     pageSize: YELP_LEAD_IMPORT_PAGE_SIZE,
     pageLimit: YELP_LEAD_IMPORT_MAX_PAGES_PER_RUN,
-    processingMs: params.processingMs
+    processingMs: params.processingMs,
   };
 }
 
-function shapeLeadBackfillRunStatus(syncRun: Awaited<ReturnType<typeof getLeadSyncRunById>>) {
+function shapeLeadBackfillRunStatus(
+  syncRun: Awaited<ReturnType<typeof getLeadSyncRunById>>,
+) {
   const stats =
     typeof syncRun.statsJson === "object" && syncRun.statsJson !== null
       ? (syncRun.statsJson as {
@@ -609,7 +774,7 @@ function shapeLeadBackfillRunStatus(syncRun: Awaited<ReturnType<typeof getLeadSy
           ? `Fetched ${stats?.pagesFetched ?? 0} Yelp page${(stats?.pagesFetched ?? 0) === 1 ? "" : "s"} and scanned ${stats?.returnedLeadIds ?? 0} lead IDs so far.`
           : syncRun.status === "COMPLETED"
             ? `Fetched ${stats?.pagesFetched ?? 0} Yelp page${(stats?.pagesFetched ?? 0) === 1 ? "" : "s"} and scanned ${stats?.returnedLeadIds ?? 0} lead IDs.`
-            : syncRun.errorSummary ?? "Backfill did not finish cleanly."
+            : (syncRun.errorSummary ?? "Backfill did not finish cleanly."),
   };
 }
 
@@ -634,8 +799,15 @@ async function processLeadIdsBatch(params: {
   let conversationAutomationSkippedCount = 0;
   const conversationAutomationSkipReasons: Record<string, number> = {};
 
-  for (let index = 0; index < params.leadIds.length; index += YELP_LEAD_IMPORT_CONCURRENCY) {
-    const chunk = params.leadIds.slice(index, index + YELP_LEAD_IMPORT_CONCURRENCY);
+  for (
+    let index = 0;
+    index < params.leadIds.length;
+    index += YELP_LEAD_IMPORT_CONCURRENCY
+  ) {
+    const chunk = params.leadIds.slice(
+      index,
+      index + YELP_LEAD_IMPORT_CONCURRENCY,
+    );
     const results = await Promise.all(
       chunk.map(async (leadId) => {
         try {
@@ -647,13 +819,13 @@ async function processLeadIdsBatch(params: {
             receivedAt: new Date(),
             sourceEventType: params.sourceEventType ?? "BACKFILL_IMPORT",
             sourceEventId: null,
-            sourceInteractionTime: null
+            sourceInteractionTime: null,
           });
           const automation = params.runAutomation
             ? await processAutomationForSyncedLead({
                 tenantId: params.tenantId,
                 lead: result.lead,
-                sourceEventId: null
+                sourceEventId: null,
               })
             : null;
 
@@ -661,14 +833,15 @@ async function processLeadIdsBatch(params: {
             existingLead: Boolean(result.existingLead),
             failed: false,
             initialAutomationProcessed: Boolean(
-              automation?.initial &&
-                automation.initial.status !== "DUPLICATE"
+              automation?.initial && automation.initial.status !== "DUPLICATE",
             ),
-            conversationAutomationProcessed: Boolean(automation?.conversation?.processed),
+            conversationAutomationProcessed: Boolean(
+              automation?.conversation?.processed,
+            ),
             conversationAutomationSkipReason:
               automation?.conversation && !automation.conversation.processed
                 ? automation.conversation.reason
-                : null
+                : null,
           } as const;
         } catch (error) {
           const normalized = normalizeUnknownError(error);
@@ -679,8 +852,11 @@ async function processLeadIdsBatch(params: {
             category: "LEAD_BACKFILL_PROCESSING",
             code: normalized.code,
             message: `${leadId}: ${normalized.message}`,
-            isRetryable: normalized instanceof YelpApiError ? isRetryable(normalized) : false,
-            detailsJson: normalized.details ?? null
+            isRetryable:
+              normalized instanceof YelpApiError
+                ? isRetryable(normalized)
+                : false,
+            detailsJson: normalized.details ?? null,
           });
 
           return {
@@ -688,10 +864,10 @@ async function processLeadIdsBatch(params: {
             failed: true,
             initialAutomationProcessed: false,
             conversationAutomationProcessed: false,
-            conversationAutomationSkipReason: null
+            conversationAutomationSkipReason: null,
           } as const;
         }
-      })
+      }),
     );
 
     for (const result of results) {
@@ -713,8 +889,12 @@ async function processLeadIdsBatch(params: {
 
       if (!result.failed && result.conversationAutomationSkipReason) {
         conversationAutomationSkippedCount += 1;
-        conversationAutomationSkipReasons[result.conversationAutomationSkipReason] =
-          (conversationAutomationSkipReasons[result.conversationAutomationSkipReason] ?? 0) + 1;
+        conversationAutomationSkipReasons[
+          result.conversationAutomationSkipReason
+        ] =
+          (conversationAutomationSkipReasons[
+            result.conversationAutomationSkipReason
+          ] ?? 0) + 1;
       }
     }
   }
@@ -726,7 +906,7 @@ async function processLeadIdsBatch(params: {
     initialAutomationProcessedCount,
     conversationAutomationProcessedCount,
     conversationAutomationSkippedCount,
-    conversationAutomationSkipReasons
+    conversationAutomationSkipReasons,
   };
 }
 
@@ -739,11 +919,18 @@ async function processAutomationForSyncedLead(params: {
   };
   sourceEventId?: string | null;
 }) {
-  let initial: Awaited<ReturnType<typeof processLeadAutoresponderForNewLead>> | null = null;
-  let conversation: Awaited<ReturnType<typeof processLeadConversationAutomationForInboundMessage>> | null = null;
+  let initial: Awaited<
+    ReturnType<typeof processLeadAutoresponderForNewLead>
+  > | null = null;
+  let conversation: Awaited<
+    ReturnType<typeof processLeadConversationAutomationForInboundMessage>
+  > | null = null;
 
   try {
-    initial = await processLeadAutoresponderForNewLead(params.tenantId, params.lead.id);
+    initial = await processLeadAutoresponderForNewLead(
+      params.tenantId,
+      params.lead.id,
+    );
   } catch (automationError) {
     const normalizedAutomationError = normalizeUnknownError(automationError);
 
@@ -755,14 +942,14 @@ async function processAutomationForSyncedLead(params: {
       correlationId: `lead-autoresponder:${params.lead.id}`,
       upstreamReference: params.lead.externalLeadId,
       responseSummary: {
-        message: normalizedAutomationError.message
-      }
+        message: normalizedAutomationError.message,
+      },
     });
 
     logError("lead.autoresponder.trigger_failed", {
       tenantId: params.tenantId,
       leadId: params.lead.id,
-      message: normalizedAutomationError.message
+      message: normalizedAutomationError.message,
     });
   }
 
@@ -771,8 +958,8 @@ async function processAutomationForSyncedLead(params: {
       initial,
       conversation: {
         processed: false,
-        reason: "INITIAL_RESPONSE_SENT"
-      }
+        reason: "INITIAL_RESPONSE_SENT",
+      },
     };
   }
 
@@ -780,10 +967,11 @@ async function processAutomationForSyncedLead(params: {
     conversation = await processLeadConversationAutomationForInboundMessage({
       tenantId: params.tenantId,
       leadId: params.lead.id,
-      sourceEventId: params.sourceEventId ?? null
+      sourceEventId: params.sourceEventId ?? null,
     });
   } catch (conversationError) {
-    const normalizedConversationError = normalizeUnknownError(conversationError);
+    const normalizedConversationError =
+      normalizeUnknownError(conversationError);
 
     await recordAuditEvent({
       tenantId: params.tenantId,
@@ -793,20 +981,20 @@ async function processAutomationForSyncedLead(params: {
       correlationId: `lead-conversation-automation:${params.lead.id}:${params.sourceEventId ?? "latest"}`,
       upstreamReference: params.lead.externalLeadId,
       responseSummary: {
-        message: normalizedConversationError.message
-      }
+        message: normalizedConversationError.message,
+      },
     });
 
     logError("lead.conversation_automation.trigger_failed", {
       tenantId: params.tenantId,
       leadId: params.lead.id,
-      message: normalizedConversationError.message
+      message: normalizedConversationError.message,
     });
   }
 
   return {
     initial,
-    conversation
+    conversation,
   };
 }
 
@@ -831,8 +1019,8 @@ async function syncRecentBusinessLeadsForAutomation(params: {
       businessId: params.business.id,
       yelpBusinessId: params.business.encryptedYelpBusinessId,
       limit: params.leadLimit,
-      source: "scheduled_recent_poll"
-    }
+      source: "scheduled_recent_poll",
+    },
   });
   const startedAt = Date.now();
   let importedCount = 0;
@@ -849,14 +1037,20 @@ async function syncRecentBusinessLeadsForAutomation(params: {
   let requestFailure: ReturnType<typeof normalizeUnknownError> | null = null;
 
   while (returnedLeadIds < params.leadLimit) {
-    const pageLimit = Math.min(YELP_LEAD_IMPORT_PAGE_SIZE, params.leadLimit - returnedLeadIds);
+    const pageLimit = Math.min(
+      YELP_LEAD_IMPORT_PAGE_SIZE,
+      params.leadLimit - returnedLeadIds,
+    );
     let leadIds: string[] = [];
 
     try {
-      const leadIdsResponse = await params.client.getBusinessLeadIds(params.business.encryptedYelpBusinessId, {
-        limit: pageLimit,
-        offset
-      });
+      const leadIdsResponse = await params.client.getBusinessLeadIds(
+        params.business.encryptedYelpBusinessId,
+        {
+          limit: pageLimit,
+          offset,
+        },
+      );
       const extracted = extractLeadIdsResponse(leadIdsResponse.data);
       leadIds = extracted.leadIds;
       hasMore = extracted.hasMore;
@@ -870,7 +1064,7 @@ async function syncRecentBusinessLeadsForAutomation(params: {
         code: requestFailure.code,
         message: `Scheduled recent poll page ${pagesFetched + 1} (offset ${offset}): ${requestFailure.message}`,
         isRetryable: error instanceof YelpApiError ? isRetryable(error) : false,
-        detailsJson: requestFailure.details ?? null
+        detailsJson: requestFailure.details ?? null,
       });
       break;
     }
@@ -884,22 +1078,28 @@ async function syncRecentBusinessLeadsForAutomation(params: {
       business: {
         id: params.business.id,
         locationId: params.business.locationId,
-        encryptedYelpBusinessId: params.business.encryptedYelpBusinessId
+        encryptedYelpBusinessId: params.business.encryptedYelpBusinessId,
       },
       client: params.client,
       leadIds,
       runAutomation: true,
-      sourceEventType: "SCHEDULED_RECENT_POLL"
+      sourceEventType: "SCHEDULED_RECENT_POLL",
     });
 
     importedCount += pageResults.importedCount;
     updatedCount += pageResults.updatedCount;
     failedCount += pageResults.failedCount;
-    initialAutomationProcessedCount += pageResults.initialAutomationProcessedCount;
-    conversationAutomationProcessedCount += pageResults.conversationAutomationProcessedCount;
-    conversationAutomationSkippedCount += pageResults.conversationAutomationSkippedCount;
-    for (const [reason, count] of Object.entries(pageResults.conversationAutomationSkipReasons)) {
-      conversationAutomationSkipReasons[reason] = (conversationAutomationSkipReasons[reason] ?? 0) + count;
+    initialAutomationProcessedCount +=
+      pageResults.initialAutomationProcessedCount;
+    conversationAutomationProcessedCount +=
+      pageResults.conversationAutomationProcessedCount;
+    conversationAutomationSkippedCount +=
+      pageResults.conversationAutomationSkippedCount;
+    for (const [reason, count] of Object.entries(
+      pageResults.conversationAutomationSkipReasons,
+    )) {
+      conversationAutomationSkipReasons[reason] =
+        (conversationAutomationSkipReasons[reason] ?? 0) + count;
     }
 
     await updateLeadSyncRun(syncRun.id, {
@@ -913,13 +1113,13 @@ async function syncRecentBusinessLeadsForAutomation(params: {
           returnedLeadIds,
           hasMore,
           pagesFetched,
-          processingMs: Date.now() - startedAt
+          processingMs: Date.now() - startedAt,
         }),
         initialAutomationProcessedCount,
         conversationAutomationProcessedCount,
         conversationAutomationSkippedCount,
         conversationAutomationSkipReasons,
-        source: "scheduled_recent_poll"
+        source: "scheduled_recent_poll",
       },
       responseJson: {
         businessId: params.business.id,
@@ -931,8 +1131,8 @@ async function syncRecentBusinessLeadsForAutomation(params: {
         conversationAutomationProcessedCount,
         conversationAutomationSkippedCount,
         conversationAutomationSkipReasons,
-        source: "scheduled_recent_poll"
-      }
+        source: "scheduled_recent_poll",
+      },
     });
 
     if (!hasMore || leadIds.length === 0) {
@@ -943,16 +1143,19 @@ async function syncRecentBusinessLeadsForAutomation(params: {
   }
 
   const finishedAt = new Date();
-  const finalStatus: SyncRunStatus =
-    requestFailure
-      ? importedCount > 0 || updatedCount > 0 || failedCount > 0
+  const finalStatus: SyncRunStatus = requestFailure
+    ? importedCount > 0 || updatedCount > 0 || failedCount > 0
+      ? "PARTIAL"
+      : "FAILED"
+    : failedCount === 0
+      ? "COMPLETED"
+      : importedCount > 0 || updatedCount > 0
         ? "PARTIAL"
-        : "FAILED"
-      : failedCount === 0
-        ? "COMPLETED"
-        : importedCount > 0 || updatedCount > 0
-          ? "PARTIAL"
-          : "FAILED";
+        : "FAILED";
+
+  if (requestFailure) {
+    await recordYelpLeadsCredentialFailure(params.tenantId, requestFailure);
+  }
 
   await updateLeadSyncRun(syncRun.id, {
     status: finalStatus,
@@ -967,11 +1170,11 @@ async function syncRecentBusinessLeadsForAutomation(params: {
         returnedLeadIds,
         hasMore,
         pagesFetched,
-        processingMs: Date.now() - startedAt
+        processingMs: Date.now() - startedAt,
       }),
       initialAutomationProcessedCount,
       conversationAutomationProcessedCount,
-      source: "scheduled_recent_poll"
+      source: "scheduled_recent_poll",
     },
     responseJson: {
       businessId: params.business.id,
@@ -981,16 +1184,17 @@ async function syncRecentBusinessLeadsForAutomation(params: {
       pagesFetched,
       initialAutomationProcessedCount,
       conversationAutomationProcessedCount,
-      source: "scheduled_recent_poll"
+      source: "scheduled_recent_poll",
     },
     errorSummary:
       finalStatus === "FAILED"
-        ? requestFailure?.message ?? "Scheduled recent lead poll failed for every returned Yelp lead ID."
+        ? (requestFailure?.message ??
+          "Scheduled recent lead poll failed for every returned Yelp lead ID.")
         : requestFailure
           ? `Recent lead poll processed ${pagesFetched} Yelp page${pagesFetched === 1 ? "" : "s"} before a later page failed.`
           : failedCount > 0
             ? `${failedCount} Yelp lead refreshes failed.`
-            : null
+            : null,
   });
   await recordAuditEvent({
     tenantId: params.tenantId,
@@ -1002,7 +1206,7 @@ async function syncRecentBusinessLeadsForAutomation(params: {
     requestSummary: {
       businessId: params.business.id,
       yelpBusinessId: params.business.encryptedYelpBusinessId,
-      limit: params.leadLimit
+      limit: params.leadLimit,
     },
     responseSummary: {
       importedCount,
@@ -1015,8 +1219,8 @@ async function syncRecentBusinessLeadsForAutomation(params: {
       conversationAutomationProcessedCount,
       conversationAutomationSkippedCount,
       conversationAutomationSkipReasons,
-      status: finalStatus
-    }
+      status: finalStatus,
+    },
   });
 
   logInfo("leads.recent_poll.completed", {
@@ -1032,7 +1236,7 @@ async function syncRecentBusinessLeadsForAutomation(params: {
     conversationAutomationSkippedCount,
     conversationAutomationSkipReasons,
     pagesFetched,
-    processingMs: Date.now() - startedAt
+    processingMs: Date.now() - startedAt,
   });
 
   return {
@@ -1049,42 +1253,52 @@ async function syncRecentBusinessLeadsForAutomation(params: {
     initialAutomationProcessedCount,
     conversationAutomationProcessedCount,
     conversationAutomationSkippedCount,
-    conversationAutomationSkipReasons
+    conversationAutomationSkipReasons,
+    errorCode: requestFailure?.code ?? null,
   };
 }
 
-async function processQueuedYelpLeadWebhookSyncRun(tenantId: string, syncRunId: string) {
+async function processQueuedYelpLeadWebhookSyncRun(
+  tenantId: string,
+  syncRunId: string,
+) {
   const syncRun = await getLeadSyncRunById(tenantId, syncRunId);
 
   if (syncRun.type !== "YELP_LEADS_WEBHOOK") {
-    throw new YelpValidationError("Only Yelp webhook sync runs can be reprocessed from raw deliveries.");
+    throw new YelpValidationError(
+      "Only Yelp webhook sync runs can be reprocessed from raw deliveries.",
+    );
   }
 
   const webhookEvent = syncRun.webhookEvents[0] ?? null;
 
   if (!webhookEvent) {
-    throw new YelpValidationError("Queued Yelp lead sync run is missing its raw webhook delivery.");
+    throw new YelpValidationError(
+      "Queued Yelp lead sync run is missing its raw webhook delivery.",
+    );
   }
 
-  const { delivery, update } = parseQueuedWebhookPayload(webhookEvent.payloadJson);
+  const { delivery, update } = parseQueuedWebhookPayload(
+    webhookEvent.payloadJson,
+  );
   const externalBusinessId = delivery.data.id;
   const receivedAt = webhookEvent.receivedAt ?? syncRun.startedAt;
   const tenantContext = await resolveTenantContext(externalBusinessId);
   const processingStartedAt = Date.now();
   const existingStats = getProcessingStats(syncRun.statsJson);
-  const retryCount = getRetryCount(syncRun.statsJson);
+  const retryCount = getWebhookRetryState(syncRun.statsJson).retryCount;
 
   await updateLeadSyncRun(syncRun.id, {
     businessId: tenantContext.business?.id ?? syncRun.businessId ?? null,
     statsJson: {
       ...existingStats,
-      retryCount
-    }
+      retryCount,
+    },
   });
   await updateWebhookEventRecord(webhookEvent.id, {
     status: "PROCESSING",
     processedAt: null,
-    errorJson: null
+    errorJson: null,
   });
 
   const knownLeadId = syncRun.leadId ?? webhookEvent.leadId ?? null;
@@ -1093,7 +1307,7 @@ async function processQueuedYelpLeadWebhookSyncRun(tenantId: string, syncRunId: 
     await updateLeadWebhookSnapshot(tenantContext.tenantId, knownLeadId, {
       latestWebhookStatus: "PROCESSING",
       latestWebhookReceivedAt: receivedAt,
-      latestWebhookErrorSummary: null
+      latestWebhookErrorSummary: null,
     });
   }
 
@@ -1103,7 +1317,7 @@ async function processQueuedYelpLeadWebhookSyncRun(tenantId: string, syncRunId: 
     eventKey: webhookEvent.eventKey,
     businessId: externalBusinessId,
     leadId: update.leadId,
-    retryCount
+    retryCount,
   });
 
   try {
@@ -1111,41 +1325,49 @@ async function processQueuedYelpLeadWebhookSyncRun(tenantId: string, syncRunId: 
     const client = new YelpLeadsClient(credential);
 
     if (!tenantContext.business) {
-      throw new YelpValidationError("The Yelp business is not saved in this console yet.");
+      throw new YelpValidationError(
+        "The Yelp business is not saved in this console yet.",
+      );
     }
 
-    const { existingLead, lead, normalizedEventCount, phoneBecameAvailable, phoneChanged } = await syncLeadSnapshotFromYelp({
+    const {
+      existingLead,
+      lead,
+      normalizedEventCount,
+      phoneBecameAvailable,
+      phoneChanged,
+    } = await syncLeadSnapshotFromYelp({
       tenantId: tenantContext.tenantId,
       business: {
         id: tenantContext.business.id,
         locationId: tenantContext.business.locationId ?? null,
-        encryptedYelpBusinessId: externalBusinessId
+        encryptedYelpBusinessId: externalBusinessId,
       },
       client,
       leadId: update.leadId,
       receivedAt,
       sourceEventType: update.eventType,
       sourceEventId: update.eventId ?? null,
-      sourceInteractionTime: update.interactionTime ?? null
+      sourceInteractionTime: update.interactionTime ?? null,
     });
     const finishedAt = new Date();
 
     await processAutomationForSyncedLead({
       tenantId: tenantContext.tenantId,
       lead,
-      sourceEventId: update.eventId ?? null
+      sourceEventId: update.eventId ?? null,
     });
 
     await updateWebhookEventRecord(webhookEvent.id, {
       leadId: lead.id,
       status: "COMPLETED",
       processedAt: finishedAt,
-      errorJson: null
+      errorJson: null,
     });
     await updateLeadWebhookSnapshot(tenantContext.tenantId, lead.id, {
       latestWebhookStatus: "COMPLETED",
       latestWebhookReceivedAt: receivedAt,
-      latestWebhookErrorSummary: null
+      latestWebhookErrorSummary: null,
     });
     await updateLeadSyncRun(syncRun.id, {
       status: "COMPLETED",
@@ -1156,19 +1378,20 @@ async function processQueuedYelpLeadWebhookSyncRun(tenantId: string, syncRunId: 
       statsJson: {
         ...existingStats,
         retryCount,
+        nextAttemptAt: null,
         normalizedEventCount,
         phoneBecameAvailable,
         phoneChanged,
-        processingMs: Date.now() - processingStartedAt
+        processingMs: Date.now() - processingStartedAt,
       },
       responseJson: {
         leadId: update.leadId,
         localLeadId: lead.id,
         normalizedEventCount,
         phoneBecameAvailable,
-        phoneChanged
+        phoneChanged,
       },
-      errorSummary: null
+      errorSummary: null,
     });
     await recordAuditEvent({
       tenantId: tenantContext.tenantId,
@@ -1180,15 +1403,15 @@ async function processQueuedYelpLeadWebhookSyncRun(tenantId: string, syncRunId: 
       requestSummary: {
         eventType: update.eventType,
         eventId: update.eventId ?? null,
-        yelpBusinessId: externalBusinessId
+        yelpBusinessId: externalBusinessId,
       },
       responseSummary: {
         localLeadId: lead.id,
         normalizedEventCount,
         phoneBecameAvailable,
-        phoneChanged
+        phoneChanged,
       },
-      rawPayloadSummary: toJsonValue(update.raw)
+      rawPayloadSummary: toJsonValue(update.raw),
     });
 
     logInfo("leads.webhook.processed", {
@@ -1199,14 +1422,14 @@ async function processQueuedYelpLeadWebhookSyncRun(tenantId: string, syncRunId: 
       normalizedEventCount,
       phoneBecameAvailable,
       phoneChanged,
-      processingMs: Date.now() - processingStartedAt
+      processingMs: Date.now() - processingStartedAt,
     });
     await recordWebhookReconcileMetric({
       tenantId: tenantContext.tenantId,
       status: "SUCCEEDED",
       processingMs: Date.now() - processingStartedAt,
       receivedAt,
-      completedAt: finishedAt
+      completedAt: finishedAt,
     });
 
     return {
@@ -1214,11 +1437,16 @@ async function processQueuedYelpLeadWebhookSyncRun(tenantId: string, syncRunId: 
       eventKey: webhookEvent.eventKey,
       leadId: update.leadId,
       localLeadId: lead.id,
-      status: "COMPLETED" as const
+      status: "COMPLETED" as const,
     };
   } catch (error) {
     const normalizedError = normalizeUnknownError(error);
     const finishedAt = new Date();
+
+    await recordYelpLeadsCredentialFailure(
+      tenantContext.tenantId,
+      normalizedError,
+    );
 
     await updateWebhookEventRecord(webhookEvent.id, {
       status: "FAILED",
@@ -1226,8 +1454,8 @@ async function processQueuedYelpLeadWebhookSyncRun(tenantId: string, syncRunId: 
       errorJson: {
         message: normalizedError.message,
         code: normalizedError.code,
-        details: normalizedError.details ?? null
-      }
+        details: normalizedError.details ?? null,
+      },
     });
     const failedLeadId = syncRun.leadId ?? webhookEvent.leadId ?? null;
 
@@ -1235,21 +1463,25 @@ async function processQueuedYelpLeadWebhookSyncRun(tenantId: string, syncRunId: 
       await updateLeadWebhookSnapshot(tenantContext.tenantId, failedLeadId, {
         latestWebhookStatus: "FAILED",
         latestWebhookReceivedAt: receivedAt,
-        latestWebhookErrorSummary: normalizedError.message
+        latestWebhookErrorSummary: normalizedError.message,
       });
     }
     await updateLeadSyncRun(syncRun.id, {
       status: "FAILED",
       finishedAt,
       responseJson: {
-        leadId: update.leadId
+        leadId: update.leadId,
       },
       statsJson: {
         ...existingStats,
         retryCount,
-        processingMs: Date.now() - processingStartedAt
+        nextAttemptAt: getNextWebhookAttemptAt(
+          retryCount,
+          finishedAt,
+        ).toISOString(),
+        processingMs: Date.now() - processingStartedAt,
       },
-      errorSummary: normalizedError.message
+      errorSummary: normalizedError.message,
     });
     await createLeadSyncError({
       tenantId: tenantContext.tenantId,
@@ -1257,8 +1489,11 @@ async function processQueuedYelpLeadWebhookSyncRun(tenantId: string, syncRunId: 
       category: "LEAD_WEBHOOK_PROCESSING",
       code: normalizedError.code,
       message: normalizedError.message,
-      isRetryable: normalizedError instanceof YelpApiError ? isRetryable(normalizedError) : false,
-      detailsJson: normalizedError.details ?? null
+      isRetryable:
+        normalizedError instanceof YelpApiError
+          ? isRetryable(normalizedError)
+          : false,
+      detailsJson: normalizedError.details ?? null,
     });
     await recordAuditEvent({
       tenantId: tenantContext.tenantId,
@@ -1270,13 +1505,13 @@ async function processQueuedYelpLeadWebhookSyncRun(tenantId: string, syncRunId: 
       requestSummary: {
         eventType: update.eventType,
         eventId: update.eventId ?? null,
-        yelpBusinessId: externalBusinessId
+        yelpBusinessId: externalBusinessId,
       },
       responseSummary: {
         code: normalizedError.code,
-        message: normalizedError.message
+        message: normalizedError.message,
       },
-      rawPayloadSummary: toJsonValue(update.raw)
+      rawPayloadSummary: toJsonValue(update.raw),
     });
 
     logError("leads.webhook.failed", {
@@ -1285,48 +1520,63 @@ async function processQueuedYelpLeadWebhookSyncRun(tenantId: string, syncRunId: 
       eventKey: webhookEvent.eventKey,
       code: normalizedError.code,
       message: normalizedError.message,
-      processingMs: Date.now() - processingStartedAt
+      processingMs: Date.now() - processingStartedAt,
     });
     await recordWebhookReconcileMetric({
       tenantId: tenantContext.tenantId,
       status: "FAILED",
       processingMs: Date.now() - processingStartedAt,
       receivedAt,
-      completedAt: finishedAt
+      completedAt: finishedAt,
     });
 
     throw normalizedError;
   }
 }
 
-export async function retryLeadSyncRunWorkflow(tenantId: string, actorId: string, syncRunId: string) {
+export async function retryLeadSyncRunWorkflow(
+  tenantId: string,
+  actorId: string,
+  syncRunId: string,
+) {
   const syncRun = await getLeadSyncRunById(tenantId, syncRunId);
 
   if (syncRun.type === "YELP_LEADS_WEBHOOK") {
     const webhookEvent = syncRun.webhookEvents[0] ?? null;
 
     if (!webhookEvent) {
-      throw new YelpValidationError("This lead intake issue has no raw Yelp webhook payload to replay.");
+      throw new YelpValidationError(
+        "This lead intake issue has no raw Yelp webhook payload to replay.",
+      );
     }
 
     await updateLeadSyncRun(syncRun.id, {
       status: "QUEUED",
       finishedAt: null,
-      errorSummary: null
+      errorSummary: null,
     });
     await updateWebhookEventRecord(webhookEvent.id, {
       status: "QUEUED",
       processedAt: null,
-      errorJson: null
+      errorJson: null,
     });
 
-    const claimed = await claimLeadWebhookSyncRunForProcessing(tenantId, syncRun.id, new Date());
+    const claimed = await claimLeadWebhookSyncRunForProcessing(
+      tenantId,
+      syncRun.id,
+      new Date(),
+    );
 
     if (!claimed) {
-      throw new YelpValidationError("This lead intake issue is already being retried by another worker.");
+      throw new YelpValidationError(
+        "This lead intake issue is already being retried by another worker.",
+      );
     }
 
-    const result = await processQueuedYelpLeadWebhookSyncRun(tenantId, syncRun.id);
+    const result = await processQueuedYelpLeadWebhookSyncRun(
+      tenantId,
+      syncRun.id,
+    );
 
     await recordAuditEvent({
       tenantId,
@@ -1338,9 +1588,9 @@ export async function retryLeadSyncRunWorkflow(tenantId: string, actorId: string
       upstreamReference: syncRun.lead?.externalLeadId ?? webhookEvent.eventKey,
       requestSummary: toJsonValue({
         syncRunId: syncRun.id,
-        type: syncRun.type
+        type: syncRun.type,
       }),
-      responseSummary: toJsonValue(result)
+      responseSummary: toJsonValue(result),
     });
 
     return result;
@@ -1351,20 +1601,27 @@ export async function retryLeadSyncRunWorkflow(tenantId: string, actorId: string
     return syncBusinessLeadsWorkflow(tenantId, actorId, businessId);
   }
 
-  throw new YelpValidationError("Retry is not available for this lead sync run.");
+  throw new YelpValidationError(
+    "Retry is not available for this lead sync run.",
+  );
 }
 
-export async function ingestYelpLeadWebhook(payload: unknown, headers: Headers | Record<string, string>) {
+export async function ingestYelpLeadWebhook(
+  payload: unknown,
+  headers: Headers | Record<string, string>,
+) {
   const parsed = yelpLeadWebhookPayloadSchema.safeParse(payload);
 
   if (!parsed.success) {
     throw new YelpValidationError("The Yelp webhook payload is invalid.", {
-      issues: parsed.error.issues
+      issues: parsed.error.issues,
     });
   }
 
   if (parsed.data.data.updates.length === 0) {
-    throw new YelpValidationError("The Yelp webhook contained no updates to process.");
+    throw new YelpValidationError(
+      "The Yelp webhook contained no updates to process.",
+    );
   }
 
   const normalizedHeaders = normalizeHeaders(headers);
@@ -1380,21 +1637,27 @@ export async function ingestYelpLeadWebhook(payload: unknown, headers: Headers |
   for (const [index, rawUpdate] of parsed.data.data.updates.entries()) {
     const update = parseWebhookUpdate(rawUpdate);
     const eventKey = buildWebhookEventKey(parsed.data.data.id, update, index);
-    const existingWebhook = await findWebhookEventByKey(tenantContext.tenantId, eventKey);
+    const existingWebhook = await findWebhookEventByKey(
+      tenantContext.tenantId,
+      eventKey,
+    );
 
-    if (existingWebhook && !["FAILED", "PARTIAL", "SKIPPED"].includes(existingWebhook.status)) {
+    if (
+      existingWebhook &&
+      !["FAILED", "PARTIAL", "SKIPPED"].includes(existingWebhook.status)
+    ) {
       await recordWebhookIntakeMetric({
         tenantId: tenantContext.tenantId,
         deliveryStatus: "DUPLICATE",
         occurredAt: update.interactionTime,
-        receivedAt: existingWebhook.receivedAt
+        receivedAt: existingWebhook.receivedAt,
       });
       results.push({
         eventKey,
         deliveryStatus: "DUPLICATE",
         leadId: update.leadId,
         localLeadId: existingWebhook.leadId ?? undefined,
-        message: "Duplicate delivery ignored."
+        message: "Duplicate delivery ignored.",
       });
       continue;
     }
@@ -1412,8 +1675,8 @@ export async function ingestYelpLeadWebhook(payload: unknown, headers: Headers |
         eventKey,
         businessId: parsed.data.data.id,
         leadId: update.leadId,
-        eventType: update.eventType
-      }
+        eventType: update.eventType,
+      },
     });
     const webhookEvent = existingWebhook
       ? await updateWebhookEventRecord(existingWebhook.id, {
@@ -1425,9 +1688,9 @@ export async function ingestYelpLeadWebhook(payload: unknown, headers: Headers |
           headersJson: normalizedHeaders,
           payloadJson: {
             delivery: parsed.data,
-            update: rawUpdate
+            update: rawUpdate,
           },
-          errorJson: null
+          errorJson: null,
         })
       : await createWebhookEventRecord({
           tenantId: tenantContext.tenantId,
@@ -1439,8 +1702,8 @@ export async function ingestYelpLeadWebhook(payload: unknown, headers: Headers |
           headersJson: normalizedHeaders,
           payloadJson: {
             delivery: parsed.data,
-            update: rawUpdate
-          }
+            update: rawUpdate,
+          },
         });
 
     logInfo("leads.webhook.enqueued", {
@@ -1449,34 +1712,40 @@ export async function ingestYelpLeadWebhook(payload: unknown, headers: Headers |
       eventKey,
       businessId: parsed.data.data.id,
       leadId: update.leadId,
-      eventType: update.eventType
+      eventType: update.eventType,
     });
     if (existingWebhook?.leadId) {
-      await updateLeadWebhookSnapshot(tenantContext.tenantId, existingWebhook.leadId, {
-        latestWebhookStatus: "QUEUED",
-        latestWebhookReceivedAt: webhookEvent.receivedAt ?? new Date(),
-        latestWebhookErrorSummary: null
-      });
+      await updateLeadWebhookSnapshot(
+        tenantContext.tenantId,
+        existingWebhook.leadId,
+        {
+          latestWebhookStatus: "QUEUED",
+          latestWebhookReceivedAt: webhookEvent.receivedAt ?? new Date(),
+          latestWebhookErrorSummary: null,
+        },
+      );
     }
     await recordWebhookIntakeMetric({
       tenantId: tenantContext.tenantId,
       deliveryStatus: webhookEvent.status,
       occurredAt: update.interactionTime,
-      receivedAt: webhookEvent.receivedAt ?? new Date()
+      receivedAt: webhookEvent.receivedAt ?? new Date(),
     });
     results.push({
       eventKey,
       deliveryStatus: webhookEvent.status,
       leadId: update.leadId,
       localLeadId: webhookEvent.leadId ?? undefined,
-      message: existingWebhook ? "Webhook delivery re-queued after a prior failure." : "Webhook delivery queued for Yelp lead refresh."
+      message: existingWebhook
+        ? "Webhook delivery re-queued after a prior failure."
+        : "Webhook delivery queued for Yelp lead refresh.",
     });
   }
 
   return {
     tenantId: tenantContext.tenantId,
     externalBusinessId: parsed.data.data.id,
-    results
+    results,
   };
 }
 
@@ -1484,13 +1753,27 @@ export async function reconcilePendingLeadWebhooks(limit = 20) {
   const candidates = await listLeadWebhookSyncRunsForReconcile(limit * 2);
   const results = [];
   const now = new Date();
+  const blockedTenants = new Set<string>();
 
   for (const syncRun of candidates) {
-    const retryCount = getRetryCount(syncRun.statsJson);
+    if (
+      blockedTenants.has(syncRun.tenantId) ||
+      (await isYelpLeadsCredentialCircuitOpen(syncRun.tenantId))
+    ) {
+      blockedTenants.add(syncRun.tenantId);
+      continue;
+    }
+
+    const retryState = getWebhookRetryState(syncRun.statsJson);
+    const retryCount = retryState.retryCount;
     const latestError = syncRun.errors[0] ?? null;
 
     if (syncRun.status === "FAILED") {
-      if (!latestError?.isRetryable || retryCount >= 2) {
+      if (
+        !latestError?.isRetryable ||
+        retryCount >= YELP_WEBHOOK_MAX_RETRIES ||
+        !isWebhookRetryDue(syncRun.statsJson, now)
+      ) {
         continue;
       }
     }
@@ -1501,26 +1784,39 @@ export async function reconcilePendingLeadWebhooks(limit = 20) {
           status: "QUEUED",
           statsJson: {
             ...getProcessingStats(syncRun.statsJson),
-            retryCount: retryCount + 1
-          }
+            retryCount: retryCount + 1,
+            nextAttemptAt: null,
+          },
         });
       }
 
-      const claimed = await claimLeadWebhookSyncRunForProcessing(syncRun.tenantId, syncRun.id, now);
+      const claimed = await claimLeadWebhookSyncRunForProcessing(
+        syncRun.tenantId,
+        syncRun.id,
+        now,
+      );
 
       if (!claimed) {
         continue;
       }
 
-      const processed = await processQueuedYelpLeadWebhookSyncRun(syncRun.tenantId, syncRun.id);
+      const processed = await processQueuedYelpLeadWebhookSyncRun(
+        syncRun.tenantId,
+        syncRun.id,
+      );
       results.push(processed);
     } catch (error) {
       const normalized = normalizeUnknownError(error);
+
+      if (normalized.code === "AUTH_FAILURE") {
+        blockedTenants.add(syncRun.tenantId);
+      }
+
       results.push({
         syncRunId: syncRun.id,
         status: "FAILED",
         code: normalized.code,
-        message: normalized.message
+        message: normalized.message,
       });
     }
 
@@ -1547,12 +1843,21 @@ export async function reconcileRecentYelpLeadsForAutomation(limit = 40) {
       conversationAutomationProcessedCount: 0,
       conversationAutomationSkippedCount: 0,
       conversationAutomationSkipReasons: {},
-      results: []
+      accessFailureCount: 0,
+      accessFailures: [],
+      results: [],
     };
   }
 
   const tenants = await listTenantIds();
-  const results: Array<Awaited<ReturnType<typeof syncRecentBusinessLeadsForAutomation>>> = [];
+  const results: Array<
+    Awaited<ReturnType<typeof syncRecentBusinessLeadsForAutomation>>
+  > = [];
+  const accessFailures: Array<{
+    tenantId: string;
+    code: string;
+    message: string;
+  }> = [];
   let remainingLeadBudget = normalizedLimit;
 
   for (const tenant of tenants) {
@@ -1563,6 +1868,16 @@ export async function reconcileRecentYelpLeadsForAutomation(limit = 40) {
     let client: YelpLeadsClient;
 
     try {
+      if (await isYelpLeadsCredentialCircuitOpen(tenant.id)) {
+        accessFailures.push({
+          tenantId: tenant.id,
+          code: "AUTH_CIRCUIT_OPEN",
+          message:
+            "Yelp Leads requests are paused until the saved credential is replaced and tested.",
+        });
+        continue;
+      }
+
       const { credential } = await ensureYelpLeadsAccess(tenant.id);
       client = new YelpLeadsClient(credential);
     } catch (error) {
@@ -1570,7 +1885,12 @@ export async function reconcileRecentYelpLeadsForAutomation(limit = 40) {
 
       logError("leads.recent_poll.access_failed", {
         tenantId: tenant.id,
-        message: normalized.message
+        message: normalized.message,
+      });
+      accessFailures.push({
+        tenantId: tenant.id,
+        code: normalized.code,
+        message: normalized.message,
       });
       continue;
     }
@@ -1586,67 +1906,110 @@ export async function reconcileRecentYelpLeadsForAutomation(limit = 40) {
         continue;
       }
 
-      const { effectiveSettings } = await getLeadAutomationScopeConfig(tenant.id, business.id);
-      const shouldPollForAutomation = effectiveSettings.isEnabled || effectiveSettings.conversationAutomationEnabled;
+      const { effectiveSettings } = await getLeadAutomationScopeConfig(
+        tenant.id,
+        business.id,
+      );
+      const shouldPollForAutomation =
+        effectiveSettings.isEnabled ||
+        effectiveSettings.conversationAutomationEnabled;
 
       if (!shouldPollForAutomation) {
         continue;
       }
 
-      const leadLimit = Math.min(remainingLeadBudget, YELP_LEAD_IMPORT_PAGE_SIZE * 3);
+      const leadLimit = Math.min(
+        remainingLeadBudget,
+        YELP_LEAD_IMPORT_PAGE_SIZE * 3,
+      );
       const result = await syncRecentBusinessLeadsForAutomation({
         tenantId: tenant.id,
         business: {
           id: business.id,
           name: business.name,
           locationId: business.locationId ?? null,
-          encryptedYelpBusinessId: business.encryptedYelpBusinessId
+          encryptedYelpBusinessId: business.encryptedYelpBusinessId,
         },
         client,
-        leadLimit
+        leadLimit,
       });
 
       results.push(result);
       remainingLeadBudget -= result.returnedLeadIds;
+
+      if (result.errorCode === "AUTH_FAILURE") {
+        accessFailures.push({
+          tenantId: tenant.id,
+          code: result.errorCode,
+          message:
+            "Yelp rejected the saved Leads credential. Polling is paused until it is replaced and tested.",
+        });
+        break;
+      }
     }
   }
 
   return {
     tenantCount: tenants.length,
     businessCount: results.length,
-    processedLeadCount: results.reduce((total, result) => total + result.returnedLeadIds, 0),
-    importedCount: results.reduce((total, result) => total + result.importedCount, 0),
-    updatedCount: results.reduce((total, result) => total + result.updatedCount, 0),
-    failedCount: results.reduce((total, result) => total + result.failedCount, 0),
+    processedLeadCount: results.reduce(
+      (total, result) => total + result.returnedLeadIds,
+      0,
+    ),
+    importedCount: results.reduce(
+      (total, result) => total + result.importedCount,
+      0,
+    ),
+    updatedCount: results.reduce(
+      (total, result) => total + result.updatedCount,
+      0,
+    ),
+    failedCount: results.reduce(
+      (total, result) => total + result.failedCount,
+      0,
+    ),
     initialAutomationProcessedCount: results.reduce(
       (total, result) => total + result.initialAutomationProcessedCount,
-      0
+      0,
     ),
     conversationAutomationProcessedCount: results.reduce(
       (total, result) => total + result.conversationAutomationProcessedCount,
-      0
+      0,
     ),
     conversationAutomationSkippedCount: results.reduce(
       (total, result) => total + result.conversationAutomationSkippedCount,
-      0
+      0,
     ),
-    conversationAutomationSkipReasons: results.reduce<Record<string, number>>((totals, result) => {
-      for (const [reason, count] of Object.entries(result.conversationAutomationSkipReasons)) {
-        totals[reason] = (totals[reason] ?? 0) + count;
-      }
+    conversationAutomationSkipReasons: results.reduce<Record<string, number>>(
+      (totals, result) => {
+        for (const [reason, count] of Object.entries(
+          result.conversationAutomationSkipReasons,
+        )) {
+          totals[reason] = (totals[reason] ?? 0) + count;
+        }
 
-      return totals;
-    }, {}),
-    results
+        return totals;
+      },
+      {},
+    ),
+    accessFailureCount: accessFailures.length,
+    accessFailures,
+    results,
   };
 }
 
-export async function createLeadBackfillRunWorkflow(tenantId: string, actorId: string, input: unknown) {
+export async function createLeadBackfillRunWorkflow(
+  tenantId: string,
+  actorId: string,
+  input: unknown,
+) {
   const values = leadBackfillSchema.parse(input);
   const business = await getBusinessById(values.businessId, tenantId);
 
   if (!business.encryptedYelpBusinessId) {
-    throw new YelpValidationError("This business is missing a Yelp business ID.");
+    throw new YelpValidationError(
+      "This business is missing a Yelp business ID.",
+    );
   }
 
   const startedAt = new Date();
@@ -1661,8 +2024,8 @@ export async function createLeadBackfillRunWorkflow(tenantId: string, actorId: s
       businessId: business.id,
       yelpBusinessId: business.encryptedYelpBusinessId,
       limit: YELP_LEAD_IMPORT_PAGE_SIZE,
-      pageLimit: YELP_LEAD_IMPORT_MAX_PAGES_PER_RUN
-    }
+      pageLimit: YELP_LEAD_IMPORT_MAX_PAGES_PER_RUN,
+    },
   });
 
   await recordAuditEvent({
@@ -1677,18 +2040,21 @@ export async function createLeadBackfillRunWorkflow(tenantId: string, actorId: s
       businessId: business.id,
       yelpBusinessId: business.encryptedYelpBusinessId,
       limit: YELP_LEAD_IMPORT_PAGE_SIZE,
-      pageLimit: YELP_LEAD_IMPORT_MAX_PAGES_PER_RUN
-    }
+      pageLimit: YELP_LEAD_IMPORT_MAX_PAGES_PER_RUN,
+    },
   });
 
   return {
     syncRunId: syncRun.id,
     businessId: business.id,
-    businessName: business.name
+    businessName: business.name,
   };
 }
 
-export async function getLeadBackfillRunStatusWorkflow(tenantId: string, syncRunId: string) {
+export async function getLeadBackfillRunStatusWorkflow(
+  tenantId: string,
+  syncRunId: string,
+) {
   const syncRun = await getLeadSyncRunById(tenantId, syncRunId);
 
   if (syncRun.type !== "YELP_LEADS_BACKFILL") {
@@ -1698,11 +2064,17 @@ export async function getLeadBackfillRunStatusWorkflow(tenantId: string, syncRun
   return shapeLeadBackfillRunStatus(syncRun);
 }
 
-export async function processLeadBackfillRunWorkflow(tenantId: string, actorId: string, syncRunId: string) {
+export async function processLeadBackfillRunWorkflow(
+  tenantId: string,
+  actorId: string,
+  syncRunId: string,
+) {
   const syncRun = await getLeadSyncRunById(tenantId, syncRunId);
 
   if (syncRun.type !== "YELP_LEADS_BACKFILL") {
-    throw new YelpValidationError("Only Yelp lead backfill runs can be processed here.");
+    throw new YelpValidationError(
+      "Only Yelp lead backfill runs can be processed here.",
+    );
   }
 
   if (syncRun.status === "PROCESSING" || syncRun.status === "COMPLETED") {
@@ -1713,7 +2085,9 @@ export async function processLeadBackfillRunWorkflow(tenantId: string, actorId: 
   const business = await getBusinessById(businessId, tenantId);
 
   if (!business.encryptedYelpBusinessId) {
-    throw new YelpValidationError("This business is missing a Yelp business ID.");
+    throw new YelpValidationError(
+      "This business is missing a Yelp business ID.",
+    );
   }
 
   const { credential } = await ensureYelpLeadsAccess(tenantId);
@@ -1732,12 +2106,12 @@ export async function processLeadBackfillRunWorkflow(tenantId: string, actorId: 
       failedCount: 0,
       returnedLeadIds: 0,
       hasMore: false,
-      pagesFetched: 0
+      pagesFetched: 0,
     }),
     responseJson: {
       businessId: business.id,
-      yelpBusinessId: business.encryptedYelpBusinessId
-    }
+      yelpBusinessId: business.encryptedYelpBusinessId,
+    },
   });
 
   try {
@@ -1754,10 +2128,13 @@ export async function processLeadBackfillRunWorkflow(tenantId: string, actorId: 
       let leadIds: string[] = [];
 
       try {
-        const leadIdsResponse = await client.getBusinessLeadIds(business.encryptedYelpBusinessId, {
-          limit: YELP_LEAD_IMPORT_PAGE_SIZE,
-          offset
-        });
+        const leadIdsResponse = await client.getBusinessLeadIds(
+          business.encryptedYelpBusinessId,
+          {
+            limit: YELP_LEAD_IMPORT_PAGE_SIZE,
+            offset,
+          },
+        );
         const extracted = extractLeadIdsResponse(leadIdsResponse.data);
         leadIds = extracted.leadIds;
         hasMore = extracted.hasMore;
@@ -1770,8 +2147,9 @@ export async function processLeadBackfillRunWorkflow(tenantId: string, actorId: 
           category: "LEAD_BACKFILL_REQUEST",
           code: requestFailure.code,
           message: `Page ${pagesFetched + 1} (offset ${offset}): ${requestFailure.message}`,
-          isRetryable: error instanceof YelpApiError ? isRetryable(error) : false,
-          detailsJson: requestFailure.details ?? null
+          isRetryable:
+            error instanceof YelpApiError ? isRetryable(error) : false,
+          detailsJson: requestFailure.details ?? null,
         });
         break;
       }
@@ -1785,10 +2163,10 @@ export async function processLeadBackfillRunWorkflow(tenantId: string, actorId: 
         business: {
           id: business.id,
           locationId: business.locationId ?? null,
-          encryptedYelpBusinessId: business.encryptedYelpBusinessId
+          encryptedYelpBusinessId: business.encryptedYelpBusinessId,
         },
         client,
-        leadIds
+        leadIds,
       });
 
       importedCount += pageResults.importedCount;
@@ -1805,15 +2183,15 @@ export async function processLeadBackfillRunWorkflow(tenantId: string, actorId: 
           returnedLeadIds,
           hasMore,
           pagesFetched,
-          processingMs: Date.now() - importStartedAt
+          processingMs: Date.now() - importStartedAt,
         }),
         responseJson: {
           businessId: business.id,
           yelpBusinessId: business.encryptedYelpBusinessId,
           returnedLeadIds,
           hasMore,
-          pagesFetched
-        }
+          pagesFetched,
+        },
       });
 
       if (!hasMore || leadIds.length === 0) {
@@ -1824,16 +2202,15 @@ export async function processLeadBackfillRunWorkflow(tenantId: string, actorId: 
     }
 
     const finishedAt = new Date();
-    const finalStatus: SyncRunStatus =
-      requestFailure
-        ? importedCount > 0 || updatedCount > 0 || failedCount > 0
+    const finalStatus: SyncRunStatus = requestFailure
+      ? importedCount > 0 || updatedCount > 0 || failedCount > 0
+        ? "PARTIAL"
+        : "FAILED"
+      : failedCount === 0
+        ? "COMPLETED"
+        : importedCount > 0 || updatedCount > 0
           ? "PARTIAL"
-          : "FAILED"
-        : failedCount === 0
-          ? "COMPLETED"
-          : importedCount > 0 || updatedCount > 0
-            ? "PARTIAL"
-            : "FAILED";
+          : "FAILED";
 
     await updateLeadSyncRun(syncRun.id, {
       status: finalStatus,
@@ -1846,23 +2223,24 @@ export async function processLeadBackfillRunWorkflow(tenantId: string, actorId: 
         returnedLeadIds,
         hasMore,
         pagesFetched,
-        processingMs: Date.now() - importStartedAt
+        processingMs: Date.now() - importStartedAt,
       }),
       responseJson: {
         businessId: business.id,
         yelpBusinessId: business.encryptedYelpBusinessId,
         returnedLeadIds,
         hasMore,
-        pagesFetched
+        pagesFetched,
       },
       errorSummary:
         finalStatus === "FAILED"
-          ? requestFailure?.message ?? "Lead import failed for every returned Yelp lead ID."
+          ? (requestFailure?.message ??
+            "Lead import failed for every returned Yelp lead ID.")
           : requestFailure
             ? `Imported ${pagesFetched} Yelp page${pagesFetched === 1 ? "" : "s"} before a later page failed.`
             : failedCount > 0
               ? `${failedCount} Yelp lead imports failed.`
-              : null
+              : null,
     });
 
     await recordAuditEvent({
@@ -1877,7 +2255,7 @@ export async function processLeadBackfillRunWorkflow(tenantId: string, actorId: 
         businessId: business.id,
         yelpBusinessId: business.encryptedYelpBusinessId,
         limit: YELP_LEAD_IMPORT_PAGE_SIZE,
-        pageLimit: YELP_LEAD_IMPORT_MAX_PAGES_PER_RUN
+        pageLimit: YELP_LEAD_IMPORT_MAX_PAGES_PER_RUN,
       },
       responseSummary: {
         importedCount,
@@ -1886,8 +2264,8 @@ export async function processLeadBackfillRunWorkflow(tenantId: string, actorId: 
         returnedLeadIds,
         hasMore,
         pagesFetched,
-        status: finalStatus
-      }
+        status: finalStatus,
+      },
     });
 
     logInfo("leads.backfill.completed", {
@@ -1900,10 +2278,12 @@ export async function processLeadBackfillRunWorkflow(tenantId: string, actorId: 
       failedCount,
       hasMore,
       pagesFetched,
-      processingMs: Date.now() - importStartedAt
+      processingMs: Date.now() - importStartedAt,
     });
 
-    return shapeLeadBackfillRunStatus(await getLeadSyncRunById(tenantId, syncRun.id));
+    return shapeLeadBackfillRunStatus(
+      await getLeadSyncRunById(tenantId, syncRun.id),
+    );
   } catch (error) {
     const finishedAt = new Date();
     const normalized = normalizeUnknownError(error);
@@ -1914,8 +2294,9 @@ export async function processLeadBackfillRunWorkflow(tenantId: string, actorId: 
       category: "LEAD_BACKFILL_REQUEST",
       code: normalized.code,
       message: normalized.message,
-      isRetryable: normalized instanceof YelpApiError ? isRetryable(normalized) : false,
-      detailsJson: normalized.details ?? null
+      isRetryable:
+        normalized instanceof YelpApiError ? isRetryable(normalized) : false,
+      detailsJson: normalized.details ?? null,
     });
     await updateLeadSyncRun(syncRun.id, {
       status: "FAILED",
@@ -1923,8 +2304,8 @@ export async function processLeadBackfillRunWorkflow(tenantId: string, actorId: 
       errorSummary: normalized.message,
       responseJson: {
         businessId: business.id,
-        yelpBusinessId: business.encryptedYelpBusinessId
-      }
+        yelpBusinessId: business.encryptedYelpBusinessId,
+      },
     });
     await recordAuditEvent({
       tenantId,
@@ -1938,12 +2319,12 @@ export async function processLeadBackfillRunWorkflow(tenantId: string, actorId: 
         businessId: business.id,
         yelpBusinessId: business.encryptedYelpBusinessId,
         limit: YELP_LEAD_IMPORT_PAGE_SIZE,
-        pageLimit: YELP_LEAD_IMPORT_MAX_PAGES_PER_RUN
+        pageLimit: YELP_LEAD_IMPORT_MAX_PAGES_PER_RUN,
       },
       responseSummary: {
         message: normalized.message,
-        code: normalized.code
-      }
+        code: normalized.code,
+      },
     });
 
     logError("leads.backfill.failed", {
@@ -1952,18 +2333,25 @@ export async function processLeadBackfillRunWorkflow(tenantId: string, actorId: 
       yelpBusinessId: business.encryptedYelpBusinessId,
       code: normalized.code,
       message: normalized.message,
-      processingMs: Date.now() - importStartedAt
+      processingMs: Date.now() - importStartedAt,
     });
     throw error;
   }
 }
 
-export async function syncBusinessLeadsWorkflow(tenantId: string, actorId: string, input: unknown) {
+export async function syncBusinessLeadsWorkflow(
+  tenantId: string,
+  actorId: string,
+  input: unknown,
+) {
   const run = await createLeadBackfillRunWorkflow(tenantId, actorId, input);
   return processLeadBackfillRunWorkflow(tenantId, actorId, run.syncRunId);
 }
 
-export async function getLeadsIndex(tenantId: string, rawFilters?: LeadFiltersInput) {
+export async function getLeadsIndex(
+  tenantId: string,
+  rawFilters?: LeadFiltersInput,
+) {
   const filters = leadFiltersSchema.parse(rawFilters ?? {});
   const paginationFilters = {
     businessId: filters.businessId,
@@ -1972,17 +2360,24 @@ export async function getLeadsIndex(tenantId: string, rawFilters?: LeadFiltersIn
     mappingState: filters.mappingState,
     internalStatus: filters.internalStatus,
     from: filters.from ? new Date(`${filters.from}T00:00:00.000Z`) : undefined,
-    to: filters.to ? endOfDay(filters.to) : undefined
+    to: filters.to ? endOfDay(filters.to) : undefined,
   };
   const requestedPageSize = filters.pageSize ?? DEFAULT_LEADS_PAGE_SIZE;
   const requestedPage = filters.page ?? 1;
-  const [capabilities, businesses, failedDeliveries, conversionMetrics, backfillRuns, totalSyncedLeads] = await Promise.all([
+  const [
+    capabilities,
+    businesses,
+    failedDeliveries,
+    conversionMetrics,
+    backfillRuns,
+    totalSyncedLeads,
+  ] = await Promise.all([
     getCapabilityFlags(tenantId),
     listLeadBusinessOptions(tenantId),
     listFailedLeadWebhookEvents(tenantId, 6),
     getLeadConversionSummary(tenantId),
     listLeadBackfillRuns(tenantId, 5),
-    countLeadRecords(tenantId)
+    countLeadRecords(tenantId),
   ]);
   const businessSplitCounts = await countLeadRecordsByBusiness(tenantId, {
     status: filters.status,
@@ -1990,35 +2385,36 @@ export async function getLeadsIndex(tenantId: string, rawFilters?: LeadFiltersIn
     mappingState: filters.mappingState,
     internalStatus: filters.internalStatus,
     from: paginationFilters.from,
-    to: paginationFilters.to
+    to: paginationFilters.to,
   });
   let businessSplitMap = new Map(
     businessSplitCounts
       .filter((entry) => entry.businessId)
-      .map((entry) => [entry.businessId as string, entry._count._all])
+      .map((entry) => [entry.businessId as string, entry._count._all]),
   );
   let filteredLeads = 0;
   let rows: LeadListEntry[] = [];
 
   const attentionCountFilters = {
     ...paginationFilters,
-    attention: "NEEDS_ATTENTION" as const
+    attention: "NEEDS_ATTENTION" as const,
   };
   const [attentionLeadCount, filteredLeadCount] = await Promise.all([
     countLeadRecords(tenantId, attentionCountFilters),
-    countLeadRecords(tenantId, paginationFilters)
+    countLeadRecords(tenantId, paginationFilters),
   ]);
   filteredLeads = filteredLeadCount;
-  const totalPages = filteredLeads === 0 ? 1 : Math.ceil(filteredLeads / requestedPageSize);
+  const totalPages =
+    filteredLeads === 0 ? 1 : Math.ceil(filteredLeads / requestedPageSize);
   const currentPage = Math.min(Math.max(requestedPage, 1), totalPages);
   const leads = await listLeadRecords(tenantId, {
     ...paginationFilters,
     skip: (currentPage - 1) * requestedPageSize,
-    take: requestedPageSize
+    take: requestedPageSize,
   });
   const leadIssues = await listOpenOperatorIssuesForLeadIds(
     tenantId,
-    leads.map((lead) => lead.id)
+    leads.map((lead) => lead.id),
   );
   const issuesByLeadId = new Map<string, typeof leadIssues>();
 
@@ -2038,7 +2434,12 @@ export async function getLeadsIndex(tenantId: string, rawFilters?: LeadFiltersIn
     const row = buildLeadListEntry(lead);
     const openIssues = issuesByLeadId.get(lead.id) ?? [];
     const primaryIssue = openIssues[0] ?? null;
-    const combinedReasons = [...new Set([...(primaryIssue ? [primaryIssue.summary] : []), ...row.attentionReasons])];
+    const combinedReasons = [
+      ...new Set([
+        ...(primaryIssue ? [primaryIssue.summary] : []),
+        ...row.attentionReasons,
+      ]),
+    ];
 
     return {
       ...row,
@@ -2048,17 +2449,18 @@ export async function getLeadsIndex(tenantId: string, rawFilters?: LeadFiltersIn
             id: primaryIssue.id,
             issueType: primaryIssue.issueType,
             severity: primaryIssue.severity,
-            summary: primaryIssue.summary
+            summary: primaryIssue.summary,
           }
         : null,
       requiresAttention: row.requiresAttention || openIssues.length > 0,
-      attentionReasons: combinedReasons
+      attentionReasons: combinedReasons,
     };
   });
 
   const latestBackfill = backfillRuns[0] ?? null;
   const latestBackfillStats =
-    typeof latestBackfill?.statsJson === "object" && latestBackfill?.statsJson !== null
+    typeof latestBackfill?.statsJson === "object" &&
+    latestBackfill?.statsJson !== null
       ? (latestBackfill.statsJson as {
           importedCount?: number;
           updatedCount?: number;
@@ -2079,42 +2481,52 @@ export async function getLeadsIndex(tenantId: string, rawFilters?: LeadFiltersIn
       id: business.id,
       name: business.name,
       count: businessSplitMap.get(business.id) ?? 0,
-      isSelected: business.id === filters.businessId
+      isSelected: business.id === filters.businessId,
     })),
     summary: {
       totalSyncedLeads,
       filteredLeads,
       visibleRows: rows.length,
-      mappedLeads: rows.filter((lead) => lead.mappingState === "MATCHED" || lead.mappingState === "MANUAL_OVERRIDE").length,
-      unresolvedLeads: rows.filter((lead) => lead.mappingState === "UNRESOLVED").length,
+      mappedLeads: rows.filter(
+        (lead) =>
+          lead.mappingState === "MATCHED" ||
+          lead.mappingState === "MANUAL_OVERRIDE",
+      ).length,
+      unresolvedLeads: rows.filter((lead) => lead.mappingState === "UNRESOLVED")
+        .length,
       needsAttention: attentionLeadCount,
-      crmIssues: rows.filter((lead) => ["FAILED", "CONFLICT", "ERROR", "STALE"].includes(lead.crmHealthStatus)).length,
-      failedDeliveries: failedDeliveries.length
+      crmIssues: rows.filter((lead) =>
+        ["FAILED", "CONFLICT", "ERROR", "STALE"].includes(lead.crmHealthStatus),
+      ).length,
+      failedDeliveries: failedDeliveries.length,
     },
     conversionMetrics,
     leads: rows,
     failedDeliveries,
     backfill: {
-      latestRun:
-        latestBackfill
-          ? {
-              id: latestBackfill.id,
-              status: latestBackfill.status,
-              businessId: latestBackfill.businessId,
-              businessName: latestBackfill.business?.name ?? "Unknown business",
-              startedAt: latestBackfill.startedAt,
-              finishedAt: latestBackfill.finishedAt,
-              importedCount: latestBackfillStats?.importedCount ?? 0,
-              updatedCount: latestBackfillStats?.updatedCount ?? 0,
-              failedCount: latestBackfillStats?.failedCount ?? latestBackfill.errors.length,
-              returnedLeadIds: latestBackfillStats?.returnedLeadIds ?? 0,
-              hasMore: latestBackfillStats?.hasMore ?? false,
-              pagesFetched: latestBackfillStats?.pagesFetched ?? 1,
-              pageSize: latestBackfillStats?.pageSize ?? YELP_LEAD_IMPORT_PAGE_SIZE,
-              pageLimit: latestBackfillStats?.pageLimit ?? YELP_LEAD_IMPORT_MAX_PAGES_PER_RUN,
-              errorSummary: latestBackfill.errorSummary
-            }
-          : null
+      latestRun: latestBackfill
+        ? {
+            id: latestBackfill.id,
+            status: latestBackfill.status,
+            businessId: latestBackfill.businessId,
+            businessName: latestBackfill.business?.name ?? "Unknown business",
+            startedAt: latestBackfill.startedAt,
+            finishedAt: latestBackfill.finishedAt,
+            importedCount: latestBackfillStats?.importedCount ?? 0,
+            updatedCount: latestBackfillStats?.updatedCount ?? 0,
+            failedCount:
+              latestBackfillStats?.failedCount ?? latestBackfill.errors.length,
+            returnedLeadIds: latestBackfillStats?.returnedLeadIds ?? 0,
+            hasMore: latestBackfillStats?.hasMore ?? false,
+            pagesFetched: latestBackfillStats?.pagesFetched ?? 1,
+            pageSize:
+              latestBackfillStats?.pageSize ?? YELP_LEAD_IMPORT_PAGE_SIZE,
+            pageLimit:
+              latestBackfillStats?.pageLimit ??
+              YELP_LEAD_IMPORT_MAX_PAGES_PER_RUN,
+            errorSummary: latestBackfill.errorSummary,
+          }
+        : null,
     },
     pagination: {
       currentPage,
@@ -2124,9 +2536,13 @@ export async function getLeadsIndex(tenantId: string, rawFilters?: LeadFiltersIn
       hasPreviousPage: currentPage > 1,
       hasNextPage: currentPage < totalPages,
       pageSizeOptions: [...LEADS_PAGE_SIZE_OPTIONS],
-      pageRowStart: filteredLeads === 0 ? 0 : (currentPage - 1) * requestedPageSize + 1,
-      pageRowEnd: filteredLeads === 0 ? 0 : (currentPage - 1) * requestedPageSize + rows.length
-    }
+      pageRowStart:
+        filteredLeads === 0 ? 0 : (currentPage - 1) * requestedPageSize + 1,
+      pageRowEnd:
+        filteredLeads === 0
+          ? 0
+          : (currentPage - 1) * requestedPageSize + rows.length,
+    },
   };
 }
 
@@ -2134,35 +2550,52 @@ export async function getLeadDetail(tenantId: string, leadId: string) {
   const lead = await getLeadRecordById(tenantId, leadId);
   const contact = buildLeadContactSummary(lead);
   const timeline = buildLeadTimeline(lead.events);
-  const processingIssues = lead.webhookEvents.filter((event) => event.status === "FAILED" || event.status === "PARTIAL");
+  const processingIssues = lead.webhookEvents.filter(
+    (event) => event.status === "FAILED" || event.status === "PARTIAL",
+  );
   const latestWebhook = lead.webhookEvents[0] ?? null;
   const latestIntakeSync =
-    lead.syncRuns.find((run) => run.type === "YELP_LEADS_WEBHOOK" || run.type === "YELP_LEADS_BACKFILL") ?? null;
+    lead.syncRuns.find(
+      (run) =>
+        run.type === "YELP_LEADS_WEBHOOK" || run.type === "YELP_LEADS_BACKFILL",
+    ) ?? null;
   const yelpConnection = getYelpConnectionSummary({
-    hasYelpBusinessId: Boolean(lead.business?.encryptedYelpBusinessId ?? lead.externalBusinessId),
+    hasYelpBusinessId: Boolean(
+      lead.business?.encryptedYelpBusinessId ?? lead.externalBusinessId,
+    ),
     latestWebhookStatus: latestWebhook?.status ?? "NOT_RECEIVED",
-    latestWebhookReceivedAt: latestWebhook?.receivedAt ?? lead.latestWebhookReceivedAt ?? null,
+    latestWebhookReceivedAt:
+      latestWebhook?.receivedAt ?? lead.latestWebhookReceivedAt ?? null,
     latestWebhookErrorSummary:
       latestWebhook?.syncRun?.errors[0]?.message ??
       lead.latestWebhookErrorSummary ??
       latestWebhook?.syncRun?.errorSummary ??
       null,
     latestIntakeStatus: latestIntakeSync?.status ?? null,
-    latestIntakeErrorSummary: latestIntakeSync?.errors[0]?.message ?? latestIntakeSync?.errorSummary ?? null
+    latestIntakeErrorSummary:
+      latestIntakeSync?.errors[0]?.message ??
+      latestIntakeSync?.errorSummary ??
+      null,
   });
   const crm = buildLeadCrmSummary(lead);
   const automationHistory = buildLeadAutomationHistory(lead.automationAttempts);
   const initialAutomationAttempt =
-    lead.automationAttempts.find((attempt) => (attempt.cadence ?? "INITIAL") === "INITIAL") ?? null;
-  const automationSummary = buildLeadAutomationSummary(initialAutomationAttempt);
-  const messageHistory = buildLeadConversationActionTimeline(lead.conversationActions);
+    lead.automationAttempts.find(
+      (attempt) => (attempt.cadence ?? "INITIAL") === "INITIAL",
+    ) ?? null;
+  const automationSummary = buildLeadAutomationSummary(
+    initialAutomationAttempt,
+  );
+  const messageHistory = buildLeadConversationActionTimeline(
+    lead.conversationActions,
+  );
   const nextFollowUpAttempt =
     lead.automationAttempts
       .filter(
         (attempt) =>
           (attempt.cadence ?? "INITIAL") !== "INITIAL" &&
           attempt.status === "PENDING" &&
-          attempt.dueAt instanceof Date
+          attempt.dueAt instanceof Date,
       )
       .sort((left, right) => {
         const leftTime = (left.dueAt ?? left.triggeredAt).getTime();
@@ -2171,8 +2604,14 @@ export async function getLeadDetail(tenantId: string, leadId: string) {
       })[0] ?? null;
   const [replyComposer, aiAssist, automationScope] = await Promise.all([
     getLeadReplyComposerState(tenantId, leadId),
-    getAiReplyAssistantState(tenantId, lead.businessId ?? lead.business?.id ?? null),
-    getLeadAutomationScopeConfig(tenantId, lead.businessId ?? lead.business?.id ?? null)
+    getAiReplyAssistantState(
+      tenantId,
+      lead.businessId ?? lead.business?.id ?? null,
+    ),
+    getLeadAutomationScopeConfig(
+      tenantId,
+      lead.businessId ?? lead.business?.id ?? null,
+    ),
   ]);
   const linkedIssues = await listOpenOperatorIssuesForLead(tenantId, leadId, 8);
   const conversationTurns = lead.conversationAutomationTurns ?? [];
@@ -2183,64 +2622,89 @@ export async function getLeadDetail(tenantId: string, leadId: string) {
         (action) =>
           action.initiator === "OPERATOR" &&
           action.status === "SENT" &&
-          (action.actionType === "SEND_MESSAGE" || action.actionType === "MARK_REPLIED")
+          (action.actionType === "SEND_MESSAGE" ||
+            action.actionType === "MARK_REPLIED"),
       )
       .map((action) => action.completedAt ?? action.createdAt)
       .sort((left, right) => right.getTime() - left.getTime())[0] ?? null;
   const conversationRollout = getLeadConversationRolloutState({
     enabled: automationScope.effectiveSettings.conversationAutomationEnabled,
     paused: automationScope.effectiveSettings.conversationGlobalPauseEnabled,
-    mode: automationScope.effectiveSettings.conversationMode
+    mode: automationScope.effectiveSettings.conversationMode,
   });
   const conversationPolicy = {
     enabled: automationScope.effectiveSettings.conversationAutomationEnabled,
     paused: automationScope.effectiveSettings.conversationGlobalPauseEnabled,
     mode: automationScope.effectiveSettings.conversationMode,
-    modeLabel: humanizeLeadConversationMode(automationScope.effectiveSettings.conversationMode),
+    modeLabel: humanizeLeadConversationMode(
+      automationScope.effectiveSettings.conversationMode,
+    ),
     rolloutLabel: conversationRollout.label,
     rolloutDescription: conversationRollout.description,
     pilotLabel: conversationRollout.pilotLabel,
-    allowedIntentLabels: formatConversationIntentLabels(automationScope.effectiveSettings.conversationAllowedIntents),
-    maxAutomatedTurns: automationScope.effectiveSettings.conversationMaxAutomatedTurns,
-    reviewFallbackEnabled: automationScope.effectiveSettings.conversationReviewFallbackEnabled,
-    escalateToIssueQueue: automationScope.effectiveSettings.conversationEscalateToIssueQueue
+    allowedIntentLabels: formatConversationIntentLabels(
+      automationScope.effectiveSettings.conversationAllowedIntents,
+    ),
+    maxAutomatedTurns:
+      automationScope.effectiveSettings.conversationMaxAutomatedTurns,
+    reviewFallbackEnabled:
+      automationScope.effectiveSettings.conversationReviewFallbackEnabled,
+    escalateToIssueQueue:
+      automationScope.effectiveSettings.conversationEscalateToIssueQueue,
   };
   const conversationState = lead.conversationAutomationState
     ? {
         enabled: lead.conversationAutomationState.isEnabled,
         mode: lead.conversationAutomationState.mode,
-        modeLabel: humanizeLeadConversationMode(lead.conversationAutomationState.mode),
+        modeLabel: humanizeLeadConversationMode(
+          lead.conversationAutomationState.mode,
+        ),
         automatedTurnCount: lead.conversationAutomationState.automatedTurnCount,
-        lastAutomatedReplyAt: lead.conversationAutomationState.lastAutomatedReplyAt,
-        lastProcessedEventKey: lead.conversationAutomationState.lastProcessedEventKey,
+        lastAutomatedReplyAt:
+          lead.conversationAutomationState.lastAutomatedReplyAt,
+        lastProcessedEventKey:
+          lead.conversationAutomationState.lastProcessedEventKey,
         lastInboundAt: lead.conversationAutomationState.lastInboundAt,
         lastIntent: lead.conversationAutomationState.lastIntent,
         lastIntentLabel: lead.conversationAutomationState.lastIntent
-          ? humanizeLeadConversationIntent(lead.conversationAutomationState.lastIntent)
+          ? humanizeLeadConversationIntent(
+              lead.conversationAutomationState.lastIntent,
+            )
           : null,
         lastDecision: lead.conversationAutomationState.lastDecision,
         lastDecisionLabel: lead.conversationAutomationState.lastDecision
-          ? humanizeLeadConversationDecision(lead.conversationAutomationState.lastDecision)
+          ? humanizeLeadConversationDecision(
+              lead.conversationAutomationState.lastDecision,
+            )
           : null,
         lastStopReason: lead.conversationAutomationState.lastStopReason,
         lastStopReasonLabel: lead.conversationAutomationState.lastStopReason
-          ? humanizeLeadConversationStopReason(lead.conversationAutomationState.lastStopReason)
+          ? humanizeLeadConversationStopReason(
+              lead.conversationAutomationState.lastStopReason,
+            )
           : null,
         humanTakeoverAt: lead.conversationAutomationState.humanTakeoverAt,
         escalatedAt: lead.conversationAutomationState.escalatedAt,
-        blockedAt: lead.conversationAutomationState.blockedAt
+        blockedAt: lead.conversationAutomationState.blockedAt,
       }
     : null;
   const conversationNeedsReview = Boolean(
     latestConversationTurn &&
-      latestConversationTurn.decision !== "AUTO_REPLY" &&
-      (!latestOperatorConversationActionAt ||
-        latestOperatorConversationActionAt.getTime() <= latestConversationTurn.createdAt.getTime())
+    latestConversationTurn.decision !== "AUTO_REPLY" &&
+    (!latestOperatorConversationActionAt ||
+      latestOperatorConversationActionAt.getTime() <=
+        latestConversationTurn.createdAt.getTime()),
   );
-  const latestConversationIssue = linkedIssues.find((issue) => issue.issueType === "AUTORESPONDER_FAILURE") ?? null;
-  const latestInboundEventProof = buildLatestInboundConversationEventProof(lead);
+  const latestConversationIssue =
+    linkedIssues.find((issue) => issue.issueType === "AUTORESPONDER_FAILURE") ??
+    null;
+  const latestInboundEventProof =
+    buildLatestInboundConversationEventProof(lead);
   const conversationHistory = conversationTurns.map((turn) => {
-    const decisionTrace = buildConversationDecisionTrace(turn.metadataJson, turn.template?.name ?? null);
+    const decisionTrace = buildConversationDecisionTrace(
+      turn.metadataJson,
+      turn.template?.name ?? null,
+    );
 
     return {
       id: turn.id,
@@ -2256,31 +2720,41 @@ export async function getLeadDetail(tenantId: string, leadId: string) {
       sourceEventKey: turn.sourceEventKey,
       sourceExternalEventId: turn.sourceExternalEventId,
       stopReason: turn.stopReason,
-      stopReasonLabel: turn.stopReason ? humanizeLeadConversationStopReason(turn.stopReason) : null,
+      stopReasonLabel: turn.stopReason
+        ? humanizeLeadConversationStopReason(turn.stopReason)
+        : null,
       renderedSubject: turn.renderedSubject,
       renderedBody: turn.renderedBody,
       errorSummary: turn.errorSummary,
       templateName: turn.template?.name ?? null,
       decisionTrace,
-      metadataJson: turn.metadataJson
+      metadataJson: turn.metadataJson,
     };
   });
   const conversationSuggestionTurn =
-    conversationNeedsReview && latestConversationTurn?.decision === "REVIEW_ONLY" && latestConversationTurn.renderedBody
-      ? conversationHistory.find((turn) => turn.id === latestConversationTurn.id) ?? null
+    conversationNeedsReview &&
+    latestConversationTurn?.decision === "REVIEW_ONLY" &&
+    latestConversationTurn.renderedBody
+      ? (conversationHistory.find(
+          (turn) => turn.id === latestConversationTurn.id,
+        ) ?? null)
       : null;
   const latestConversationDecisionProof = latestConversationTurn
     ? {
         sourceEventKey: latestConversationTurn.sourceEventKey,
         sourceExternalEventId: latestConversationTurn.sourceExternalEventId,
-        decisionLabel: humanizeLeadConversationDecision(latestConversationTurn.decision),
+        decisionLabel: humanizeLeadConversationDecision(
+          latestConversationTurn.decision,
+        ),
         stopReasonLabel: latestConversationTurn.stopReason
-          ? humanizeLeadConversationStopReason(latestConversationTurn.stopReason)
+          ? humanizeLeadConversationStopReason(
+              latestConversationTurn.stopReason,
+            )
           : null,
         createdAt: latestConversationTurn.createdAt,
         completedAt: latestConversationTurn.completedAt,
         renderedBody: latestConversationTurn.renderedBody,
-        errorSummary: latestConversationTurn.errorSummary
+        errorSummary: latestConversationTurn.errorSummary,
       }
     : null;
   const conversationProof = {
@@ -2289,13 +2763,15 @@ export async function getLeadDetail(tenantId: string, leadId: string) {
       paused: conversationPolicy.paused,
       latestInboundEvent: latestInboundEventProof,
       latestTurn: latestConversationDecisionProof,
-      lastProcessedEventKey: lead.conversationAutomationState?.lastProcessedEventKey ?? null,
-      lastInboundAt: lead.conversationAutomationState?.lastInboundAt ?? null
+      lastProcessedEventKey:
+        lead.conversationAutomationState?.lastProcessedEventKey ?? null,
+      lastInboundAt: lead.conversationAutomationState?.lastInboundAt ?? null,
     }),
     latestInboundEvent: latestInboundEventProof,
     latestDecision: latestConversationDecisionProof,
-    lastProcessedEventKey: lead.conversationAutomationState?.lastProcessedEventKey ?? null,
-    lastInboundAt: lead.conversationAutomationState?.lastInboundAt ?? null
+    lastProcessedEventKey:
+      lead.conversationAutomationState?.lastProcessedEventKey ?? null,
+    lastInboundAt: lead.conversationAutomationState?.lastInboundAt ?? null,
   };
 
   return {
@@ -2307,21 +2783,24 @@ export async function getLeadDetail(tenantId: string, leadId: string) {
     automationSummary,
     automationScope: {
       isBusinessOverride: Boolean(automationScope.override),
-      scopeLabel: automationScope.override ? "Business override" : "Tenant default",
+      scopeLabel: automationScope.override
+        ? "Business override"
+        : "Tenant default",
       followUp24hEnabled: automationScope.effectiveSettings.followUp24hEnabled,
-      followUp24hDelayHours: automationScope.effectiveSettings.followUp24hDelayHours,
+      followUp24hDelayHours:
+        automationScope.effectiveSettings.followUp24hDelayHours,
       followUp7dEnabled: automationScope.effectiveSettings.followUp7dEnabled,
-      followUp7dDelayDays: automationScope.effectiveSettings.followUp7dDelayDays,
-      conversationPolicy
+      followUp7dDelayDays:
+        automationScope.effectiveSettings.followUp7dDelayDays,
+      conversationPolicy,
     },
-    nextFollowUp:
-      nextFollowUpAttempt
-        ? {
-            cadence: nextFollowUpAttempt.cadence ?? "INITIAL",
-            dueAt: nextFollowUpAttempt.dueAt ?? nextFollowUpAttempt.triggeredAt,
-            status: nextFollowUpAttempt.status
-          }
-        : null,
+    nextFollowUp: nextFollowUpAttempt
+      ? {
+          cadence: nextFollowUpAttempt.cadence ?? "INITIAL",
+          dueAt: nextFollowUpAttempt.dueAt ?? nextFollowUpAttempt.triggeredAt,
+          status: nextFollowUpAttempt.status,
+        }
+      : null,
     messageHistory,
     conversationState,
     conversationReview: {
@@ -2332,9 +2811,9 @@ export async function getLeadDetail(tenantId: string, leadId: string) {
             id: latestConversationIssue.id,
             summary: latestConversationIssue.summary,
             severity: latestConversationIssue.severity,
-            lastDetectedAt: latestConversationIssue.lastDetectedAt
+            lastDetectedAt: latestConversationIssue.lastDetectedAt,
           }
-        : null
+        : null,
     },
     conversationProof,
     conversationHistory,
@@ -2347,13 +2826,18 @@ export async function getLeadDetail(tenantId: string, leadId: string) {
           subject: conversationSuggestionTurn.renderedSubject,
           body: conversationSuggestionTurn.renderedBody ?? "",
           warningCodes: conversationSuggestionTurn.decisionTrace.warningCodes,
-          contentSourceLabel: conversationSuggestionTurn.decisionTrace.contentSourceLabel,
-          promptSourceLabel: conversationSuggestionTurn.decisionTrace.promptSourceLabel,
-          stopReasonLabel: conversationSuggestionTurn.stopReasonLabel
+          contentSourceLabel:
+            conversationSuggestionTurn.decisionTrace.contentSourceLabel,
+          promptSourceLabel:
+            conversationSuggestionTurn.decisionTrace.promptSourceLabel,
+          stopReasonLabel: conversationSuggestionTurn.stopReasonLabel,
         }
       : null,
     conversationRecommendedNextAction: latestConversationTurn
-      ? getConversationRecommendedNextAction(latestConversationTurn.decision, latestConversationTurn.stopReason)
+      ? getConversationRecommendedNextAction(
+          latestConversationTurn.decision,
+          latestConversationTurn.stopReason,
+        )
       : conversationPolicy.enabled
         ? "No inbound conversation turn has been processed yet."
         : "Conversation automation is off for this lead scope.",
@@ -2364,19 +2848,23 @@ export async function getLeadDetail(tenantId: string, leadId: string) {
       issueType: issue.issueType,
       severity: issue.severity,
       summary: issue.summary,
-      lastDetectedAt: issue.lastDetectedAt
+      lastDetectedAt: issue.lastDetectedAt,
     })),
     yelpConnection: {
       ...yelpConnection,
-      yelpBusinessId: lead.business?.encryptedYelpBusinessId ?? lead.externalBusinessId ?? null,
-      latestWebhookReceivedAt: latestWebhook?.receivedAt ?? lead.latestWebhookReceivedAt ?? null,
+      yelpBusinessId:
+        lead.business?.encryptedYelpBusinessId ??
+        lead.externalBusinessId ??
+        null,
+      latestWebhookReceivedAt:
+        latestWebhook?.receivedAt ?? lead.latestWebhookReceivedAt ?? null,
       latestWebhookStatus: latestWebhook?.status ?? "NOT_RECEIVED",
       latestIntakeAt:
         latestIntakeSync?.lastSuccessfulSyncAt ??
         latestIntakeSync?.finishedAt ??
         latestIntakeSync?.startedAt ??
         null,
-      latestIntakeStatus: latestIntakeSync?.status ?? null
+      latestIntakeStatus: latestIntakeSync?.status ?? null,
     },
     latestWebhookStatus: latestWebhook?.status ?? "NOT_RECEIVED",
     latestIntakeSync: latestIntakeSync
@@ -2385,15 +2873,17 @@ export async function getLeadDetail(tenantId: string, leadId: string) {
           type: latestIntakeSync.type,
           startedAt: latestIntakeSync.startedAt,
           finishedAt: latestIntakeSync.finishedAt,
-          errorSummary: latestIntakeSync.errorSummary
+          errorSummary: latestIntakeSync.errorSummary,
         }
       : null,
     processingIssues,
     sourceBoundaries: {
       yelp: "Lead identifiers, thread events, and on-Yelp read or replied markers come from Yelp after the console refreshes the lead snapshot.",
       crm: "CRM entity IDs, partner lifecycle statuses, and mapping exceptions belong to internal systems or operator overrides.",
-      local: "Processing status, delivery attempts, outside-Yelp reply markers, and sync failures are local console records.",
-      automation: "Autoresponder rules decide whether to send the initial reply and later in-thread follow-ups. Automated sends stay separate from the Yelp-native thread history."
-    }
+      local:
+        "Processing status, delivery attempts, outside-Yelp reply markers, and sync failures are local console records.",
+      automation:
+        "Autoresponder rules decide whether to send the initial reply and later in-thread follow-ups. Automated sends stay separate from the Yelp-native thread history.",
+    },
   };
 }

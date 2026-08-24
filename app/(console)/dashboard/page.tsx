@@ -27,13 +27,14 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { getBusinessesIndex } from "@/features/businesses/service";
 import { getLeadsIndex } from "@/features/leads/service";
 import { getProgramsIndex } from "@/features/ads-programs/service";
+import { getAuditWebhookOverview } from "@/features/operations/service";
 import { getReportingIndex } from "@/features/reporting/service";
 import { getSettingsOverview } from "@/features/settings/service";
 import {
   getCredentialHealthViewModel,
   getEnabledCapabilityLabels,
 } from "@/features/settings/view-models";
-import { requireUser } from "@/lib/auth/service";
+import { requirePermission } from "@/lib/auth/service";
 import { formatDateTime } from "@/lib/utils/format";
 
 const eligibilityVariantMap = {
@@ -49,15 +50,22 @@ const eligibilityLabelMap = {
 } as const;
 
 export default async function DashboardPage() {
-  const user = await requireUser();
-  const [businesses, leadsOverview, programs, reports, settings] =
-    await Promise.all([
-      getBusinessesIndex(user.tenantId),
-      getLeadsIndex(user.tenantId),
-      getProgramsIndex(user.tenantId),
-      getReportingIndex(user.tenantId),
-      getSettingsOverview(user.tenantId),
-    ]);
+  const user = await requirePermission("businesses:read");
+  const [
+    businesses,
+    leadsOverview,
+    programs,
+    reports,
+    settings,
+    webhookOverview,
+  ] = await Promise.all([
+    getBusinessesIndex(user.tenantId),
+    getLeadsIndex(user.tenantId),
+    getProgramsIndex(user.tenantId),
+    getReportingIndex(user.tenantId),
+    getSettingsOverview(user.tenantId),
+    getAuditWebhookOverview(user.tenantId),
+  ]);
 
   const failedJobs = programs
     .flatMap((program) => program.jobs)
@@ -82,6 +90,9 @@ export default async function DashboardPage() {
       health.requestsLabel !== "Requests enabled" ||
       health.testVariant === "destructive",
   );
+  const recentWebhookFailures =
+    webhookOverview.counts.failedLast24h +
+    webhookOverview.reconcileCounts.failedLast24h;
 
   return (
     <div>
@@ -100,14 +111,14 @@ export default async function DashboardPage() {
         }
       />
 
-      {credentialBlockers.length > 0 ? (
+      {credentialBlockers.length > 0 || recentWebhookFailures > 0 ? (
         <div className="mb-6 rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm">
           <div className="font-medium text-warning">
             Live Yelp work is partially blocked
           </div>
           <div className="mt-1 text-muted-foreground">
-            Resolve credential or request-enablement issues in Settings before
-            trusting live business search, program changes, or reporting.
+            Resolve credential failures in Settings and webhook reconcile
+            failures in Audit before trusting live lead automation.
           </div>
         </div>
       ) : null}
@@ -139,8 +150,8 @@ export default async function DashboardPage() {
         />
         <MetricCard
           title="Attention needed"
-          value={failedJobs.length}
-          description="Failed or partially completed Yelp jobs that need operator review."
+          value={failedJobs.length + recentWebhookFailures}
+          description={`${failedJobs.length} program jobs and ${recentWebhookFailures} webhook/reconcile failures in 24h.`}
           icon={<AlertTriangle className="h-5 w-5 text-warning" />}
         />
       </div>
@@ -170,46 +181,60 @@ export default async function DashboardPage() {
                 </div>
               ) : null}
             </div>
-            {credentialBlockers.length === 0 ? (
+            {credentialBlockers.length === 0 && recentWebhookFailures === 0 ? (
               <div className="rounded-lg border border-success/30 bg-success/5 p-4">
                 <div className="text-sm font-medium">
-                  No immediate credential blockers
+                  No immediate integration blockers
                 </div>
                 <div className="mt-1 text-xs text-muted-foreground">
-                  Saved credentials are present, enabled, and not failing live
-                  checks.
+                  Credentials are healthy and no webhook reconcile failures were
+                  recorded in the last 24 hours.
                 </div>
               </div>
             ) : (
-              credentialBlockers.map(({ credential, health }) => (
-                <div
-                  className="rounded-lg border border-border p-4"
-                  key={credential.id}
-                >
-                  <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                    <div className="space-y-1">
-                      <div className="font-medium">{credential.label}</div>
-                      <div className="text-sm text-muted-foreground">
-                        {credential.baseUrl ?? "Base URL not set"}
+              <>
+                {credentialBlockers.map(({ credential, health }) => (
+                  <div
+                    className="rounded-lg border border-border p-4"
+                    key={credential.id}
+                  >
+                    <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                      <div className="space-y-1">
+                        <div className="font-medium">{credential.label}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {credential.baseUrl ?? "Base URL not set"}
+                        </div>
+                        <div className="text-sm text-muted-foreground">
+                          {health.detail}
+                        </div>
                       </div>
-                      <div className="text-sm text-muted-foreground">
-                        {health.detail}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant={health.setupVariant}>
+                          {health.setupLabel}
+                        </Badge>
+                        <Badge variant={health.requestsVariant}>
+                          {health.requestsLabel}
+                        </Badge>
+                        <Badge variant={health.testVariant}>
+                          {health.testLabel}
+                        </Badge>
                       </div>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge variant={health.setupVariant}>
-                        {health.setupLabel}
-                      </Badge>
-                      <Badge variant={health.requestsVariant}>
-                        {health.requestsLabel}
-                      </Badge>
-                      <Badge variant={health.testVariant}>
-                        {health.testLabel}
-                      </Badge>
                     </div>
                   </div>
-                </div>
-              ))
+                ))}
+                {recentWebhookFailures > 0 ? (
+                  <div className="rounded-lg border border-warning/30 bg-warning/5 p-4">
+                    <div className="text-sm font-medium text-warning">
+                      Yelp lead intake needs attention
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {recentWebhookFailures} webhook or reconcile failure(s)
+                      were recorded in the last 24 hours. Review Audit before
+                      enabling unattended replies.
+                    </div>
+                  </div>
+                ) : null}
+              </>
             )}
             <Button asChild className="w-full justify-start" variant="outline">
               <Link href="/settings">

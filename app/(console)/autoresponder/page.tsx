@@ -80,7 +80,8 @@ export default async function AutoresponderPage({
     redirect("/dashboard");
   }
 
-  const canManage = hasPermission(user.role.code, "settings:write");
+  const canManage = hasPermission(user.role.code, "autoresponder:manage");
+  const canManageAiPlan = hasPermission(user.role.code, "billing:manage");
   const params = await searchParams;
   const overview = await getLeadAutomationModuleState(user.tenantId);
   const selectedTemplate = params.templateId
@@ -197,7 +198,11 @@ export default async function AutoresponderPage({
               <div className="text-xs text-muted-foreground">
                 {overview.aiAssist.envConfigured
                   ? overview.aiAssist.modelLabel
-                  : "OpenAI key not configured"}
+                  : "Anthropic key not configured"}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                ${overview.aiAssist.monthlySpend.usedUsd.toFixed(2)} / $$
+                {overview.aiAssist.monthlySpend.budgetUsd.toFixed(2)} this month
               </div>
             </div>
           </div>
@@ -273,8 +278,9 @@ export default async function AutoresponderPage({
             defaultValues={overview.settings}
             smtpConfigured={overview.smtpConfigured}
             aiAssistConfigured={overview.aiAssist.envConfigured}
-            availableModels={overview.aiAssist.availableModels}
+            availableModels={overview.aiAssist.operatorModels}
             businesses={businessOptions}
+            canManageAiPlan={canManageAiPlan}
           />
         ) : (
           <Card>

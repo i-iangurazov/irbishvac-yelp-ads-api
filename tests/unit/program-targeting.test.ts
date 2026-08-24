@@ -18,6 +18,10 @@ function cpcProgram(
   id: string,
   categories: string[],
   status: "ACTIVE" | "ENDED" = "ACTIVE",
+  campaignLayer:
+    | "GENERAL"
+    | "AUGUST_PLUMBING_TEMP"
+    | "AUGUST_COMMERCIAL_HVAC_TEMP" = "GENERAL",
 ) {
   return {
     id,
@@ -25,6 +29,7 @@ function cpcProgram(
     type: "CPC" as const,
     status,
     adCategoriesJson: categories,
+    configurationJson: { campaignLayer },
   };
 }
 
@@ -121,5 +126,23 @@ describe("program targeting integrity", () => {
     expect(issues.map((issue) => issue.code)).toEqual([
       "OVERLAPPING_CATEGORY_SCOPE",
     ]);
+  });
+
+  it("allows the approved temporary commercial HVAC layer to overlap the existing HVAC campaign", () => {
+    const issues = analyzeBusinessCpcTargeting(
+      [
+        cpcProgram("main", ["hvac", "plumbing", "waterheaterinstallrepair"]),
+        cpcProgram("existing", ["hvac"]),
+        cpcProgram(
+          "commercial-temp",
+          ["hvac"],
+          "ACTIVE",
+          "AUGUST_COMMERCIAL_HVAC_TEMP",
+        ),
+      ],
+      listingCategories,
+    );
+
+    expect(issues).toEqual([]);
   });
 });

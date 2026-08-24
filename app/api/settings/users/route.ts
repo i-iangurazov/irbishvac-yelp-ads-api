@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { RoleCode } from "@prisma/client";
 import { z } from "zod";
 
 import { createSettingsUser, saveUserRole } from "@/features/settings/service";
@@ -6,12 +7,12 @@ import { handleRouteError, requireApiPermission } from "@/lib/utils/http";
 
 const schema = z.object({
   userId: z.string().min(1),
-  roleCode: z.enum(["ADMIN", "OPERATOR", "ANALYST", "VIEWER"]),
+  roleCode: z.nativeEnum(RoleCode),
 });
 
 export async function POST(request: Request) {
   try {
-    const user = await requireApiPermission("settings:write");
+    const user = await requireApiPermission("users:manage");
 
     if (user instanceof NextResponse) {
       return user;
@@ -31,7 +32,7 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const user = await requireApiPermission("settings:write");
+    const user = await requireApiPermission("users:manage");
 
     if (user instanceof NextResponse) {
       return user;

@@ -6,7 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { featureCatalog } from "@/features/program-features/schemas";
 import { getProgramFeatureOverview } from "@/features/program-features/service";
-import { requireUser } from "@/lib/auth/service";
+import { requirePermission } from "@/lib/auth/service";
+import { hasPermission } from "@/lib/permissions";
 import { titleCase } from "@/lib/utils/format";
 
 export default async function ProgramFeaturesPage({
@@ -14,9 +15,10 @@ export default async function ProgramFeaturesPage({
 }: {
   params: Promise<{ programId: string }>;
 }) {
-  const user = await requireUser();
+  const user = await requirePermission("features:read");
   const { programId } = await params;
   const overview = await getProgramFeatureOverview(user.tenantId, programId);
+  const canManageFeatures = hasPermission(user.role.code, "features:write");
 
   const latestMap = new Map<string, (typeof overview.features)[number]>(
     overview.features.map((feature) => [feature.type, feature]),
@@ -27,7 +29,11 @@ export default async function ProgramFeaturesPage({
       <PageHeader
         title={`Program features · ${overview.program.business.name}`}
         description="Update individual feature settings with contextual descriptions, explicit save actions, and delete handling where Yelp expects DELETE semantics."
-        actions={<YelpSyncButton label="Refresh live features" />}
+        actions={
+          canManageFeatures ? (
+            <YelpSyncButton label="Refresh live features" />
+          ) : null
+        }
       />
 
       <CapabilityState
@@ -62,20 +68,22 @@ export default async function ProgramFeaturesPage({
         </CardContent>
       </Card>
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        {overview.enabledFeatureTypes.map((featureType) => (
-          <FeatureFormCard
-            key={featureType}
-            programId={overview.program.id}
-            featureType={featureType as keyof typeof featureCatalog}
-            initialValue={
-              (latestMap.get(featureType)?.valueJson as
-                | Record<string, unknown>
-                | undefined) ?? { type: featureType }
-            }
-          />
-        ))}
-      </div>
+      {canManageFeatures ? (
+        <div className="mt-6 grid gap-6 lg:grid-cols-2">
+          {overview.enabledFeatureTypes.map((featureType) => (
+            <FeatureFormCard
+              key={featureType}
+              programId={overview.program.id}
+              featureType={featureType as keyof typeof featureCatalog}
+              initialValue={
+                (latestMap.get(featureType)?.valueJson as
+                  | Record<string, unknown>
+                  | undefined) ?? { type: featureType }
+              }
+            />
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

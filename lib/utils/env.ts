@@ -3,7 +3,9 @@ import "server-only";
 import { z } from "zod";
 
 const serverEnvSchema = z.object({
-  NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  NODE_ENV: z
+    .enum(["development", "test", "production"])
+    .default("development"),
   APP_URL: z.string().url().default("http://localhost:3000"),
   DATABASE_URL: z.string().optional(),
   SESSION_SECRET: z.string().optional(),
@@ -12,10 +14,19 @@ const serverEnvSchema = z.object({
   DEMO_MODE: z.enum(["true", "false"]).optional().default("false"),
   DEFAULT_TENANT_SLUG: z.string().default("default"),
   YELP_ADS_BASE_URL: z.string().url().default("https://partner-api.yelp.com"),
-  YELP_FEATURES_BASE_URL: z.string().url().default("https://partner-api.yelp.com"),
+  YELP_FEATURES_BASE_URL: z
+    .string()
+    .url()
+    .default("https://partner-api.yelp.com"),
   YELP_REPORTING_BASE_URL: z.string().url().default("https://api.yelp.com"),
-  YELP_BUSINESS_MATCH_BASE_URL: z.string().url().default("https://partner-api.yelp.com"),
-  YELP_DATA_INGESTION_BASE_URL: z.string().url().default("https://partner-api.yelp.com"),
+  YELP_BUSINESS_MATCH_BASE_URL: z
+    .string()
+    .url()
+    .default("https://partner-api.yelp.com"),
+  YELP_DATA_INGESTION_BASE_URL: z
+    .string()
+    .url()
+    .default("https://partner-api.yelp.com"),
   YELP_CLIENT_ID: z.string().optional(),
   YELP_CLIENT_SECRET: z.string().optional(),
   YELP_ACCESS_TOKEN: z.string().optional(),
@@ -23,8 +34,14 @@ const serverEnvSchema = z.object({
   YELP_REDIRECT_URI: z.string().url().optional(),
   YELP_ALLOWED_BUSINESS_IDS: z.string().optional(),
   MAIN_PLATFORM_WEBHOOK_SHARED_SECRET: z.string().optional(),
+  AUTORESPONDER_GLOBAL_KILL_SWITCH: z
+    .enum(["true", "false"])
+    .optional()
+    .default("false"),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_REPLY_MODEL: z.string().optional(),
+  ANTHROPIC_API_KEY: z.string().optional(),
+  CLAUDE_REPLY_MODEL: z.string().optional(),
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().positive().optional(),
   SMTP_SECURE: z.enum(["true", "false"]).optional().default("false"),
@@ -33,14 +50,18 @@ const serverEnvSchema = z.object({
   SMTP_FROM: z.string().email().optional(),
   SMTP_REPLY_TO: z.string().email().optional(),
   OPERATIONS_ALERT_WEBHOOK_URL: z.string().url().optional(),
-  OPERATIONS_ALERT_WEBHOOK_SECRET: z.string().optional()
+  OPERATIONS_ALERT_WEBHOOK_SECRET: z.string().optional(),
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
 
 let cachedEnv: ServerEnv | null = null;
 
-function getSecret(name: "SESSION_SECRET" | "APP_ENCRYPTION_KEY", provided: string | undefined, nodeEnv: ServerEnv["NODE_ENV"]) {
+function getSecret(
+  name: "SESSION_SECRET" | "APP_ENCRYPTION_KEY",
+  provided: string | undefined,
+  nodeEnv: ServerEnv["NODE_ENV"],
+) {
   if (provided) {
     return provided;
   }
@@ -52,19 +73,36 @@ function getSecret(name: "SESSION_SECRET" | "APP_ENCRYPTION_KEY", provided: stri
   return `${name.toLowerCase()}-development-placeholder-change-me`;
 }
 
-export function getServerEnv(): ServerEnv & { SESSION_SECRET: string; APP_ENCRYPTION_KEY: string } {
+export function getServerEnv(): ServerEnv & {
+  SESSION_SECRET: string;
+  APP_ENCRYPTION_KEY: string;
+} {
   if (cachedEnv) {
-    return cachedEnv as ServerEnv & { SESSION_SECRET: string; APP_ENCRYPTION_KEY: string };
+    return cachedEnv as ServerEnv & {
+      SESSION_SECRET: string;
+      APP_ENCRYPTION_KEY: string;
+    };
   }
 
   const parsed = serverEnvSchema.parse(process.env);
   cachedEnv = {
     ...parsed,
-    SESSION_SECRET: getSecret("SESSION_SECRET", parsed.SESSION_SECRET, parsed.NODE_ENV),
-    APP_ENCRYPTION_KEY: getSecret("APP_ENCRYPTION_KEY", parsed.APP_ENCRYPTION_KEY, parsed.NODE_ENV)
+    SESSION_SECRET: getSecret(
+      "SESSION_SECRET",
+      parsed.SESSION_SECRET,
+      parsed.NODE_ENV,
+    ),
+    APP_ENCRYPTION_KEY: getSecret(
+      "APP_ENCRYPTION_KEY",
+      parsed.APP_ENCRYPTION_KEY,
+      parsed.NODE_ENV,
+    ),
   };
 
-  return cachedEnv as ServerEnv & { SESSION_SECRET: string; APP_ENCRYPTION_KEY: string };
+  return cachedEnv as ServerEnv & {
+    SESSION_SECRET: string;
+    APP_ENCRYPTION_KEY: string;
+  };
 }
 
 export function isDemoMode() {

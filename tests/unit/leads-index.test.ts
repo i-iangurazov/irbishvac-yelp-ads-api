@@ -41,7 +41,7 @@ const recordWebhookIntakeMetric = vi.fn();
 const recordWebhookReconcileMetric = vi.fn();
 
 vi.mock("@/lib/db/businesses-repository", () => ({
-  getBusinessById
+  getBusinessById,
 }));
 
 vi.mock("@/lib/db/leads-repository", () => ({
@@ -63,64 +63,64 @@ vi.mock("@/lib/db/leads-repository", () => ({
   updateLeadWebhookSnapshot,
   updateWebhookEventRecord,
   upsertLeadEventRecords,
-  upsertLeadRecord
+  upsertLeadRecord,
 }));
 
 vi.mock("@/lib/db/tenant", () => ({
-  getDefaultTenant
+  getDefaultTenant,
 }));
 
 vi.mock("@/features/audit/service", () => ({
-  recordAuditEvent
+  recordAuditEvent,
 }));
 
 vi.mock("@/features/autoresponder/service", () => ({
-  processLeadAutoresponderForNewLead
+  processLeadAutoresponderForNewLead,
 }));
 
 vi.mock("@/features/autoresponder/config", () => ({
-  getLeadAutomationScopeConfig
+  getLeadAutomationScopeConfig,
 }));
 
 vi.mock("@/features/operations/observability-service", () => ({
   recordWebhookIntakeMetric,
-  recordWebhookReconcileMetric
+  recordWebhookReconcileMetric,
 }));
 
 vi.mock("@/features/crm-enrichment/service", () => ({
   buildLeadCrmSummary,
-  getLeadConversionSummary
+  getLeadConversionSummary,
 }));
 
 vi.mock("@/lib/yelp/runtime", () => ({
   ensureYelpLeadsAccess,
-  getCapabilityFlags
+  getCapabilityFlags,
 }));
 
 vi.mock("@/lib/utils/logging", () => ({
   logInfo,
-  logError
+  logError,
 }));
 
 vi.mock("@/lib/yelp/leads-client", () => ({
   YelpLeadsClient: vi.fn().mockImplementation(() => ({
     getBusinessLeadIds,
     getLead,
-    getLeadEvents
-  }))
+    getLeadEvents,
+  })),
 }));
 
 vi.mock("@/lib/db/issues-repository", () => ({
   listOpenOperatorIssuesForLead,
-  listOpenOperatorIssuesForLeadIds
+  listOpenOperatorIssuesForLeadIds,
 }));
 
 vi.mock("@/features/leads/ai-reply-service", () => ({
-  getAiReplyAssistantState
+  getAiReplyAssistantState,
 }));
 
 vi.mock("@/features/leads/messaging-service", () => ({
-  getLeadReplyComposerState
+  getLeadReplyComposerState,
 }));
 
 describe("getLeadsIndex", () => {
@@ -131,25 +131,25 @@ describe("getLeadsIndex", () => {
       {
         businessId: "business_1",
         _count: {
-          _all: 146
-        }
-      }
+          _all: 146,
+        },
+      },
     ]);
     listLeadBusinessOptions.mockResolvedValue([
       {
         id: "business_1",
         name: "IRBIS Air Plumbing Electrical",
-        encryptedYelpBusinessId: "ys4FVTHxbSepIkvCLHYxCA"
-      }
+        encryptedYelpBusinessId: "ys4FVTHxbSepIkvCLHYxCA",
+      },
     ]);
     getCapabilityFlags.mockResolvedValue({
-      hasLeadsApi: true
+      hasLeadsApi: true,
     });
     getLeadConversionSummary.mockResolvedValue({
       bookedLeads: 4,
       scheduledJobs: 3,
       completedJobs: 2,
-      closeRate: 10
+      closeRate: 10,
     });
     listOpenOperatorIssuesForLeadIds.mockResolvedValue([]);
     listOpenOperatorIssuesForLead.mockResolvedValue([]);
@@ -157,9 +157,9 @@ describe("getLeadsIndex", () => {
       envConfigured: true,
       enabled: true,
       reviewRequired: true,
-      model: "gpt-5-nano",
-      modelLabel: "gpt-5-nano • Cheapest / test",
-      guardrails: []
+      model: "claude-haiku-4-5",
+      modelLabel: "claude-haiku-4-5 • Economy",
+      guardrails: [],
     });
     getLeadReplyComposerState.mockResolvedValue({
       canUseYelpThread: true,
@@ -169,7 +169,7 @@ describe("getLeadsIndex", () => {
       latestOutboundChannel: null,
       maskedEmail: null,
       canMarkAsRead: false,
-      canMarkAsReplied: true
+      canMarkAsReplied: true,
     });
     getLeadAutomationScopeConfig.mockResolvedValue({
       defaults: {
@@ -183,7 +183,7 @@ describe("getLeadsIndex", () => {
         followUp7dEnabled: true,
         followUp7dDelayDays: 7,
         aiAssistEnabled: true,
-        aiModel: "gpt-5-nano"
+        aiModel: "claude-haiku-4-5",
       },
       override: null,
       effectiveSettings: {
@@ -197,12 +197,22 @@ describe("getLeadsIndex", () => {
         followUp7dEnabled: true,
         followUp7dDelayDays: 7,
         aiAssistEnabled: true,
-        aiModel: "gpt-5-nano"
-      }
+        aiModel: "claude-haiku-4-5",
+      },
     });
     listFailedLeadWebhookEvents.mockResolvedValue([
-      { id: "webhook_1", status: "FAILED", receivedAt: new Date("2026-04-03T10:00:00.000Z"), syncRun: { errors: [] } },
-      { id: "webhook_2", status: "PARTIAL", receivedAt: new Date("2026-04-03T09:00:00.000Z"), syncRun: { errors: [] } }
+      {
+        id: "webhook_1",
+        status: "FAILED",
+        receivedAt: new Date("2026-04-03T10:00:00.000Z"),
+        syncRun: { errors: [] },
+      },
+      {
+        id: "webhook_2",
+        status: "PARTIAL",
+        receivedAt: new Date("2026-04-03T09:00:00.000Z"),
+        syncRun: { errors: [] },
+      },
     ]);
     listLeadBackfillRuns.mockResolvedValue([
       {
@@ -217,11 +227,11 @@ describe("getLeadsIndex", () => {
           updatedCount: 0,
           failedCount: 0,
           returnedLeadIds: 20,
-          hasMore: true
+          hasMore: true,
         },
         errors: [],
-        errorSummary: null
-      }
+        errorSummary: null,
+      },
     ]);
     listLeadRecords.mockResolvedValue([
       {
@@ -240,7 +250,12 @@ describe("getLeadsIndex", () => {
         automationAttempts: [],
         syncRuns: [],
         internalStatus: "UNMAPPED",
-        _count: { events: 1, webhookEvents: 1, crmStatusEvents: 0, automationAttempts: 0 }
+        _count: {
+          events: 1,
+          webhookEvents: 1,
+          crmStatusEvents: 0,
+          automationAttempts: 0,
+        },
       },
       {
         id: "lead_2",
@@ -252,7 +267,12 @@ describe("getLeadsIndex", () => {
         lastSyncedAt: new Date("2026-04-03T10:31:00.000Z"),
         replyState: "REPLIED",
         business: { id: "business_1", name: "IRBIS Air Plumbing Electrical" },
-        webhookEvents: [{ status: "FAILED", errorJson: { message: "Webhook processing failed" } }],
+        webhookEvents: [
+          {
+            status: "FAILED",
+            errorJson: { message: "Webhook processing failed" },
+          },
+        ],
         crmLeadMappings: [
           {
             state: "MATCHED",
@@ -263,28 +283,36 @@ describe("getLeadsIndex", () => {
             issueSummary: null,
             matchedAt: new Date("2026-04-03T10:40:00.000Z"),
             lastSyncedAt: new Date("2026-04-03T10:40:00.000Z"),
-            updatedAt: new Date("2026-04-03T10:40:00.000Z")
-          }
+            updatedAt: new Date("2026-04-03T10:40:00.000Z"),
+          },
         ],
         crmStatusEvents: [{ status: "BOOKED", sourceSystem: "CRM" }],
         automationAttempts: [],
         syncRuns: [],
         internalStatus: "BOOKED",
-        _count: { events: 2, webhookEvents: 1, crmStatusEvents: 1, automationAttempts: 0 }
-      }
+        _count: {
+          events: 2,
+          webhookEvents: 1,
+          crmStatusEvents: 1,
+          automationAttempts: 0,
+        },
+      },
     ]);
   });
 
   it("separates total synced leads from filtered leads and latest Yelp import page stats", async () => {
     countLeadRecords.mockReset();
-    countLeadRecords.mockResolvedValueOnce(146).mockResolvedValueOnce(1).mockResolvedValueOnce(1);
+    countLeadRecords
+      .mockResolvedValueOnce(146)
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(1);
     countLeadRecordsByBusiness.mockResolvedValueOnce([
       {
         businessId: "business_1",
         _count: {
-          _all: 1
-        }
-      }
+          _all: 1,
+        },
+      },
     ]);
     listLeadRecords.mockResolvedValueOnce([
       {
@@ -303,14 +331,19 @@ describe("getLeadsIndex", () => {
         automationAttempts: [],
         syncRuns: [],
         internalStatus: "UNMAPPED",
-        _count: { events: 1, webhookEvents: 1, crmStatusEvents: 0, automationAttempts: 0 }
-      }
+        _count: {
+          events: 1,
+          webhookEvents: 1,
+          crmStatusEvents: 0,
+          automationAttempts: 0,
+        },
+      },
     ]);
 
     const { getLeadsIndex } = await import("@/features/leads/service");
 
     const result = await getLeadsIndex("tenant_1", {
-      status: "COMPLETED"
+      status: "COMPLETED",
     });
 
     expect(result.summary.totalSyncedLeads).toBe(146);
@@ -326,18 +359,18 @@ describe("getLeadsIndex", () => {
       hasPreviousPage: false,
       hasNextPage: false,
       pageRowStart: 1,
-      pageRowEnd: 1
+      pageRowEnd: 1,
     });
     expect(result.backfill.latestRun).toMatchObject({
       returnedLeadIds: 20,
       hasMore: true,
-      pageSize: 20
+      pageSize: 20,
     });
     expect(result.businessSplit).toEqual([
       expect.objectContaining({
         id: "business_1",
-        count: 1
-      })
+        count: 1,
+      }),
     ]);
   });
 
@@ -346,7 +379,7 @@ describe("getLeadsIndex", () => {
 
     await getLeadsIndex("tenant_1", {
       page: 2,
-      pageSize: 25
+      pageSize: 25,
     });
 
     expect(countLeadRecords).toHaveBeenNthCalledWith(1, "tenant_1");
@@ -357,7 +390,7 @@ describe("getLeadsIndex", () => {
       mappingState: undefined,
       internalStatus: undefined,
       from: undefined,
-      to: undefined
+      to: undefined,
     });
     expect(countLeadRecords).toHaveBeenNthCalledWith(3, "tenant_1", {
       businessId: undefined,
@@ -366,7 +399,7 @@ describe("getLeadsIndex", () => {
       mappingState: undefined,
       internalStatus: undefined,
       from: undefined,
-      to: undefined
+      to: undefined,
     });
     expect(listLeadRecords).toHaveBeenCalledWith("tenant_1", {
       businessId: undefined,
@@ -377,7 +410,7 @@ describe("getLeadsIndex", () => {
       from: undefined,
       to: undefined,
       skip: 25,
-      take: 25
+      take: 25,
     });
   });
 
@@ -386,28 +419,28 @@ describe("getLeadsIndex", () => {
 
     await getLeadsIndex("tenant_1", {
       attention: "NEEDS_ATTENTION",
-      businessId: "business_1"
+      businessId: "business_1",
     });
 
     expect(countLeadRecordsByBusiness).toHaveBeenCalledWith(
       "tenant_1",
       expect.objectContaining({
-        attention: "NEEDS_ATTENTION"
-      })
+        attention: "NEEDS_ATTENTION",
+      }),
     );
     expect(countLeadRecords).toHaveBeenCalledWith(
       "tenant_1",
       expect.objectContaining({
         businessId: "business_1",
-        attention: "NEEDS_ATTENTION"
-      })
+        attention: "NEEDS_ATTENTION",
+      }),
     );
     expect(listLeadRecords).toHaveBeenCalledWith(
       "tenant_1",
       expect.objectContaining({
         businessId: "business_1",
-        attention: "NEEDS_ATTENTION"
-      })
+        attention: "NEEDS_ATTENTION",
+      }),
     );
   });
 });
@@ -426,12 +459,17 @@ describe("buildLeadListEntry", () => {
       lastSyncedAt: new Date("2026-04-03T09:31:00.000Z"),
       replyState: "UNREAD",
       business: { id: "business_1", name: "IRBIS Air Plumbing Electrical" },
-      webhookEvents: [{ status: "FAILED", errorJson: { message: "Webhook processing failed" } }],
+      webhookEvents: [
+        {
+          status: "FAILED",
+          errorJson: { message: "Webhook processing failed" },
+        },
+      ],
       crmLeadMappings: [],
       crmStatusEvents: [],
       automationAttempts: [],
       syncRuns: [],
-      internalStatus: "UNMAPPED"
+      internalStatus: "UNMAPPED",
     });
 
     expect(row.requiresAttention).toBe(true);
@@ -447,7 +485,7 @@ describe("getLeadDetail", () => {
       mappingResolved: false,
       currentInternalStatus: "UNMAPPED",
       mappingIssues: [],
-      timeline: []
+      timeline: [],
     });
     getLeadRecordById.mockResolvedValue({
       id: "lead_1",
@@ -465,7 +503,7 @@ describe("getLeadDetail", () => {
         id: "business_1",
         name: "IRBIS Air Plumbing Electrical",
         locationId: null,
-        encryptedYelpBusinessId: "ys4FVTHxbSepIkvCLHYxCA"
+        encryptedYelpBusinessId: "ys4FVTHxbSepIkvCLHYxCA",
       },
       events: [],
       webhookEvents: [],
@@ -474,7 +512,7 @@ describe("getLeadDetail", () => {
       crmStatusEvents: [],
       automationAttempts: [],
       conversationActions: [],
-      replyState: "UNREAD"
+      replyState: "UNREAD",
     });
 
     const { getLeadDetail } = await import("@/features/leads/service");
@@ -482,7 +520,9 @@ describe("getLeadDetail", () => {
 
     expect(result.sourceBoundaries.yelp).toContain("Yelp");
     expect(result.sourceBoundaries.crm).toContain("partner lifecycle statuses");
-    expect(result.sourceBoundaries.local).toContain("outside-Yelp reply markers");
+    expect(result.sourceBoundaries.local).toContain(
+      "outside-Yelp reply markers",
+    );
     expect(result.sourceBoundaries.automation).toContain("Autoresponder rules");
   });
 });

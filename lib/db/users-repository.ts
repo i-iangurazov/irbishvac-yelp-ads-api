@@ -48,6 +48,17 @@ export async function countActiveUsersByRole(
   });
 }
 
+export async function countActiveUsersByRoleGlobally(roleCode: RoleCode) {
+  return prisma.user.count({
+    where: {
+      isActive: true,
+      role: {
+        code: roleCode,
+      },
+    },
+  });
+}
+
 export async function createTenantUser(data: {
   tenantId: string;
   name: string;

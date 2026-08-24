@@ -2,13 +2,16 @@ import { NextResponse } from "next/server";
 
 import {
   deleteLeadAutomationTemplateWorkflow,
-  updateLeadAutomationTemplateWorkflow
+  updateLeadAutomationTemplateWorkflow,
 } from "@/features/autoresponder/service";
 import { handleRouteError, requireApiPermission } from "@/lib/utils/http";
 
-export async function PATCH(request: Request, context: { params: Promise<{ templateId: string }> }) {
+export async function PATCH(
+  request: Request,
+  context: { params: Promise<{ templateId: string }> },
+) {
   try {
-    const user = await requireApiPermission("settings:write");
+    const user = await requireApiPermission("autoresponder:manage");
 
     if (user instanceof NextResponse) {
       return user;
@@ -16,7 +19,12 @@ export async function PATCH(request: Request, context: { params: Promise<{ templ
 
     const body = await request.json();
     const { templateId } = await context.params;
-    const result = await updateLeadAutomationTemplateWorkflow(user.tenantId, user.id, templateId, body);
+    const result = await updateLeadAutomationTemplateWorkflow(
+      user.tenantId,
+      user.id,
+      templateId,
+      body,
+    );
 
     return NextResponse.json(result);
   } catch (error) {
@@ -24,16 +32,23 @@ export async function PATCH(request: Request, context: { params: Promise<{ templ
   }
 }
 
-export async function DELETE(_request: Request, context: { params: Promise<{ templateId: string }> }) {
+export async function DELETE(
+  _request: Request,
+  context: { params: Promise<{ templateId: string }> },
+) {
   try {
-    const user = await requireApiPermission("settings:write");
+    const user = await requireApiPermission("autoresponder:manage");
 
     if (user instanceof NextResponse) {
       return user;
     }
 
     const { templateId } = await context.params;
-    const result = await deleteLeadAutomationTemplateWorkflow(user.tenantId, user.id, templateId);
+    const result = await deleteLeadAutomationTemplateWorkflow(
+      user.tenantId,
+      user.id,
+      templateId,
+    );
 
     return NextResponse.json(result);
   } catch (error) {

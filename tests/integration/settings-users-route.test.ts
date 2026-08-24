@@ -24,7 +24,7 @@ describe("settings users route", () => {
     createSettingsUser.mockResolvedValueOnce({
       id: "user_2",
       email: "operator@example.com",
-      role: { code: "OPERATOR" },
+      role: { code: "CLIENT_MANAGER" },
     });
 
     const { POST } = await import("@/app/api/settings/users/route");
@@ -37,7 +37,7 @@ describe("settings users route", () => {
         body: JSON.stringify({
           name: "Operator",
           email: "operator@example.com",
-          roleCode: "OPERATOR",
+          roleCode: "CLIENT_MANAGER",
           password: "Temporary123!",
         }),
       }),
@@ -49,7 +49,7 @@ describe("settings users route", () => {
       "user_1",
       expect.objectContaining({
         email: "operator@example.com",
-        roleCode: "OPERATOR",
+        roleCode: "CLIENT_MANAGER",
       }),
     );
   });
@@ -57,7 +57,7 @@ describe("settings users route", () => {
   it("updates user roles through the settings workflow", async () => {
     saveUserRole.mockResolvedValueOnce({
       id: "user_2",
-      role: { code: "ANALYST" },
+      role: { code: "REVIEWER" },
     });
 
     const { PATCH } = await import("@/app/api/settings/users/route");
@@ -69,7 +69,7 @@ describe("settings users route", () => {
         },
         body: JSON.stringify({
           userId: "user_2",
-          roleCode: "ANALYST",
+          roleCode: "REVIEWER",
         }),
       }),
     );
@@ -79,7 +79,7 @@ describe("settings users route", () => {
       "tenant_1",
       "user_1",
       "user_2",
-      "ANALYST",
+      "REVIEWER",
     );
   });
 });

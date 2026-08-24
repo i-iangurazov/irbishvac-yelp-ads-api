@@ -12,13 +12,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { apiFetch } from "@/lib/utils/client-api";
+import { roleLabels, type ProductionRoleCode } from "@/features/settings/roles";
 
 export function SettingsUserRoleForm({
   userId,
   roleCode,
+  assignableRoles,
 }: {
   userId: string;
   roleCode: RoleCode;
+  assignableRoles: readonly ProductionRoleCode[];
 }) {
   const router = useRouter();
 
@@ -47,10 +50,11 @@ export function SettingsUserRoleForm({
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value="ADMIN">Admin</SelectItem>
-        <SelectItem value="OPERATOR">Operator</SelectItem>
-        <SelectItem value="ANALYST">Analyst</SelectItem>
-        <SelectItem value="VIEWER">Viewer</SelectItem>
+        {assignableRoles.map((assignableRole) => (
+          <SelectItem key={assignableRole} value={assignableRole}>
+            {roleLabels[assignableRole]}
+          </SelectItem>
+        ))}
       </SelectContent>
     </Select>
   );

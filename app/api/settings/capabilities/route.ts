@@ -5,7 +5,7 @@ import { handleRouteError, requireApiPermission } from "@/lib/utils/http";
 
 export async function POST(request: Request) {
   try {
-    const user = await requireApiPermission("settings:write");
+    const user = await requireApiPermission("credentials:manage");
 
     if (user instanceof NextResponse) {
       return user;

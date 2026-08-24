@@ -3,6 +3,10 @@ import { z } from "zod";
 import {
   leadAutomationCadenceValues,
   approvedLeadAiModelValues,
+  defaultLeadAiMonthlyBudgetUsd,
+  defaultLeadAiMonthlyMessageLimit,
+  defaultLeadAiMonthlyTokenLimit,
+  defaultLeadAiUsageWarningPercent,
   defaultLeadAiModel,
   type LeadConversationAutomationModeValue,
   type LeadConversationIntentValue,
@@ -11,7 +15,7 @@ import {
   leadConversationIntentValues,
   leadAutomationRenderModeValues,
   leadAutomationTemplateKinds,
-  leadAutomationScopeModeValues
+  leadAutomationScopeModeValues,
 } from "@/features/autoresponder/constants";
 
 const leadAutomationChannelSchema = z.enum(["YELP_THREAD", "EMAIL"]);
@@ -20,14 +24,22 @@ const leadAutomationTemplateKindSchema = z.enum(leadAutomationTemplateKinds);
 const leadAutomationRenderModeSchema = z.enum(leadAutomationRenderModeValues);
 const leadAutomationCadenceSchema = z.enum(leadAutomationCadenceValues);
 const leadAutomationScopeModeSchema = z.enum(leadAutomationScopeModeValues);
-const leadConversationAutomationModeSchema = z.enum(leadConversationAutomationModeValues);
-export const leadConversationIntentSchema = z.enum(leadConversationIntentValues);
+const leadConversationAutomationModeSchema = z.enum(
+  leadConversationAutomationModeValues,
+);
+export const leadConversationIntentSchema = z.enum(
+  leadConversationIntentValues,
+);
 export const leadConversationAllowedIntentsSchema = z
   .array(leadConversationIntentSchema)
   .default([...leadConversationAutoReplyIntentDefaults]);
 const followUp24hDelaySchema = z.coerce.number().int().min(12).max(48);
 const followUp7dDelaySchema = z.coerce.number().int().min(5).max(10);
-const conversationMaxAutomatedTurnsSchema = z.coerce.number().int().min(1).max(5);
+const conversationMaxAutomatedTurnsSchema = z.coerce
+  .number()
+  .int()
+  .min(1)
+  .max(5);
 
 type LeadConversationPolicyValues = {
   conversationAutomationEnabled: boolean;
@@ -38,7 +50,7 @@ type LeadConversationPolicyValues = {
 
 function validateConversationPolicy(
   value: LeadConversationPolicyValues,
-  context: z.RefinementCtx
+  context: z.RefinementCtx,
 ) {
   if (
     value.conversationAutomationEnabled &&
@@ -49,7 +61,7 @@ function validateConversationPolicy(
     context.addIssue({
       code: z.ZodIssueCode.custom,
       path: ["conversationAllowedIntents"],
-      message: "Choose at least one low-risk intent for bounded auto-reply."
+      message: "Choose at least one low-risk intent for bounded auto-reply.",
     });
   }
 }
@@ -57,6 +69,7 @@ function validateConversationPolicy(
 export const leadAutoresponderSettingsSchema = z
   .object({
     isEnabled: z.boolean().default(false),
+    tenantKillSwitchEnabled: z.boolean().default(false),
     scopeMode: leadAutomationScopeModeSchema.default("ALL_BUSINESSES"),
     scopedBusinessIds: z.array(z.string().min(1)).default([]),
     defaultChannel: leadAutomationChannelSchema.default("YELP_THREAD"),
@@ -67,17 +80,60 @@ export const leadAutoresponderSettingsSchema = z
     followUp7dDelayDays: followUp7dDelaySchema.default(7),
     aiAssistEnabled: z.boolean().default(true),
     aiModel: leadAiModelSchema.default(defaultLeadAiModel),
+    aiAllowedModels: z
+      .array(leadAiModelSchema)
+      .min(1)
+      .default([...approvedLeadAiModelValues]),
+    aiMonthlyBudgetUsd: z.coerce
+      .number()
+      .min(1)
+      .max(10_000)
+      .default(defaultLeadAiMonthlyBudgetUsd),
+    aiMonthlyMessageLimit: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(1_000_000)
+      .default(defaultLeadAiMonthlyMessageLimit),
+    aiMonthlyTokenLimit: z.coerce
+      .number()
+      .int()
+      .min(1_000)
+      .max(1_000_000_000)
+      .default(defaultLeadAiMonthlyTokenLimit),
+    aiUsageWarningPercent: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(99)
+      .default(defaultLeadAiUsageWarningPercent),
+    aiAgencyMarkupPercent: z.coerce.number().min(0).max(1_000).default(0),
     conversationAutomationEnabled: z.boolean().default(false),
     conversationGlobalPauseEnabled: z.boolean().default(false),
-    conversationMode: leadConversationAutomationModeSchema.default("REVIEW_ONLY"),
+    conversationMode:
+      leadConversationAutomationModeSchema.default("REVIEW_ONLY"),
     conversationAllowedIntents: leadConversationAllowedIntentsSchema,
-    conversationMaxAutomatedTurns: conversationMaxAutomatedTurnsSchema.default(2),
+    conversationMaxAutomatedTurns:
+      conversationMaxAutomatedTurnsSchema.default(2),
     conversationReviewFallbackEnabled: z.boolean().default(true),
-    conversationEscalateToIssueQueue: z.boolean().default(true)
+    conversationEscalateToIssueQueue: z.boolean().default(true),
   })
-  .superRefine(validateConversationPolicy);
+  .superRefine((value, context) => {
+    validateConversationPolicy(value, context);
 
-export type LeadAutoresponderSettingsValues = z.infer<typeof leadAutoresponderSettingsSchema>;
+    if (!value.aiAllowedModels.includes(value.aiModel)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["aiModel"],
+        message:
+          "The default Claude tier must be included in the tenant allowlist.",
+      });
+    }
+  });
+
+export type LeadAutoresponderSettingsValues = z.infer<
+  typeof leadAutoresponderSettingsSchema
+>;
 
 export const leadAutoresponderBusinessOverrideSchema = z
   .object({
@@ -92,41 +148,49 @@ export const leadAutoresponderBusinessOverrideSchema = z
     aiAssistEnabled: z.boolean().default(true),
     aiModel: leadAiModelSchema.default(defaultLeadAiModel),
     conversationAutomationEnabled: z.boolean().default(false),
-    conversationMode: leadConversationAutomationModeSchema.default("REVIEW_ONLY"),
+    conversationMode:
+      leadConversationAutomationModeSchema.default("REVIEW_ONLY"),
     conversationAllowedIntents: leadConversationAllowedIntentsSchema,
-    conversationMaxAutomatedTurns: conversationMaxAutomatedTurnsSchema.default(2),
+    conversationMaxAutomatedTurns:
+      conversationMaxAutomatedTurnsSchema.default(2),
     conversationReviewFallbackEnabled: z.boolean().default(true),
-    conversationEscalateToIssueQueue: z.boolean().default(true)
+    conversationEscalateToIssueQueue: z.boolean().default(true),
   })
   .superRefine(validateConversationPolicy);
 
-export type LeadAutoresponderBusinessOverrideValues = z.infer<typeof leadAutoresponderBusinessOverrideSchema>;
+export type LeadAutoresponderBusinessOverrideValues = z.infer<
+  typeof leadAutoresponderBusinessOverrideSchema
+>;
 
-export const leadAutomationTemplateFormSchema = z.object({
-  name: z.string().trim().min(2).max(80),
-  businessId: z.string().optional().or(z.literal("")),
-  channel: leadAutomationChannelSchema.default("YELP_THREAD"),
-  templateKind: leadAutomationTemplateKindSchema.default("ACKNOWLEDGMENT"),
-  renderMode: leadAutomationRenderModeSchema.default("STATIC"),
-  aiPrompt: z.string().trim().max(4000).optional().or(z.literal("")),
-  isEnabled: z.boolean().default(true),
-  subjectTemplate: z.string().trim().max(200).optional().or(z.literal("")),
-  bodyTemplate: z.string().trim().min(10).max(5000)
-}).superRefine((value, context) => {
-  if (value.renderMode !== "AI_ASSISTED") {
-    return;
-  }
+export const leadAutomationTemplateFormSchema = z
+  .object({
+    name: z.string().trim().min(2).max(80),
+    businessId: z.string().optional().or(z.literal("")),
+    channel: leadAutomationChannelSchema.default("YELP_THREAD"),
+    templateKind: leadAutomationTemplateKindSchema.default("ACKNOWLEDGMENT"),
+    renderMode: leadAutomationRenderModeSchema.default("STATIC"),
+    aiPrompt: z.string().trim().max(4000).optional().or(z.literal("")),
+    isEnabled: z.boolean().default(true),
+    subjectTemplate: z.string().trim().max(200).optional().or(z.literal("")),
+    bodyTemplate: z.string().trim().min(10).max(5000),
+  })
+  .superRefine((value, context) => {
+    if (value.renderMode !== "AI_ASSISTED") {
+      return;
+    }
 
-  if (!value.aiPrompt || value.aiPrompt.trim().length < 20) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["aiPrompt"],
-      message: "Add AI guidance so live AI replies know how to respond."
-    });
-  }
-});
+    if (!value.aiPrompt || value.aiPrompt.trim().length < 20) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["aiPrompt"],
+        message: "Add AI guidance so live AI replies know how to respond.",
+      });
+    }
+  });
 
-export type LeadAutomationTemplateFormValues = z.infer<typeof leadAutomationTemplateFormSchema>;
+export type LeadAutomationTemplateFormValues = z.infer<
+  typeof leadAutomationTemplateFormSchema
+>;
 
 const minuteSchema = z.coerce.number().int().min(0).max(1439);
 
@@ -143,9 +207,12 @@ export const leadAutomationRuleFormSchema = z
     serviceCategoryId: z.string().optional().or(z.literal("")),
     onlyDuringWorkingHours: z.boolean().default(false),
     timezone: z.string().trim().optional().or(z.literal("")),
-    workingDays: z.array(z.coerce.number().int().min(0).max(6)).min(1).default([1, 2, 3, 4, 5]),
+    workingDays: z
+      .array(z.coerce.number().int().min(0).max(6))
+      .min(1)
+      .default([1, 2, 3, 4, 5]),
     startMinute: minuteSchema.optional(),
-    endMinute: minuteSchema.optional()
+    endMinute: minuteSchema.optional(),
   })
   .superRefine((value, context) => {
     if (!value.onlyDuringWorkingHours) {
@@ -156,7 +223,7 @@ export const leadAutomationRuleFormSchema = z
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["timezone"],
-        message: "Timezone is required when working-hours gating is enabled."
+        message: "Timezone is required when working-hours gating is enabled.",
       });
     }
 
@@ -164,7 +231,8 @@ export const leadAutomationRuleFormSchema = z
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["startMinute"],
-        message: "Start minute is required when working-hours gating is enabled."
+        message:
+          "Start minute is required when working-hours gating is enabled.",
       });
     }
 
@@ -172,7 +240,7 @@ export const leadAutomationRuleFormSchema = z
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["endMinute"],
-        message: "End minute is required when working-hours gating is enabled."
+        message: "End minute is required when working-hours gating is enabled.",
       });
     }
 
@@ -184,9 +252,11 @@ export const leadAutomationRuleFormSchema = z
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["endMinute"],
-        message: "End minute must be later than start minute."
+        message: "End minute must be later than start minute.",
       });
     }
   });
 
-export type LeadAutomationRuleFormValues = z.infer<typeof leadAutomationRuleFormSchema>;
+export type LeadAutomationRuleFormValues = z.infer<
+  typeof leadAutomationRuleFormSchema
+>;

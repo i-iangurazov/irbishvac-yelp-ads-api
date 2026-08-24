@@ -2,6 +2,12 @@ import { ProgramType } from "@prisma/client";
 import { z } from "zod";
 
 import { parseCurrencyToCents } from "@/lib/utils/format";
+import { YELP_MONTHLY_BUDGET_CAP_CENTS } from "@/features/ads-programs/budget-policy";
+import {
+  campaignLayers,
+  isTemporaryAugustCampaignLayer,
+  temporaryAugustCampaigns,
+} from "@/features/ads-programs/layers";
 
 const currencySchema = z.string().length(3).default("USD");
 
@@ -45,6 +51,7 @@ const programFormBaseSchema = z.object({
   programType: z.nativeEnum(ProgramType),
   currency: currencySchema,
   startDate: z.string().optional(),
+  endDate: z.string().optional(),
   monthlyBudgetDollars: optionalCurrencyInput,
   isAutobid: z.boolean().default(true),
   maxBidDollars: optionalCurrencyInput,
@@ -52,6 +59,7 @@ const programFormBaseSchema = z.object({
   feePeriod: z
     .enum(["CALENDAR_MONTH", "ROLLING_MONTH"])
     .default("CALENDAR_MONTH"),
+  campaignLayer: z.enum(campaignLayers).default("GENERAL"),
   adCategories: z.array(yelpCategoryAliasSchema).default([]),
   scheduledBudgetEffectiveDate: z.string().optional(),
   scheduledBudgetDollars: optionalCurrencyInput,
@@ -74,6 +82,14 @@ function validateProgramForm(
       });
     }
 
+    if (budgetCents && budgetCents > YELP_MONTHLY_BUDGET_CAP_CENTS) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["monthlyBudgetDollars"],
+        message: "A single Yelp campaign cannot exceed $60,000 per month.",
+      });
+    }
+
     if (!value.isAutobid) {
       const maxBidCents = safeCurrencyToCents(value.maxBidDollars);
 
@@ -85,6 +101,57 @@ function validateProgramForm(
         });
       }
     }
+  }
+
+  if (value.campaignLayer !== "GENERAL" && value.programType !== "CPC") {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["campaignLayer"],
+      message: "Campaign layers are available for CPC programs only.",
+    });
+  }
+
+  if (isTemporaryAugustCampaignLayer(value.campaignLayer)) {
+    const temporaryCampaign = temporaryAugustCampaigns[value.campaignLayer];
+    const budgetCents = safeCurrencyToCents(value.monthlyBudgetDollars);
+    const expectedBudgetCents = safeCurrencyToCents(
+      temporaryCampaign.monthlyBudgetDollars,
+    );
+
+    if (
+      value.adCategories.length !== 1 ||
+      value.adCategories[0] !== temporaryCampaign.categoryAlias
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["adCategories"],
+        message: `This temporary layer must target only the ${temporaryCampaign.categoryAlias} alias.`,
+      });
+    }
+
+    if (budgetCents !== expectedBudgetCents) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["monthlyBudgetDollars"],
+        message: `This approved temporary layer must use the $${temporaryCampaign.dailyBudgetDollars}/day budget.`,
+      });
+    }
+
+    if (value.endDate !== temporaryCampaign.endDate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["endDate"],
+        message: "Temporary August layers must end on August 31, 2026.",
+      });
+    }
+  }
+
+  if (value.startDate && value.endDate && value.startDate > value.endDate) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["endDate"],
+      message: "End date must be on or after the start date.",
+    });
   }
 
   if (value.scheduledBudgetEffectiveDate && !value.scheduledBudgetDollars) {
@@ -123,6 +190,30 @@ export const terminateProgramFormSchema = z.object({
   endDate: z.string().optional(),
   reason: z.string().max(500).optional(),
 });
+
+export const temporaryAugustCampaignReconcileSchema = z
+  .object({
+    businessId: z.string().min(1),
+    campaignLayer: z.enum([
+      "AUGUST_PLUMBING_TEMP",
+      "AUGUST_COMMERCIAL_HVAC_TEMP",
+    ]),
+    dryRun: z.boolean().default(true),
+    confirmation: z.string().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (
+      !value.dryRun &&
+      value.confirmation !== "APPLY_APPROVED_TEMPORARY_CAMPAIGN"
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["confirmation"],
+        message:
+          "Live reconciliation requires the exact approved confirmation phrase.",
+      });
+    }
+  });
 
 function validateMinimumBudget(
   path: string[],
@@ -223,6 +314,7 @@ export const programBudgetOperationSchema = z.union([
 ]);
 
 export const programCategoryTargetingOperationSchema = z.object({
+  campaignLayer: z.enum(campaignLayers).default("GENERAL"),
   adCategories: z
     .array(yelpCategoryAliasSchema)
     .min(1, "Select at least one explicit Yelp category."),

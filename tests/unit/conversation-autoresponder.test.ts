@@ -5,12 +5,13 @@ import {
   decideInboundConversationResponse,
   extractLeadConversationMessage,
   findNextInboundConversationEvent,
-  getAutomatedConversationReplyCount
+  getAutomatedConversationReplyCount,
 } from "@/features/autoresponder/conversation";
 import type { LeadAutoresponderSettingsValues } from "@/features/autoresponder/schemas";
 
 const baseSettings: LeadAutoresponderSettingsValues = {
   isEnabled: true,
+  tenantKillSwitchEnabled: false,
   scopeMode: "ALL_BUSINESSES",
   scopedBusinessIds: [],
   defaultChannel: "YELP_THREAD",
@@ -20,18 +21,24 @@ const baseSettings: LeadAutoresponderSettingsValues = {
   followUp7dEnabled: false,
   followUp7dDelayDays: 7,
   aiAssistEnabled: true,
-  aiModel: "gpt-5-nano",
+  aiModel: "claude-haiku-4-5",
+  aiAllowedModels: ["claude-haiku-4-5", "claude-sonnet-4-6", "claude-opus-4-6"],
+  aiMonthlyBudgetUsd: 50,
+  aiMonthlyMessageLimit: 5_000,
+  aiMonthlyTokenLimit: 5_000_000,
+  aiUsageWarningPercent: 80,
+  aiAgencyMarkupPercent: 0,
   conversationAutomationEnabled: true,
   conversationGlobalPauseEnabled: false,
   conversationMode: "BOUNDED_AUTO_REPLY",
   conversationAllowedIntents: [
     "MISSING_DETAILS_PROVIDED",
     "BASIC_ACKNOWLEDGMENT",
-    "SIMPLE_NEXT_STEP_CLARIFICATION"
+    "SIMPLE_NEXT_STEP_CLARIFICATION",
   ],
   conversationMaxAutomatedTurns: 2,
   conversationReviewFallbackEnabled: true,
-  conversationEscalateToIssueQueue: true
+  conversationEscalateToIssueQueue: true,
 };
 
 describe("conversation autoresponder classification", () => {
@@ -39,9 +46,9 @@ describe("conversation autoresponder classification", () => {
     expect(
       extractLeadConversationMessage({
         payload: {
-          message: "Here is the address and a photo."
-        }
-      })
+          message: "Here is the address and a photo.",
+        },
+      }),
     ).toBe("Here is the address and a photo.");
   });
 
@@ -50,9 +57,9 @@ describe("conversation autoresponder classification", () => {
       extractLeadConversationMessage({
         event_content: {
           text: "Can you help me?",
-          fallback_text: "Can you help me?"
-        }
-      })
+          fallback_text: "Can you help me?",
+        },
+      }),
     ).toBe("Can you help me?");
   });
 
@@ -61,10 +68,10 @@ describe("conversation autoresponder classification", () => {
       extractLeadConversationMessage({
         event_content: {
           message: {
-            text: "The unit is leaking again."
-          }
-        }
-      })
+            text: "The unit is leaking again.",
+          },
+        },
+      }),
     ).toBe("The unit is leaking again.");
   });
 
@@ -72,13 +79,13 @@ describe("conversation autoresponder classification", () => {
     expect(
       classifyInboundConversationEvent({
         payloadJson: {
-          message: "How much will this cost and can you give me a quote?"
-        }
-      })
+          message: "How much will this cost and can you give me a quote?",
+        },
+      }),
     ).toMatchObject({
       intent: "QUOTE_PRICING_REQUEST",
       confidence: "HIGH",
-      templateKind: "CANNOT_ESTIMATE"
+      templateKind: "CANNOT_ESTIMATE",
     });
   });
 
@@ -86,13 +93,14 @@ describe("conversation autoresponder classification", () => {
     expect(
       classifyInboundConversationEvent({
         payloadJson: {
-          message: "The address is 123 Main St and I attached a photo of the leaking unit."
-        }
-      })
+          message:
+            "The address is 123 Main St and I attached a photo of the leaking unit.",
+        },
+      }),
     ).toMatchObject({
       intent: "MISSING_DETAILS_PROVIDED",
       confidence: "HIGH",
-      templateKind: "RECEIVED_UPDATE"
+      templateKind: "RECEIVED_UPDATE",
     });
   });
 
@@ -100,13 +108,14 @@ describe("conversation autoresponder classification", () => {
     expect(
       classifyInboundConversationEvent({
         payloadJson: {
-          message: "The issue is with my water heater. It stopped heating this morning."
-        }
-      })
+          message:
+            "The issue is with my water heater. It stopped heating this morning.",
+        },
+      }),
     ).toMatchObject({
       intent: "MISSING_DETAILS_PROVIDED",
       confidence: "HIGH",
-      templateKind: "RECEIVED_UPDATE"
+      templateKind: "RECEIVED_UPDATE",
     });
   });
 
@@ -120,7 +129,7 @@ describe("conversation autoresponder classification", () => {
           actorType: "CONSUMER",
           isReply: true,
           occurredAt: new Date("2026-04-14T08:00:00.000Z"),
-          payloadJson: { message: "First" }
+          payloadJson: { message: "First" },
         },
         {
           eventKey: "evt_2",
@@ -129,8 +138,8 @@ describe("conversation autoresponder classification", () => {
           actorType: "CONSUMER",
           isReply: true,
           occurredAt: new Date("2026-04-14T09:00:00.000Z"),
-          payloadJson: { message: "Second" }
-        }
+          payloadJson: { message: "Second" },
+        },
       ],
       conversationAutomationState: {
         id: "state_1",
@@ -138,8 +147,8 @@ describe("conversation autoresponder classification", () => {
         mode: "BOUNDED_AUTO_REPLY",
         automatedTurnCount: 1,
         lastProcessedEventKey: "evt_1",
-        lastInboundAt: new Date("2026-04-14T08:00:00.000Z")
-      }
+        lastInboundAt: new Date("2026-04-14T08:00:00.000Z"),
+      },
     });
 
     expect(event?.eventKey).toBe("evt_2");
@@ -156,15 +165,17 @@ describe("conversation autoresponder classification", () => {
             actorType: null,
             isReply: true,
             occurredAt: new Date("2026-04-14T08:10:00.000Z"),
-            payloadJson: { message: "I uploaded photos and the address is 123 Main St." }
-          }
+            payloadJson: {
+              message: "I uploaded photos and the address is 123 Main St.",
+            },
+          },
         ],
-        conversationAutomationState: null
+        conversationAutomationState: null,
       },
       null,
       {
-        after: new Date("2026-04-14T08:05:00.000Z")
-      }
+        after: new Date("2026-04-14T08:05:00.000Z"),
+      },
     );
 
     expect(event?.eventKey).toBe("evt_reply");
@@ -183,17 +194,17 @@ describe("conversation autoresponder classification", () => {
             occurredAt: new Date("2026-04-14T08:10:00.000Z"),
             payloadJson: {
               event_content: {
-                text: "Automated reply from business."
-              }
-            }
-          }
+                text: "Automated reply from business.",
+              },
+            },
+          },
         ],
-        conversationAutomationState: null
+        conversationAutomationState: null,
       },
       null,
       {
-        after: new Date("2026-04-14T08:05:00.000Z")
-      }
+        after: new Date("2026-04-14T08:05:00.000Z"),
+      },
     );
 
     expect(event).toBeNull();
@@ -212,9 +223,9 @@ describe("conversation autoresponder classification", () => {
             occurredAt: new Date("2026-04-14T08:10:00.000Z"),
             payloadJson: {
               event_content: {
-                text: "First question"
-              }
-            }
+                text: "First question",
+              },
+            },
           },
           {
             eventKey: "evt_latest",
@@ -225,17 +236,17 @@ describe("conversation autoresponder classification", () => {
             occurredAt: new Date("2026-04-14T08:15:00.000Z"),
             payloadJson: {
               event_content: {
-                text: "Latest question"
-              }
-            }
-          }
+                text: "Latest question",
+              },
+            },
+          },
         ],
-        conversationAutomationState: null
+        conversationAutomationState: null,
       },
       null,
       {
-        after: new Date("2026-04-14T08:05:00.000Z")
-      }
+        after: new Date("2026-04-14T08:05:00.000Z"),
+      },
     );
 
     expect(event?.eventKey).toBe("evt_latest");
@@ -252,7 +263,7 @@ describe("conversation autoresponder classification", () => {
             actorType: "CONSUMER",
             isReply: false,
             occurredAt: new Date("2026-04-14T08:00:00.000Z"),
-            payloadJson: { message: "Initial request" }
+            payloadJson: { message: "Initial request" },
           },
           {
             eventKey: "evt_followup",
@@ -261,15 +272,15 @@ describe("conversation autoresponder classification", () => {
             actorType: "CONSUMER",
             isReply: false,
             occurredAt: new Date("2026-04-14T08:10:00.000Z"),
-            payloadJson: { message: "Here is the address." }
-          }
+            payloadJson: { message: "Here is the address." },
+          },
         ],
-        conversationAutomationState: null
+        conversationAutomationState: null,
       },
       null,
       {
-        after: new Date("2026-04-14T08:05:00.000Z")
-      }
+        after: new Date("2026-04-14T08:05:00.000Z"),
+      },
     );
 
     expect(event?.eventKey).toBe("evt_followup");
@@ -289,17 +300,17 @@ describe("conversation autoresponder classification", () => {
             payloadJson: {
               cursor: "cursor_customer_2",
               event_content: {
-                text: "The address is 123 Main St and the sink is leaking."
-              }
-            }
-          }
+                text: "The address is 123 Main St and the sink is leaking.",
+              },
+            },
+          },
         ],
-        conversationAutomationState: null
+        conversationAutomationState: null,
       },
       "cursor_customer_2",
       {
-        after: new Date("2026-04-14T08:05:00.000Z")
-      }
+        after: new Date("2026-04-14T08:05:00.000Z"),
+      },
     );
 
     expect(event?.eventKey).toBe("lead_1:cursor_customer_2");
@@ -318,17 +329,17 @@ describe("conversation autoresponder classification", () => {
             occurredAt: new Date("2026-04-14T08:10:00.000Z"),
             payloadJson: {
               event_content: {
-                text: "Irbishvac automated message from Plumbing Business Tester - Test\n\nThanks for reaching out."
-              }
-            }
-          }
+                text: "Irbishvac automated message from Plumbing Business Tester - Test\n\nThanks for reaching out.",
+              },
+            },
+          },
         ],
-        conversationAutomationState: null
+        conversationAutomationState: null,
       },
       null,
       {
-        after: new Date("2026-04-14T08:05:00.000Z")
-      }
+        after: new Date("2026-04-14T08:05:00.000Z"),
+      },
     );
 
     expect(event).toBeNull();
@@ -340,86 +351,86 @@ describe("conversation autoresponder routing", () => {
     externalConversationId: "conv_1",
     internalStatus: "UNMAPPED" as const,
     conversationActions: [],
-    conversationAutomationState: null
+    conversationAutomationState: null,
   };
 
   it("uses review-only mode for safe messages when configured", () => {
     const classification = classifyInboundConversationEvent({
       payloadJson: {
-        message: "Thanks, I uploaded the photo and the address is 123 Main St."
-      }
+        message: "Thanks, I uploaded the photo and the address is 123 Main St.",
+      },
     });
 
     const result = decideInboundConversationResponse({
       settings: {
         ...baseSettings,
-        conversationMode: "REVIEW_ONLY"
+        conversationMode: "REVIEW_ONLY",
       },
       lead,
       classification: classification!,
-      hasHumanTakeover: false
+      hasHumanTakeover: false,
     });
 
     expect(result).toEqual({
       decision: "REVIEW_ONLY",
       stopReason: "MODE_REVIEW_ONLY",
-      shouldCreateIssue: false
+      shouldCreateIssue: false,
     });
   });
 
   it("allows bounded auto-reply only for allowed low-risk intents", () => {
     const classification = classifyInboundConversationEvent({
       payloadJson: {
-        message: "Thanks, got it."
-      }
+        message: "Thanks, got it.",
+      },
     });
 
     const result = decideInboundConversationResponse({
       settings: baseSettings,
       lead,
       classification: classification!,
-      hasHumanTakeover: false
+      hasHumanTakeover: false,
     });
 
     expect(result).toEqual({
       decision: "AUTO_REPLY",
       stopReason: null,
-      shouldCreateIssue: false
+      shouldCreateIssue: false,
     });
   });
 
   it("hands pricing requests to a human even in bounded auto-reply mode", () => {
     const classification = classifyInboundConversationEvent({
       payloadJson: {
-        message: "Can you tell me the price and give me an estimate today?"
-      }
+        message: "Can you tell me the price and give me an estimate today?",
+      },
     });
 
     const result = decideInboundConversationResponse({
       settings: baseSettings,
       lead,
       classification: classification!,
-      hasHumanTakeover: false
+      hasHumanTakeover: false,
     });
 
     expect(result).toEqual({
       decision: "HUMAN_HANDOFF",
       stopReason: "PRICING_RISK",
-      shouldCreateIssue: true
+      shouldCreateIssue: true,
     });
   });
 
   it("stops automation when max automated turns have already been used", () => {
     const classification = classifyInboundConversationEvent({
       payloadJson: {
-        message: "Thanks."
-      }
+        message: "Thanks.",
+      },
     });
 
     const result = decideInboundConversationResponse({
       settings: {
         ...baseSettings,
-        conversationMaxAutomatedTurns: 1
+        conversationMaxAutomatedTurns: 1,
       },
       lead: {
         ...lead,
@@ -427,25 +438,26 @@ describe("conversation autoresponder routing", () => {
           id: "state_1",
           isEnabled: true,
           mode: "BOUNDED_AUTO_REPLY",
-          automatedTurnCount: 1
-        }
+          automatedTurnCount: 1,
+        },
       },
       classification: classification!,
-      hasHumanTakeover: false
+      hasHumanTakeover: false,
     });
 
     expect(result).toEqual({
       decision: "HUMAN_HANDOFF",
       stopReason: "MAX_AUTOMATED_TURNS_REACHED",
-      shouldCreateIssue: true
+      shouldCreateIssue: true,
     });
   });
 
   it("does not count human handoff acknowledgements against the bounded auto-reply budget", () => {
     const classification = classifyInboundConversationEvent({
       payloadJson: {
-        message: "The issue is with my water heater. It stopped heating this morning."
-      }
+        message:
+          "The issue is with my water heater. It stopped heating this morning.",
+      },
     });
 
     const leadWithPriorHandoffs = {
@@ -454,7 +466,7 @@ describe("conversation autoresponder routing", () => {
         id: "state_1",
         isEnabled: true,
         mode: "BOUNDED_AUTO_REPLY" as const,
-        automatedTurnCount: 3
+        automatedTurnCount: 3,
       },
       conversationAutomationTurns: [
         {
@@ -465,7 +477,7 @@ describe("conversation autoresponder routing", () => {
           decision: "HUMAN_HANDOFF" as const,
           confidence: "HIGH" as const,
           stopReason: "PRICING_RISK",
-          createdAt: new Date("2026-04-14T10:00:00.000Z")
+          createdAt: new Date("2026-04-14T10:00:00.000Z"),
         },
         {
           id: "turn_handoff_1",
@@ -475,7 +487,7 @@ describe("conversation autoresponder routing", () => {
           decision: "HUMAN_HANDOFF" as const,
           confidence: "HIGH" as const,
           stopReason: "PRICING_RISK",
-          createdAt: new Date("2026-04-14T09:00:00.000Z")
+          createdAt: new Date("2026-04-14T09:00:00.000Z"),
         },
         {
           id: "turn_auto_1",
@@ -485,9 +497,9 @@ describe("conversation autoresponder routing", () => {
           decision: "AUTO_REPLY" as const,
           confidence: "MEDIUM" as const,
           stopReason: null,
-          createdAt: new Date("2026-04-14T08:00:00.000Z")
-        }
-      ]
+          createdAt: new Date("2026-04-14T08:00:00.000Z"),
+        },
+      ],
     };
 
     expect(getAutomatedConversationReplyCount(leadWithPriorHandoffs)).toBe(1);
@@ -495,62 +507,62 @@ describe("conversation autoresponder routing", () => {
     const result = decideInboundConversationResponse({
       settings: {
         ...baseSettings,
-        conversationMaxAutomatedTurns: 2
+        conversationMaxAutomatedTurns: 2,
       },
       lead: leadWithPriorHandoffs,
       classification: classification!,
-      hasHumanTakeover: false
+      hasHumanTakeover: false,
     });
 
     expect(result).toEqual({
       decision: "AUTO_REPLY",
       stopReason: null,
-      shouldCreateIssue: false
+      shouldCreateIssue: false,
     });
   });
 
   it("stops automation after human takeover", () => {
     const classification = classifyInboundConversationEvent({
       payloadJson: {
-        message: "Here are a few more details."
-      }
+        message: "Here are a few more details.",
+      },
     });
 
     const result = decideInboundConversationResponse({
       settings: baseSettings,
       lead,
       classification: classification!,
-      hasHumanTakeover: true
+      hasHumanTakeover: true,
     });
 
     expect(result).toEqual({
       decision: "HUMAN_HANDOFF",
       stopReason: "HUMAN_TAKEOVER",
-      shouldCreateIssue: false
+      shouldCreateIssue: false,
     });
   });
 
   it("forces human handoff when the rollout kill switch is on", () => {
     const classification = classifyInboundConversationEvent({
       payloadJson: {
-        message: "Thanks, here is the address."
-      }
+        message: "Thanks, here is the address.",
+      },
     });
 
     const result = decideInboundConversationResponse({
       settings: {
         ...baseSettings,
-        conversationGlobalPauseEnabled: true
+        conversationGlobalPauseEnabled: true,
       },
       lead,
       classification: classification!,
-      hasHumanTakeover: false
+      hasHumanTakeover: false,
     });
 
     expect(result).toEqual({
       decision: "HUMAN_HANDOFF",
       stopReason: "ROLLOUT_PAUSED",
-      shouldCreateIssue: false
+      shouldCreateIssue: false,
     });
   });
 });

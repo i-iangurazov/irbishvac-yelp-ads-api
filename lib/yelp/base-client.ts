@@ -5,14 +5,21 @@ import { z } from "zod";
 
 import { fetchWithRetry } from "@/lib/utils/fetch";
 import { logError, logInfo } from "@/lib/utils/logging";
-import { normalizeYelpError, YelpApiError, YelpUpstreamUnavailableError } from "@/lib/yelp/errors";
+import {
+  normalizeYelpError,
+  YelpApiError,
+  YelpUpstreamUnavailableError,
+} from "@/lib/yelp/errors";
 import type { YelpCredentialConfig } from "@/lib/yelp/runtime";
 
 type YelpRequestOptions<TSchema extends z.ZodTypeAny> = {
   credential: YelpCredentialConfig;
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
   path: string;
-  query?: Record<string, string | number | boolean | Array<string | number | boolean> | undefined>;
+  query?: Record<
+    string,
+    string | number | boolean | Array<string | number | boolean> | undefined
+  >;
   body?: unknown;
   schema?: TSchema;
   authType: "basic" | "bearer";
@@ -20,7 +27,11 @@ type YelpRequestOptions<TSchema extends z.ZodTypeAny> = {
   headers?: HeadersInit;
 };
 
-function buildUrl(baseUrl: string, path: string, query?: YelpRequestOptions<z.ZodTypeAny>["query"]) {
+function buildUrl(
+  baseUrl: string,
+  path: string,
+  query?: YelpRequestOptions<z.ZodTypeAny>["query"],
+) {
   const url = new URL(path, baseUrl);
 
   if (query) {
@@ -43,14 +54,19 @@ function buildUrl(baseUrl: string, path: string, query?: YelpRequestOptions<z.Zo
   return url;
 }
 
-function buildAuthHeaders(authType: YelpRequestOptions<z.ZodTypeAny>["authType"], credential: YelpCredentialConfig) {
+function buildAuthHeaders(
+  authType: YelpRequestOptions<z.ZodTypeAny>["authType"],
+  credential: YelpCredentialConfig,
+) {
   if (authType === "basic") {
     if (!credential.username || !credential.secret) {
-      throw new YelpUpstreamUnavailableError("Yelp Basic Auth credentials are incomplete.");
+      throw new YelpUpstreamUnavailableError(
+        "Yelp Basic Auth credentials are incomplete.",
+      );
     }
 
     return {
-      Authorization: `Basic ${Buffer.from(`${credential.username}:${credential.secret}`).toString("base64")}`
+      Authorization: `Basic ${Buffer.from(`${credential.username}:${credential.secret}`).toString("base64")}`,
     };
   }
 
@@ -59,7 +75,7 @@ function buildAuthHeaders(authType: YelpRequestOptions<z.ZodTypeAny>["authType"]
   }
 
   return {
-    Authorization: `Bearer ${credential.secret}`
+    Authorization: `Bearer ${credential.secret}`,
   };
 }
 
@@ -71,11 +87,17 @@ function resolveApiFamily(pathname: string) {
     return "leads.api_requests";
   }
 
-  if (pathname === "/v3/businesses/subscriptions" || /^\/v3\/businesses\/subscriptions\/[^/]+\/quota$/.test(pathname)) {
+  if (
+    pathname === "/v3/businesses/subscriptions" ||
+    /^\/v3\/businesses\/subscriptions\/[^/]+\/quota$/.test(pathname)
+  ) {
     return "business_subscriptions.api_requests";
   }
 
-  if (pathname.startsWith("/v1/reporting") || pathname.startsWith("/v1/reports")) {
+  if (
+    pathname.startsWith("/v1/reporting") ||
+    pathname.startsWith("/v1/reports")
+  ) {
     return "reporting.api_requests";
   }
 
@@ -91,17 +113,22 @@ export async function requestYelp<TSchema extends z.ZodTypeAny>({
   schema,
   authType,
   correlationId = randomUUID(),
-  headers
+  headers,
 }: YelpRequestOptions<TSchema>) {
   const url = buildUrl(credential.baseUrl, path, query);
   const startedAt = Date.now();
   const apiFamily = resolveApiFamily(url.pathname);
+  const requestTarget = {
+    origin: url.origin,
+    routeFamily: apiFamily,
+    queryKeys: [...url.searchParams.keys()],
+  };
 
   logInfo("yelp.request", {
     method,
-    url: url.toString(),
+    ...requestTarget,
     correlationId,
-    apiFamily
+    apiFamily,
   });
 
   const response = await fetchWithRetry(url, {
@@ -111,11 +138,11 @@ export async function requestYelp<TSchema extends z.ZodTypeAny>({
       "X-Correlation-Id": correlationId,
       ...(body === undefined ? {} : { "Content-Type": "application/json" }),
       ...buildAuthHeaders(authType, credential),
-      ...headers
+      ...headers,
     },
     body: body === undefined ? undefined : JSON.stringify(body),
     retries: 2,
-    timeoutMs: 15_000
+    timeoutMs: 15_000,
   });
 
   if (!response.ok) {
@@ -123,13 +150,13 @@ export async function requestYelp<TSchema extends z.ZodTypeAny>({
 
     logError("yelp.request.failed", {
       method,
-      url: url.toString(),
+      ...requestTarget,
       correlationId,
       apiFamily,
       status: response.status,
       durationMs: Date.now() - startedAt,
       code: normalized.code,
-      message: normalized.message
+      message: normalized.message,
     });
 
     throw normalized;
@@ -137,17 +164,17 @@ export async function requestYelp<TSchema extends z.ZodTypeAny>({
 
   logInfo("yelp.request.completed", {
     method,
-    url: url.toString(),
+    ...requestTarget,
     correlationId,
     apiFamily,
     status: response.status,
-    durationMs: Date.now() - startedAt
+    durationMs: Date.now() - startedAt,
   });
 
   if (!schema) {
     return {
       correlationId,
-      data: null
+      data: null,
     } as const;
   }
 
@@ -155,14 +182,19 @@ export async function requestYelp<TSchema extends z.ZodTypeAny>({
   const parsed = schema.safeParse(json);
 
   if (!parsed.success) {
-    throw new YelpApiError("Yelp returned a response format this console could not parse.", "UPSTREAM_RESPONSE_INVALID", 502, {
-      issues: parsed.error.issues,
-      rawResponse: json
-    });
+    throw new YelpApiError(
+      "Yelp returned a response format this console could not parse.",
+      "UPSTREAM_RESPONSE_INVALID",
+      502,
+      {
+        issues: parsed.error.issues,
+        rawResponse: json,
+      },
+    );
   }
 
   return {
     correlationId,
-    data: parsed.data
+    data: parsed.data,
   } as const;
 }

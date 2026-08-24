@@ -3,18 +3,28 @@ import { NextResponse } from "next/server";
 import { reconcilePendingProgramJobs } from "@/features/ads-programs/service";
 import { runLeadAutomationFollowUpWorker } from "@/features/autoresponder/service";
 import { reconcileDueServiceTitanLifecycleSyncs } from "@/features/crm-connector/lifecycle-service";
-import { reconcilePendingLeadWebhooks, reconcileRecentYelpLeadsForAutomation } from "@/features/leads/service";
-import { reconcileDueReportSchedules, reconcilePendingReportScheduleRuns } from "@/features/report-delivery/service";
+import {
+  reconcilePendingLeadWebhooks,
+  reconcileRecentYelpLeadsForAutomation,
+} from "@/features/leads/service";
+import {
+  reconcileDueReportSchedules,
+  reconcilePendingReportScheduleRuns,
+} from "@/features/report-delivery/service";
 import { reconcilePendingReports } from "@/features/reporting/service";
 import {
   runDurableWorkerTask,
   summarizeDurableWorkerOutcome,
-  type DurableWorkerTaskOutcome
+  type DurableWorkerTaskOutcome,
 } from "@/features/operations/worker-job-service";
 import { handleRouteError, requireCronAuthorization } from "@/lib/utils/http";
 import { logError, logInfo } from "@/lib/utils/logging";
 
-function parseLimit(value: string | null, defaultValue: number, maxValue: number) {
+function parseLimit(
+  value: string | null,
+  defaultValue: number,
+  maxValue: number,
+) {
   if (value === null) {
     return defaultValue;
   }
@@ -60,11 +70,11 @@ function skippedWorkerOutcome<T>(jobKey: string): DurableWorkerTaskOutcome<T> {
       payloadJson: null,
       resultJson: null,
       createdAt: new Date(),
-      updatedAt: new Date()
+      updatedAt: new Date(),
     },
     result: null,
     skippedReason: "ACTIVE_OR_NOT_DUE",
-    durationMs: 0
+    durationMs: 0,
   };
 }
 
@@ -80,13 +90,37 @@ export async function GET(request: Request) {
     const startedAt = Date.now();
     const limits = {
       programJobLimit: parseLimit(searchParams.get("programJobLimit"), 25, 100),
-      leadWebhookLimit: parseLimit(searchParams.get("leadWebhookLimit"), 25, 100),
-      leadPollingLimit: parseLimit(searchParams.get("leadPollingLimit"), 40, 100),
-      scheduledReportLimit: parseLimit(searchParams.get("scheduledReportLimit"), 10, 50),
+      leadWebhookLimit: parseLimit(
+        searchParams.get("leadWebhookLimit"),
+        25,
+        100,
+      ),
+      leadPollingLimit: parseLimit(
+        searchParams.get("leadPollingLimit"),
+        40,
+        100,
+      ),
+      scheduledReportLimit: parseLimit(
+        searchParams.get("scheduledReportLimit"),
+        10,
+        50,
+      ),
       reportLimit: parseLimit(searchParams.get("reportLimit"), 10, 50),
-      reportDeliveryLimit: parseLimit(searchParams.get("reportDeliveryLimit"), 20, 100),
-      autoresponderFollowUpLimit: parseLimit(searchParams.get("autoresponderFollowUpLimit"), 20, 100),
-      connectorLifecycleLimit: parseLimit(searchParams.get("connectorLifecycleLimit"), 10, 50)
+      reportDeliveryLimit: parseLimit(
+        searchParams.get("reportDeliveryLimit"),
+        20,
+        100,
+      ),
+      autoresponderFollowUpLimit: parseLimit(
+        searchParams.get("autoresponderFollowUpLimit"),
+        20,
+        100,
+      ),
+      connectorLifecycleLimit: parseLimit(
+        searchParams.get("connectorLifecycleLimit"),
+        10,
+        50,
+      ),
     };
 
     const programJobsOutcome =
@@ -95,107 +129,126 @@ export async function GET(request: Request) {
             kind: "INTERNAL_RECONCILE_PROGRAM_JOBS",
             jobKey: "internal-reconcile:program-jobs",
             payloadJson: { limit: limits.programJobLimit },
-            task: () => reconcilePendingProgramJobs(limits.programJobLimit)
+            task: () => reconcilePendingProgramJobs(limits.programJobLimit),
           })
-        : skippedWorkerOutcome<Awaited<ReturnType<typeof reconcilePendingProgramJobs>>>("internal-reconcile:program-jobs");
+        : skippedWorkerOutcome<
+            Awaited<ReturnType<typeof reconcilePendingProgramJobs>>
+          >("internal-reconcile:program-jobs");
     const leadWebhooksOutcome =
       limits.leadWebhookLimit > 0
         ? await runDurableWorkerTask({
             kind: "INTERNAL_RECONCILE_LEAD_WEBHOOKS",
             jobKey: "internal-reconcile:lead-webhooks",
             payloadJson: { limit: limits.leadWebhookLimit },
-            task: () => reconcilePendingLeadWebhooks(limits.leadWebhookLimit)
+            task: () => reconcilePendingLeadWebhooks(limits.leadWebhookLimit),
           })
-        : skippedWorkerOutcome<Awaited<ReturnType<typeof reconcilePendingLeadWebhooks>>>("internal-reconcile:lead-webhooks");
+        : skippedWorkerOutcome<
+            Awaited<ReturnType<typeof reconcilePendingLeadWebhooks>>
+          >("internal-reconcile:lead-webhooks");
     const leadPollingOutcome =
       limits.leadPollingLimit > 0
         ? await runDurableWorkerTask({
             kind: "INTERNAL_RECONCILE_LEAD_WEBHOOKS",
             jobKey: "internal-reconcile:lead-polling",
             payloadJson: { limit: limits.leadPollingLimit },
-            task: () => reconcileRecentYelpLeadsForAutomation(limits.leadPollingLimit)
+            task: () =>
+              reconcileRecentYelpLeadsForAutomation(limits.leadPollingLimit),
           })
-        : skippedWorkerOutcome<Awaited<ReturnType<typeof reconcileRecentYelpLeadsForAutomation>>>(
-            "internal-reconcile:lead-polling"
-          );
+        : skippedWorkerOutcome<
+            Awaited<ReturnType<typeof reconcileRecentYelpLeadsForAutomation>>
+          >("internal-reconcile:lead-polling");
     const scheduledReportsOutcome =
       limits.scheduledReportLimit > 0
         ? await runDurableWorkerTask({
             kind: "INTERNAL_RECONCILE_SCHEDULED_REPORTS",
             jobKey: "internal-reconcile:scheduled-reports",
             payloadJson: { limit: limits.scheduledReportLimit },
-            task: () => reconcileDueReportSchedules(limits.scheduledReportLimit)
+            task: () =>
+              reconcileDueReportSchedules(limits.scheduledReportLimit),
           })
-        : skippedWorkerOutcome<Awaited<ReturnType<typeof reconcileDueReportSchedules>>>("internal-reconcile:scheduled-reports");
+        : skippedWorkerOutcome<
+            Awaited<ReturnType<typeof reconcileDueReportSchedules>>
+          >("internal-reconcile:scheduled-reports");
     const reportsOutcome =
       limits.reportLimit > 0
         ? await runDurableWorkerTask({
             kind: "INTERNAL_RECONCILE_REPORTS",
             jobKey: "internal-reconcile:reports",
             payloadJson: { limit: limits.reportLimit },
-            task: () => reconcilePendingReports(limits.reportLimit)
+            task: () => reconcilePendingReports(limits.reportLimit),
           })
-        : skippedWorkerOutcome<Awaited<ReturnType<typeof reconcilePendingReports>>>("internal-reconcile:reports");
+        : skippedWorkerOutcome<
+            Awaited<ReturnType<typeof reconcilePendingReports>>
+          >("internal-reconcile:reports");
     const reportDeliveriesOutcome =
       limits.reportDeliveryLimit > 0
         ? await runDurableWorkerTask({
             kind: "INTERNAL_RECONCILE_REPORT_DELIVERIES",
             jobKey: "internal-reconcile:report-deliveries",
             payloadJson: { limit: limits.reportDeliveryLimit },
-            task: () => reconcilePendingReportScheduleRuns(limits.reportDeliveryLimit)
+            task: () =>
+              reconcilePendingReportScheduleRuns(limits.reportDeliveryLimit),
           })
-        : skippedWorkerOutcome<Awaited<ReturnType<typeof reconcilePendingReportScheduleRuns>>>("internal-reconcile:report-deliveries");
+        : skippedWorkerOutcome<
+            Awaited<ReturnType<typeof reconcilePendingReportScheduleRuns>>
+          >("internal-reconcile:report-deliveries");
     const autoresponderFollowUpsOutcome =
       limits.autoresponderFollowUpLimit > 0
         ? await runDurableWorkerTask({
             kind: "INTERNAL_RECONCILE_AUTORESPONDER_FOLLOWUPS",
             jobKey: "internal-reconcile:autoresponder-followups",
             payloadJson: { limit: limits.autoresponderFollowUpLimit },
-            task: () => runLeadAutomationFollowUpWorker(limits.autoresponderFollowUpLimit)
+            task: () =>
+              runLeadAutomationFollowUpWorker(
+                limits.autoresponderFollowUpLimit,
+              ),
           })
-        : skippedWorkerOutcome<Awaited<ReturnType<typeof runLeadAutomationFollowUpWorker>>>(
-            "internal-reconcile:autoresponder-followups"
-          );
+        : skippedWorkerOutcome<
+            Awaited<ReturnType<typeof runLeadAutomationFollowUpWorker>>
+          >("internal-reconcile:autoresponder-followups");
     const connectorLifecycleOutcome =
       limits.connectorLifecycleLimit > 0
         ? await runDurableWorkerTask({
             kind: "INTERNAL_RECONCILE_SERVICETITAN_LIFECYCLE",
             jobKey: "internal-reconcile:servicetitan-lifecycle",
             payloadJson: { limit: limits.connectorLifecycleLimit },
-            task: () => reconcileDueServiceTitanLifecycleSyncs(limits.connectorLifecycleLimit)
+            task: () =>
+              reconcileDueServiceTitanLifecycleSyncs(
+                limits.connectorLifecycleLimit,
+              ),
           })
-        : skippedWorkerOutcome<Awaited<ReturnType<typeof reconcileDueServiceTitanLifecycleSyncs>>>(
-            "internal-reconcile:servicetitan-lifecycle"
-          );
+        : skippedWorkerOutcome<
+            Awaited<ReturnType<typeof reconcileDueServiceTitanLifecycleSyncs>>
+          >("internal-reconcile:servicetitan-lifecycle");
     const programJobs = programJobsOutcome.result ?? [];
     const leadWebhooks = leadWebhooksOutcome.result ?? [];
-    const leadPolling =
-      leadPollingOutcome.result ??
-      {
-        tenantCount: 0,
-        businessCount: 0,
-        processedLeadCount: 0,
-        importedCount: 0,
-        updatedCount: 0,
-        failedCount: 0,
-        initialAutomationProcessedCount: 0,
-        conversationAutomationProcessedCount: 0,
-        results: []
-      };
+    const leadPolling = leadPollingOutcome.result ?? {
+      tenantCount: 0,
+      businessCount: 0,
+      processedLeadCount: 0,
+      importedCount: 0,
+      updatedCount: 0,
+      failedCount: 0,
+      initialAutomationProcessedCount: 0,
+      conversationAutomationProcessedCount: 0,
+      conversationAutomationSkippedCount: 0,
+      conversationAutomationSkipReasons: {},
+      accessFailureCount: 0,
+      accessFailures: [],
+      results: [],
+    };
     const scheduledReports = scheduledReportsOutcome.result ?? [];
     const reports = reportsOutcome.result ?? [];
     const reportDeliveries = reportDeliveriesOutcome.result ?? [];
     const autoresponderFollowUps = autoresponderFollowUpsOutcome.result ?? [];
-    const connectorLifecycle =
-      connectorLifecycleOutcome.result ??
-      {
-            tenantCount: 0,
-            processedCount: 0,
-            failedCount: 0,
-            partialCount: 0,
-            completedCount: 0,
-            results: []
-      };
+    const connectorLifecycle = connectorLifecycleOutcome.result ?? {
+      tenantCount: 0,
+      processedCount: 0,
+      failedCount: 0,
+      partialCount: 0,
+      completedCount: 0,
+      results: [],
+    };
     const workerJobs = {
       programJobs: summarizeDurableWorkerOutcome(programJobsOutcome),
       leadWebhooks: summarizeDurableWorkerOutcome(leadWebhooksOutcome),
@@ -203,12 +256,23 @@ export async function GET(request: Request) {
       scheduledReports: summarizeDurableWorkerOutcome(scheduledReportsOutcome),
       reports: summarizeDurableWorkerOutcome(reportsOutcome),
       reportDeliveries: summarizeDurableWorkerOutcome(reportDeliveriesOutcome),
-      autoresponderFollowUps: summarizeDurableWorkerOutcome(autoresponderFollowUpsOutcome),
-      connectorLifecycle: summarizeDurableWorkerOutcome(connectorLifecycleOutcome)
+      autoresponderFollowUps: summarizeDurableWorkerOutcome(
+        autoresponderFollowUpsOutcome,
+      ),
+      connectorLifecycle: summarizeDurableWorkerOutcome(
+        connectorLifecycleOutcome,
+      ),
     };
     const hasWorkerFailure = Object.values(workerJobs).some(
-      (workerJob) => workerJob.status === "FAILED" || workerJob.status === "DEAD_LETTERED"
+      (workerJob) =>
+        workerJob.status === "FAILED" || workerJob.status === "DEAD_LETTERED",
     );
+    const hasApplicationFailure =
+      leadWebhooks.some((result) => result.status === "FAILED") ||
+      leadPolling.failedCount > 0 ||
+      leadPolling.accessFailureCount > 0 ||
+      connectorLifecycle.failedCount > 0;
+    const isHealthy = !hasWorkerFailure && !hasApplicationFailure;
 
     logInfo("internal.reconcile.completed", {
       durationMs: Date.now() - startedAt,
@@ -222,27 +286,31 @@ export async function GET(request: Request) {
       reportDeliveries: reportDeliveries.length,
       autoresponderFollowUps: autoresponderFollowUps.length,
       connectorLifecycleProcessed: connectorLifecycle.processedCount,
-      workerJobs
+      workerJobs,
     });
 
-    return NextResponse.json({
-      ok: !hasWorkerFailure,
-      processedAt: new Date().toISOString(),
-      limits,
-      programJobs,
-      leadWebhooks,
-      leadPolling,
-      scheduledReports,
-      reports,
-      reportDeliveries,
-      autoresponderFollowUps,
-      connectorLifecycle,
-      workerJobs
-    });
+    return NextResponse.json(
+      {
+        ok: isHealthy,
+        processedAt: new Date().toISOString(),
+        limits,
+        programJobs,
+        leadWebhooks,
+        leadPolling,
+        scheduledReports,
+        reports,
+        reportDeliveries,
+        autoresponderFollowUps,
+        connectorLifecycle,
+        workerJobs,
+      },
+      { status: isHealthy ? 200 : 503 },
+    );
   } catch (error) {
-    const handled = error instanceof Error ? error.message : "Unknown reconcile failure";
+    const handled =
+      error instanceof Error ? error.message : "Unknown reconcile failure";
     logError("internal.reconcile.failed", {
-      message: handled
+      message: handled,
     });
     return handleRouteError(error);
   }
