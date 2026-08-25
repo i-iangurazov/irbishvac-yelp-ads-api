@@ -169,6 +169,23 @@ export async function getSettingsOverview(tenantId: string) {
   };
 }
 
+export async function getDashboardSettingsOverview(tenantId: string) {
+  const [credentials, capabilities] = await Promise.all([
+    listCredentialSets(tenantId),
+    getCapabilityFlags(tenantId),
+  ]);
+
+  return {
+    credentials: credentials.map((credential) => ({
+      ...credential,
+      secretEncrypted: credential.secretEncrypted ? "configured" : null,
+      usernameEncrypted: credential.usernameEncrypted ? "configured" : null,
+      metadataJson: redactCredentialMetadata(credential.metadataJson),
+    })),
+    capabilities,
+  };
+}
+
 export async function saveCredentialSet(
   tenantId: string,
   actorId: string,

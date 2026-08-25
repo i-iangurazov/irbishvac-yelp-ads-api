@@ -24,12 +24,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { EmptyState } from "@/components/shared/empty-state";
-import { getBusinessesIndex } from "@/features/businesses/service";
-import { getLeadsIndex } from "@/features/leads/service";
-import { getProgramsIndex } from "@/features/ads-programs/service";
-import { getAuditWebhookOverview } from "@/features/operations/service";
-import { getReportingIndex } from "@/features/reporting/service";
-import { getSettingsOverview } from "@/features/settings/service";
+import { getDashboardOverview } from "@/features/dashboard/service";
 import {
   getCredentialHealthViewModel,
   getEnabledCapabilityLabels,
@@ -51,33 +46,13 @@ const eligibilityLabelMap = {
 
 export default async function DashboardPage() {
   const user = await requirePermission("businesses:read");
-  const [
-    businesses,
-    leadsOverview,
-    programs,
-    reports,
-    settings,
-    webhookOverview,
-  ] = await Promise.all([
-    getBusinessesIndex(user.tenantId),
-    getLeadsIndex(user.tenantId),
-    getProgramsIndex(user.tenantId),
-    getReportingIndex(user.tenantId),
-    getSettingsOverview(user.tenantId),
-    getAuditWebhookOverview(user.tenantId),
-  ]);
-
-  const failedJobs = programs
-    .flatMap((program) => program.jobs)
-    .filter((job) => job.status === "FAILED" || job.status === "PARTIAL");
+  const overview = await getDashboardOverview(user.tenantId);
+  const { businesses, failedJobs, settings, recentWebhookFailures } = overview;
   const readinessIssues = businesses.filter(
     (business) => !business.readiness.isReadyForCpc,
   );
   const launchReadyBusinesses = businesses.filter(
     (business) => business.readiness.isReadyForCpc,
-  );
-  const activePrograms = programs.filter((program) =>
-    ["ACTIVE", "SCHEDULED", "QUEUED", "PROCESSING"].includes(program.status),
   );
   const enabledApis = getEnabledCapabilityLabels(settings.capabilities);
   const credentialHealth = settings.credentials.map((credential) => ({
@@ -90,10 +65,6 @@ export default async function DashboardPage() {
       health.requestsLabel !== "Requests enabled" ||
       health.testVariant === "destructive",
   );
-  const recentWebhookFailures =
-    webhookOverview.counts.failedLast24h +
-    webhookOverview.reconcileCounts.failedLast24h;
-
   return (
     <div>
       <PageHeader
@@ -132,19 +103,19 @@ export default async function DashboardPage() {
         />
         <MetricCard
           title="Unmapped leads"
-          value={leadsOverview.summary.unresolvedLeads}
+          value={overview.unmappedLeads}
           description="Leads still waiting on an internal CRM link."
           icon={<Inbox className="h-5 w-5 text-muted-foreground" />}
         />
         <MetricCard
           title="Current programs"
-          value={activePrograms.length}
+          value={overview.activeProgramCount}
           description="Programs that are active now or still waiting on Yelp job completion."
           icon={<Megaphone className="h-5 w-5 text-muted-foreground" />}
         />
         <MetricCard
           title="Reports waiting on Yelp"
-          value={reports.summary.pendingCount}
+          value={overview.pendingReports}
           description="Batch report requests that are not final yet."
           icon={<Clock4 className="h-5 w-5 text-muted-foreground" />}
         />
@@ -384,13 +355,13 @@ export default async function DashboardPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          {reports.reports.length === 0 ? (
+          {overview.recentReports.length === 0 ? (
             <EmptyState
               title="No reports requested yet"
               description="Request a batch report when the team needs a saved Yelp snapshot."
             />
           ) : (
-            reports.reports.slice(0, 5).map((report) => (
+            overview.recentReports.map((report) => (
               <div
                 className="flex items-center justify-between rounded-lg border border-border p-4"
                 key={report.id}

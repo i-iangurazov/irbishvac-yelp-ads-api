@@ -9,20 +9,21 @@ declare global {
 
 if (!process.env.DATABASE_URL) {
   throw new Error(
-    "DATABASE_URL is not configured. Copy .env.example to .env, start PostgreSQL, and rerun the app."
+    "DATABASE_URL is not configured. Copy .env.example to .env, start PostgreSQL, and rerun the app.",
   );
 }
 
 export const prisma =
-  global.__prisma ??
+  globalThis.__prisma ??
   new PrismaClient({
-    log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["warn", "error"],
+    log:
+      process.env.NODE_ENV === "development"
+        ? ["warn", "error"]
+        : ["warn", "error"],
     transactionOptions: {
       maxWait: 5_000,
-      timeout: 10_000
-    }
+      timeout: 10_000,
+    },
   });
 
-if (process.env.NODE_ENV !== "production") {
-  global.__prisma = prisma;
-}
+globalThis.__prisma = prisma;
