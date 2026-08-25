@@ -4,15 +4,15 @@ This is the release evidence ledger for the first external-client rollout. Point
 
 ## Verdict And Progress
 
-- Current verdict: **Not Ready**
-- Weighted atomic score: **94 / 100**
+- Current verdict: **Controlled Pilot Only**
+- Weighted atomic score: **96 / 100**
 - Implementation completeness: **100 / 100**
-- Verification completeness: **94 / 100**
-- Live readiness: **50 / 100**
+- Verification completeness: **98 / 100**
+- Live readiness: **85 / 100**
 - Release branch: `main`
 - Baseline commit: `6456fdf`
-- Latest checkpoint: `434b164`
-- Live blocker: the canonical business-scoped Yelp Leads read returns `401 AUTH_FAILURE` using the tenant `REPORTING_FUSION` bearer credential.
+- Latest checkpoint: `072a8a3`
+- Live blocker: a controlled test lead is still required to verify one complete Claude-generated, policy-validated reply delivered to Yelp without contacting an unintended customer.
 
 `Ready` still requires every mandatory release gate, production deployment, and a controlled live Claude-to-Yelp delivery.
 
@@ -20,21 +20,22 @@ Implementation completeness measures whether the required code and UI exist. Ver
 
 ## Atomic Weighted Scorecard
 
-### Autoresponder Pipeline And Real Delivery: 17 / 20
+### Autoresponder Pipeline And Real Delivery: 18 / 20
 
-| Atomic requirement                                           | Points | Earned | Evidence                                               |
-| ------------------------------------------------------------ | -----: | -----: | ------------------------------------------------------ |
-| Authenticated webhook ingestion and fast acknowledgement     |      2 |      2 | Route and webhook authentication tests                 |
-| Durable immediate background jobs                            |      2 |      2 | Database-backed worker jobs and enqueue tests          |
-| Transactional claim and duplicate-event/send protection      |      3 |      3 | Claim, idempotency, and external-side-effect tests     |
-| Bounded retry, rate handling, and auth circuit breaker       |      3 |      3 | Retry and credential-block tests                       |
-| Dead-letter visibility                                       |      1 |      1 | Worker/dead-letter state implementation and tests      |
-| Safe failed-job replay                                       |      1 |      1 | Tenant-scoped replay route, confirmation UI, and tests |
-| Global, tenant, business switches and review/auto-send modes |      2 |      2 | Config resolution and kill-switch tests                |
-| Correlation IDs, delivery state, and audit records           |      1 |      1 | Persisted attempts and audit assertions                |
-| Reconciliation recovery and false-green failure exits        |      2 |      2 | HTTP 503/500 tests and fail-fast workflow              |
-| Controlled webhook-to-Claude-to-Yelp E2E                     |      2 |      0 | Blocked by Yelp Leads authentication                   |
-| Verified provider delivery                                   |      1 |      0 | Blocked by Yelp Leads authentication                   |
+| Atomic requirement                                           | Points | Earned | Evidence                                                               |
+| ------------------------------------------------------------ | -----: | -----: | ---------------------------------------------------------------------- |
+| Authenticated webhook ingestion and fast acknowledgement     |      2 |      2 | Route and webhook authentication tests                                 |
+| Durable immediate background jobs                            |      2 |      2 | Database-backed worker jobs and enqueue tests                          |
+| Transactional claim and duplicate-event/send protection      |      3 |      3 | Claim, idempotency, and external-side-effect tests                     |
+| Bounded retry, rate handling, and auth circuit breaker       |      3 |      3 | Retry and credential-block tests                                       |
+| Dead-letter visibility                                       |      1 |      1 | Worker/dead-letter state implementation and tests                      |
+| Safe failed-job replay                                       |      1 |      1 | Tenant-scoped replay route, confirmation UI, and tests                 |
+| Global, tenant, business switches and review/auto-send modes |      2 |      2 | Config resolution and kill-switch tests                                |
+| Correlation IDs, delivery state, and audit records           |      1 |      1 | Persisted attempts and audit assertions                                |
+| Reconciliation recovery and false-green failure exits        |      2 |      2 | HTTP 503/500 tests and fail-fast workflow                              |
+| Provider-authenticated webhook and lead synchronization      |      1 |      1 | Production reconciliation synced 60/60 leads; queued webhook completed |
+| Controlled Claude-to-Yelp reply path                         |      1 |      0 | Safe controlled test lead still required                               |
+| Verified provider reply delivery                             |      1 |      0 | Safe controlled test lead still required                               |
 
 ### Claude-Only Generation, Usage And Limits: 14 / 15
 
@@ -69,7 +70,7 @@ Implementation completeness measures whether the required code and UI exist. Ver
 | All protected API routes have server-side guards       |      1 |      1 | Static guard inventory test                             |
 | All console pages have server-side guards              |      1 |      1 | Static guard inventory test                             |
 
-### Client Onboarding And Activation Gates: 9 / 10
+### Client Onboarding And Activation Gates: 10 / 10
 
 | Atomic requirement                                                  | Points | Earned | Evidence                                                             |
 | ------------------------------------------------------------------- | -----: | -----: | -------------------------------------------------------------------- |
@@ -82,7 +83,7 @@ Implementation completeness measures whether the required code and UI exist. Ver
 | Server-side pause, emergency disable, and recovery                  |      1 |      1 | Transition and API tests                                             |
 | Authenticated tenant and URL business scope                         |      1 |      1 | Onboarding route tests                                               |
 | Guided client access provisioning and role assignment               |      1 |      1 | Tenant-scoped temporary access, client-role allowlist, audit, and UI |
-| Successful live Yelp Leads/reporting connection evidence            |      1 |      0 | Yelp Leads returns 401                                               |
+| Successful live Yelp Leads/reporting connection evidence            |      1 |      1 | Production Yelp connection and 60/60 lead synchronization succeeded  |
 
 ### Yelp Campaigns, Cap, MTD And Temporary Campaigns: 10 / 10
 
@@ -181,9 +182,15 @@ Implementation completeness measures whether the required code and UI exist. Ver
 | 2026-08-24 | Agency scope verification | Four focused tenant-access, tenant-switch, cross-tenant route, and authorization inventory files passed 14 tests; assigned client-tenant access scopes every downstream business operation.                                                              |
 | 2026-08-24 | Yelp Leads recheck        | Both configured production business scopes returned HTTP 401 `AUTH_FAILURE` from `GET /v3/businesses/{businessId}/lead_ids?limit=1` using tenant `REPORTING_FUSION` credentials. No business IDs or lead data were logged.                               |
 | 2026-08-24 | Client access onboarding  | Guided onboarding provisions tenant-scoped users with temporary credentials and client-only role selection; creation and role routes passed 16 focused tests, and desktop/mobile visual QA found no overflow.                                            |
+| 2026-08-25 | Yelp Leads authentication | Production business-scoped authentication succeeded with the current tenant credential; no credentials or lead content were logged.                                                                                                                      |
+| 2026-08-25 | Live lead reconciliation  | Production reconciliation processed 60 leads across three pages: 60 updated, zero failed, and zero access failures.                                                                                                                                      |
+| 2026-08-25 | Webhook recovery          | A real queued Yelp webhook was claimed and completed after the operational-metric overflow fix; worker and follow-up jobs completed successfully.                                                                                                        |
+| 2026-08-25 | Metric overflow fix       | Operational metric values were migrated from integer to bigint; 96 test files / 379 tests, typecheck, lint, format, and production build passed.                                                                                                         |
+| 2026-08-25 | Exact-SHA CI              | GitHub Production Readiness run `32857657768` passed fresh and upgrade migrations, format, 379 tests, typecheck, lint, and production build for commit `072a8a3`.                                                                                        |
+| 2026-08-25 | Production deploy         | Vercel production deployment for `072a8a3` succeeded; migration `20260825141000_operational_metric_bigint` is applied and post-deploy reconciliation run `32857880565` succeeded.                                                                        |
 
 ## Current Blocker
 
-Replace or reauthorize the enabled tenant `REPORTING_FUSION` bearer credential with a Yelp credential that is valid for Leads API v3, then rerun the business-scoped Leads check. A `401` indicates rejected authentication; if the replacement returns `403`, Yelp must grant the application/business Leads API permission.
+Yelp authentication, production deployment, migrations, lead synchronization, and queued-webhook processing are now live-verified. The remaining release gate is one controlled test lead that can safely receive a Claude-generated reply through the complete policy, review/auto-send, Yelp delivery, audit, and usage-accounting path.
 
-No release exception is approved. Until the live gate passes, the product remains **Not Ready** regardless of local test coverage.
+Until that provider-backed reply is delivered exactly once and its audit/usage records are verified, the product remains **Controlled Pilot Only** rather than fully ready for unrestricted external-client onboarding.
