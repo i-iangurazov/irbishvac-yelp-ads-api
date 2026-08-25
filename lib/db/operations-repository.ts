@@ -131,6 +131,14 @@ type WebhookAttentionRow = {
   syncErrorCount: bigint;
 };
 
+type RecentSyncRunSummaryRow = {
+  id: string;
+  type: string;
+  status: string;
+  startedAt: Date;
+  syncErrorCount: bigint;
+};
+
 function toCount(value: bigint | null | undefined) {
   return Number(value ?? 0n);
 }
@@ -421,6 +429,34 @@ export async function listRecentSyncRuns(
     orderBy: [{ startedAt: "desc" }, { createdAt: "desc" }],
     take,
   });
+}
+
+export async function listRecentSyncRunSummaries(tenantId: string, take = 10) {
+  const rows = await prisma.$queryRaw<RecentSyncRunSummaryRow[]>(Prisma.sql`
+    SELECT
+      run."id",
+      run."type"::text AS "type",
+      run."status"::text AS "status",
+      run."startedAt",
+      COALESCE(error_count."count", 0) AS "syncErrorCount"
+    FROM "SyncRun" run
+    LEFT JOIN LATERAL (
+      SELECT COUNT(*) AS "count"
+      FROM "SyncError" sync_error
+      WHERE sync_error."syncRunId" = run."id"
+    ) error_count ON TRUE
+    WHERE run."tenantId" = ${tenantId}
+    ORDER BY run."startedAt" DESC, run."createdAt" DESC
+    LIMIT ${take}
+  `);
+
+  return rows.map((row) => ({
+    id: row.id,
+    type: row.type as SyncRunType,
+    status: row.status as SyncRunStatus,
+    startedAt: row.startedAt,
+    _count: { errors: toCount(row.syncErrorCount) },
+  }));
 }
 
 export async function countSyncErrors(tenantId: string, types?: SyncRunType[]) {

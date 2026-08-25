@@ -6,7 +6,10 @@ const prismaMock = vi.hoisted(() => ({
 
 vi.mock("@/lib/db/prisma", () => ({ prisma: prismaMock }));
 
-import { getWebhookReconcileDrilldown } from "@/lib/db/operations-repository";
+import {
+  getWebhookReconcileDrilldown,
+  listRecentSyncRunSummaries,
+} from "@/lib/db/operations-repository";
 
 describe("operations repository", () => {
   beforeEach(() => {
@@ -108,5 +111,30 @@ describe("operations repository", () => {
       }),
     ]);
     expect(result.recentEvents).toEqual([]);
+  });
+
+  it("maps compact sync summaries with error counts", async () => {
+    const startedAt = new Date("2026-08-25T11:35:00.000Z");
+    prismaMock.$queryRaw.mockResolvedValueOnce([
+      {
+        id: "sync-1",
+        type: "YELP_LEADS_WEBHOOK",
+        status: "FAILED",
+        startedAt,
+        syncErrorCount: 4n,
+      },
+    ]);
+
+    const result = await listRecentSyncRunSummaries("tenant-1", 10);
+
+    expect(result).toEqual([
+      {
+        id: "sync-1",
+        type: "YELP_LEADS_WEBHOOK",
+        status: "FAILED",
+        startedAt,
+        _count: { errors: 4 },
+      },
+    ]);
   });
 });

@@ -12,6 +12,7 @@ import {
   getOperationsCounts,
   listRecentLocations,
   listRecentServiceCategories,
+  listRecentSyncRunSummaries,
   listRecentSyncRuns,
   listRecentWebhookEvents,
 } from "@/lib/db/operations-repository";
@@ -212,7 +213,7 @@ export async function getIntegrationsOverview(tenantId: string) {
 
 export async function getAuditSyncOverview(tenantId: string) {
   return {
-    recentSyncRuns: await listRecentSyncRuns(tenantId, 10),
+    recentSyncRuns: await listRecentSyncRunSummaries(tenantId, 10),
   };
 }
 

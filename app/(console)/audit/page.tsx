@@ -25,7 +25,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { getAuditLog } from "@/features/audit/service";
+import { getAuditLogSummary } from "@/features/audit/service";
 import type { OperatorIssueFiltersInput } from "@/features/issues/schemas";
 import { getOperatorQueue } from "@/features/issues/service";
 import { getOperationalPilotOverview } from "@/features/operations/observability-service";
@@ -159,7 +159,7 @@ export default async function AuditPage({
     issueQueue,
     pilotOverview,
   ] = await Promise.all([
-    getAuditLog(user.tenantId, { take: 50 }),
+    getAuditLogSummary(user.tenantId, 50),
     getAuditSyncOverview(user.tenantId),
     getAuditWebhookOverview(user.tenantId),
     getAuditWorkerJobOverview(user.tenantId),

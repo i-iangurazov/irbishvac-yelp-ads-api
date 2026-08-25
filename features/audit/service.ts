@@ -2,7 +2,11 @@ import "server-only";
 
 import type { AuditStatus, Prisma } from "@prisma/client";
 
-import { createAuditEvent, listAuditEvents } from "@/lib/db/audit-repository";
+import {
+  createAuditEvent,
+  listAuditEvents,
+  listAuditEventSummaries,
+} from "@/lib/db/audit-repository";
 import { toJsonValue } from "@/lib/db/json";
 import { diffObjects } from "@/lib/utils/diff";
 
@@ -34,17 +38,28 @@ export async function recordAuditEvent(params: {
     status: params.status,
     correlationId: params.correlationId ?? undefined,
     upstreamReference: params.upstreamReference ?? undefined,
-    requestSummaryJson: params.requestSummary ? toJsonValue(params.requestSummary) : undefined,
+    requestSummaryJson: params.requestSummary
+      ? toJsonValue(params.requestSummary)
+      : undefined,
     responseSummaryJson: toJsonValue({
       summary: params.responseSummary,
-      diff
+      diff,
     }),
     beforeJson: params.before ? toJsonValue(params.before) : undefined,
     afterJson: params.after ? toJsonValue(params.after) : undefined,
-    rawPayloadSummaryJson: params.rawPayloadSummary ? toJsonValue(params.rawPayloadSummary) : undefined
+    rawPayloadSummaryJson: params.rawPayloadSummary
+      ? toJsonValue(params.rawPayloadSummary)
+      : undefined,
   });
 }
 
-export async function getAuditLog(tenantId: string, filters?: Parameters<typeof listAuditEvents>[1]) {
+export async function getAuditLog(
+  tenantId: string,
+  filters?: Parameters<typeof listAuditEvents>[1],
+) {
   return listAuditEvents(tenantId, filters);
+}
+
+export async function getAuditLogSummary(tenantId: string, take = 50) {
+  return listAuditEventSummaries(tenantId, take);
 }
