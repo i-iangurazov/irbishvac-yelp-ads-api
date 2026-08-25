@@ -41,7 +41,9 @@ export async function claimProviderRequestBudget(params: {
 
   const limit = hourlyProviderBudgets[params.provider];
 
-  if (total.totalValue > limit) {
+  const used = Number(total.totalValue);
+
+  if (used > limit) {
     await incrementOperationalMetricCounter({
       tenantId: params.tenantId,
       metricKey: "provider.rate_budget.rejected",
@@ -60,7 +62,7 @@ export async function claimProviderRequestBudget(params: {
   return {
     provider: params.provider,
     operation: params.operation,
-    used: total.totalValue,
+    used,
     limit,
   };
 }

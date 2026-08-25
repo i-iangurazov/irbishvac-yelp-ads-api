@@ -112,7 +112,7 @@ function sumMetric(
   dimensions?: MetricDimensions,
 ) {
   return filterRows(rows, metricKey, since, dimensions).reduce(
-    (total, row) => total + row.totalValue,
+    (total, row) => total + Number(row.totalValue),
     0,
   );
 }
@@ -124,7 +124,10 @@ function averageMetric(
   dimensions?: MetricDimensions,
 ) {
   const relevant = filterRows(rows, metricKey, since, dimensions);
-  const totalValue = relevant.reduce((total, row) => total + row.totalValue, 0);
+  const totalValue = relevant.reduce(
+    (total, row) => total + Number(row.totalValue),
+    0,
+  );
   const sampleCount = relevant.reduce(
     (total, row) => total + row.sampleCount,
     0,
@@ -143,7 +146,7 @@ function latestGauge(
     (left, right) => right.bucketStart.getTime() - left.bucketStart.getTime(),
   );
   const latest = relevant[0] ?? null;
-  return latest?.lastValue ?? latest?.totalValue ?? 0;
+  return Number(latest?.lastValue ?? latest?.totalValue ?? 0);
 }
 
 function percentage(numerator: number, denominator: number) {

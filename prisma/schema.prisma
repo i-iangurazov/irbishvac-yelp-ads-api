@@ -1363,9 +1363,9 @@ model OperationalMetricRollup {
   bucketMinutes Int                  @default(60)
   dimensionKey String                @default("all")
   dimensionsJson Json?
-  totalValue   Int                   @default(0)
+  totalValue   BigInt                @default(0)
   sampleCount  Int                   @default(0)
-  lastValue    Int?
+  lastValue    BigInt?
   createdAt    DateTime              @default(now())
   updatedAt    DateTime              @updatedAt
   tenant       Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
