@@ -220,6 +220,7 @@ export async function saveCredentialSet(
     const nextOAuth = {
       ...asRecord(nextMetadata.oauth),
     };
+    const manualAccessToken = data.secret?.trim();
 
     if (oauthClientSecret) {
       nextOAuth.clientSecretEncrypted = encryptSecret(oauthClientSecret);
@@ -227,6 +228,16 @@ export async function saveCredentialSet(
 
     if (oauthRefreshToken) {
       nextOAuth.refreshTokenEncrypted = encryptSecret(oauthRefreshToken);
+    }
+
+    // An access token and refresh token are one OAuth token family. Reusing a
+    // previously saved refresh token with a newly pasted access token can make
+    // a valid access token fail before it is ever tested.
+    if (manualAccessToken && !oauthRefreshToken) {
+      delete nextOAuth.refreshTokenEncrypted;
+      delete nextOAuth.refreshTokenExpiresAt;
+      delete nextOAuth.accessTokenExpiresAt;
+      delete nextOAuth.lastRefreshedAt;
     }
 
     if (
@@ -518,11 +529,11 @@ async function getConnectionTester(
       return new YelpAdsClient(credential);
     case "REPORTING_FUSION": {
       const businesses = await listLeadBusinessOptions(tenantId);
-      const business = businesses.find((entry) =>
+      const businessesWithYelpIds = businesses.filter((entry) =>
         Boolean(entry.encryptedYelpBusinessId),
       );
 
-      if (!business?.encryptedYelpBusinessId) {
+      if (businessesWithYelpIds.length === 0) {
         return new YelpReportingClient(credential);
       }
 
@@ -531,11 +542,41 @@ async function getConnectionTester(
       const leadsClient = new YelpLeadsClient(leadsCredential);
 
       return {
-        testConnection: () =>
-          leadsClient.getBusinessLeadIds(business.encryptedYelpBusinessId!, {
-            limit: 1,
-            offset: 0,
-          }),
+        testConnection: async () => {
+          let lastBusinessAccessError: unknown;
+
+          for (const business of businessesWithYelpIds) {
+            try {
+              return await leadsClient.getBusinessLeadIds(
+                business.encryptedYelpBusinessId,
+                {
+                  limit: 1,
+                  offset: 0,
+                },
+              );
+            } catch (error) {
+              const normalized = normalizeUnknownError(error);
+
+              if (
+                normalized.code === "MISSING_ACCESS" ||
+                normalized.code === "NOT_FOUND" ||
+                normalized.code === "VALIDATION_ERROR"
+              ) {
+                lastBusinessAccessError = error;
+                continue;
+              }
+
+              throw error;
+            }
+          }
+
+          throw (
+            lastBusinessAccessError ??
+            new YelpValidationError(
+              "No saved Yelp business can be accessed with this OAuth token.",
+            )
+          );
+        },
       };
     }
     case "BUSINESS_MATCH":
