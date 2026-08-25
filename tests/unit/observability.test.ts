@@ -5,13 +5,9 @@ const recordOperationalMetricDistribution = vi.fn();
 const setOperationalMetricGauge = vi.fn();
 const listOperationalMetricRollups = vi.fn();
 const getOperatorIssueSummaryCounts = vi.fn();
-const listOperatorIssues = vi.fn();
+const getOpenAutoresponderIssueCountsByBusiness = vi.fn();
 const getSystemSetting = vi.fn();
-const listLeadAutomationBusinessOverrides = vi.fn();
-const listLeadAutomationOptions = vi.fn();
-const listLeadAutomationRules = vi.fn();
-const listLeadAutomationTemplates = vi.fn();
-const getLeadAutomationBusinessAttemptHealth = vi.fn();
+const getLeadAutomationPilotState = vi.fn();
 
 vi.mock("@/lib/db/metrics-repository", () => ({
   incrementOperationalMetricCounter,
@@ -22,7 +18,7 @@ vi.mock("@/lib/db/metrics-repository", () => ({
 
 vi.mock("@/lib/db/issues-repository", () => ({
   getOperatorIssueSummaryCounts,
-  listOperatorIssues,
+  getOpenAutoresponderIssueCountsByBusiness,
 }));
 
 vi.mock("@/lib/db/settings-repository", () => ({
@@ -30,11 +26,7 @@ vi.mock("@/lib/db/settings-repository", () => ({
 }));
 
 vi.mock("@/lib/db/autoresponder-repository", () => ({
-  listLeadAutomationBusinessOverrides,
-  listLeadAutomationOptions,
-  listLeadAutomationRules,
-  listLeadAutomationTemplates,
-  getLeadAutomationBusinessAttemptHealth,
+  getLeadAutomationPilotState,
 }));
 
 describe("observability service", () => {
@@ -50,7 +42,7 @@ describe("observability service", () => {
       unmappedLeads: 0,
       staleLeads: 0,
     });
-    listOperatorIssues.mockResolvedValue([]);
+    getOpenAutoresponderIssueCountsByBusiness.mockResolvedValue([]);
     getSystemSetting.mockResolvedValue({
       isEnabled: true,
       scopeMode: "SELECTED_BUSINESSES",
@@ -60,31 +52,28 @@ describe("observability service", () => {
       conversationGlobalPauseEnabled: false,
       conversationMode: "REVIEW_ONLY",
     });
-    listLeadAutomationBusinessOverrides.mockResolvedValue([]);
-    listLeadAutomationOptions.mockResolvedValue({
+    getLeadAutomationPilotState.mockResolvedValue({
       businesses: [
         {
           id: "business_1",
           name: "Northwind HVAC",
         },
       ],
-    });
-    listLeadAutomationRules.mockResolvedValue([
-      {
-        id: "rule_1",
-        isEnabled: true,
-        cadence: "INITIAL",
-        businessId: null,
-        templateId: "template_1",
-      },
-    ]);
-    listLeadAutomationTemplates.mockResolvedValue([
-      {
-        id: "template_1",
-        isEnabled: true,
-      },
-    ]);
-    getLeadAutomationBusinessAttemptHealth.mockResolvedValue({
+      overrides: [],
+      rules: [
+        {
+          isEnabled: true,
+          cadence: "INITIAL",
+          businessId: null,
+          templateId: "template_1",
+        },
+      ],
+      templates: [
+        {
+          id: "template_1",
+          isEnabled: true,
+        },
+      ],
       sentCounts: [
         {
           businessId: "business_1",

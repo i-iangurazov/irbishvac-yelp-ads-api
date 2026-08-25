@@ -12,7 +12,7 @@ import type {
   LeadConversationStopReason,
   Prisma,
   RecordSourceSystem,
-  SyncRunType
+  SyncRunType,
 } from "@prisma/client";
 
 import { prisma } from "@/lib/db/prisma";
@@ -26,17 +26,17 @@ export async function listLeadAutomationTemplates(tenantId: string) {
         select: {
           id: true,
           name: true,
-          encryptedYelpBusinessId: true
-        }
+          encryptedYelpBusinessId: true,
+        },
       },
       _count: {
         select: {
           rules: true,
-          attempts: true
-        }
-      }
+          attempts: true,
+        },
+      },
     },
-    orderBy: [{ isEnabled: "desc" }, { name: "asc" }, { createdAt: "asc" }]
+    orderBy: [{ isEnabled: "desc" }, { name: "asc" }, { createdAt: "asc" }],
   });
 }
 
@@ -44,64 +44,67 @@ export async function listEnabledLeadAutomationTemplates(tenantId: string) {
   return prisma.leadAutomationTemplate.findMany({
     where: {
       tenantId,
-      isEnabled: true
+      isEnabled: true,
     },
     include: {
       business: {
         select: {
           id: true,
           name: true,
-          encryptedYelpBusinessId: true
-        }
-      }
+          encryptedYelpBusinessId: true,
+        },
+      },
     },
-    orderBy: [{ businessId: "asc" }, { name: "asc" }, { createdAt: "asc" }]
+    orderBy: [{ businessId: "asc" }, { name: "asc" }, { createdAt: "asc" }],
   });
 }
 
-export async function getLeadAutomationTemplateById(tenantId: string, templateId: string) {
+export async function getLeadAutomationTemplateById(
+  tenantId: string,
+  templateId: string,
+) {
   return prisma.leadAutomationTemplate.findFirst({
     where: {
       tenantId,
-      id: templateId
+      id: templateId,
     },
     include: {
       business: {
         select: {
           id: true,
           name: true,
-          encryptedYelpBusinessId: true
-        }
-      }
-    }
+          encryptedYelpBusinessId: true,
+        },
+      },
+    },
   });
 }
 
 export async function createLeadAutomationTemplate(
   tenantId: string,
-  data: Omit<Prisma.LeadAutomationTemplateUncheckedCreateInput, "tenantId">
+  data: Omit<Prisma.LeadAutomationTemplateUncheckedCreateInput, "tenantId">,
 ) {
   return prisma.leadAutomationTemplate.create({
     data: {
       tenantId,
-      ...data
-    }
+      ...data,
+    },
   });
 }
 
 export async function updateLeadAutomationTemplate(
   templateId: string,
-  data: Prisma.LeadAutomationTemplateUncheckedUpdateInput
+  data: Prisma.LeadAutomationTemplateUncheckedUpdateInput,
 ) {
   return prisma.leadAutomationTemplate.update({
     where: { id: templateId },
-    data
+    data,
   });
 }
 
 export async function deleteLeadAutomationTemplate(templateId: string) {
   return prisma.leadAutomationTemplate.delete({
-    where: { id: templateId }
+    where: { id: templateId },
   });
 }
 
@@ -114,44 +117,47 @@ export async function listLeadAutomationRules(tenantId: string) {
         select: {
           id: true,
           name: true,
-          encryptedYelpBusinessId: true
-        }
+          encryptedYelpBusinessId: true,
+        },
       },
       location: {
         select: {
           id: true,
-          name: true
-        }
+          name: true,
+        },
       },
       serviceCategory: {
         select: {
           id: true,
-          name: true
-        }
+          name: true,
+        },
       },
       _count: {
         select: {
-          attempts: true
-        }
-      }
+          attempts: true,
+        },
+      },
     },
-    orderBy: [{ isEnabled: "desc" }, { priority: "asc" }, { createdAt: "asc" }]
+    orderBy: [{ isEnabled: "desc" }, { priority: "asc" }, { createdAt: "asc" }],
   });
 }
 
-export async function getLeadAutomationRuleById(tenantId: string, ruleId: string) {
+export async function getLeadAutomationRuleById(
+  tenantId: string,
+  ruleId: string,
+) {
   return prisma.leadAutomationRule.findFirst({
     where: {
       tenantId,
-      id: ruleId
+      id: ruleId,
     },
     include: {
       business: {
         select: {
           id: true,
           name: true,
-          encryptedYelpBusinessId: true
-        }
+          encryptedYelpBusinessId: true,
+        },
       },
       template: {
         include: {
@@ -159,40 +165,40 @@ export async function getLeadAutomationRuleById(tenantId: string, ruleId: string
             select: {
               id: true,
               name: true,
-              encryptedYelpBusinessId: true
-            }
-          }
-        }
-      }
-    }
+              encryptedYelpBusinessId: true,
+            },
+          },
+        },
+      },
+    },
   });
 }
 
 export async function createLeadAutomationRule(
   tenantId: string,
-  data: Omit<Prisma.LeadAutomationRuleUncheckedCreateInput, "tenantId">
+  data: Omit<Prisma.LeadAutomationRuleUncheckedCreateInput, "tenantId">,
 ) {
   return prisma.leadAutomationRule.create({
     data: {
       tenantId,
-      ...data
-    }
+      ...data,
+    },
   });
 }
 
 export async function updateLeadAutomationRule(
   ruleId: string,
-  data: Prisma.LeadAutomationRuleUncheckedUpdateInput
+  data: Prisma.LeadAutomationRuleUncheckedUpdateInput,
 ) {
   return prisma.leadAutomationRule.update({
     where: { id: ruleId },
-    data
+    data,
   });
 }
 
 export async function deleteLeadAutomationRule(ruleId: string) {
   return prisma.leadAutomationRule.delete({
-    where: { id: ruleId }
+    where: { id: ruleId },
   });
 }
 
@@ -204,43 +210,46 @@ export async function listLeadAutomationOptions(tenantId: string) {
         id: true,
         name: true,
         encryptedYelpBusinessId: true,
-        locationId: true
+        locationId: true,
       },
-      orderBy: [{ name: "asc" }]
+      orderBy: [{ name: "asc" }],
     }),
     prisma.location.findMany({
       where: {
         tenantId,
-        isActive: true
+        isActive: true,
       },
       select: {
         id: true,
-        name: true
+        name: true,
       },
-      orderBy: [{ name: "asc" }]
+      orderBy: [{ name: "asc" }],
     }),
     prisma.serviceCategory.findMany({
       where: { tenantId },
       select: {
         id: true,
-        name: true
+        name: true,
       },
-      orderBy: [{ name: "asc" }]
-    })
+      orderBy: [{ name: "asc" }],
+    }),
   ]);
 
   return {
     businesses,
     locations,
-    serviceCategories
+    serviceCategories,
   };
 }
 
-export async function getLeadAutomationCandidate(tenantId: string, leadId: string) {
+export async function getLeadAutomationCandidate(
+  tenantId: string,
+  leadId: string,
+) {
   return prisma.yelpLead.findFirstOrThrow({
     where: {
       tenantId,
-      id: leadId
+      id: leadId,
     },
     include: {
       business: {
@@ -251,22 +260,22 @@ export async function getLeadAutomationCandidate(tenantId: string, leadId: strin
           location: {
             select: {
               id: true,
-              name: true
-            }
-          }
-        }
+              name: true,
+            },
+          },
+        },
       },
       location: {
         select: {
           id: true,
-          name: true
-        }
+          name: true,
+        },
       },
       serviceCategory: {
         select: {
           id: true,
-          name: true
-        }
+          name: true,
+        },
       },
       events: {
         select: {
@@ -277,9 +286,9 @@ export async function getLeadAutomationCandidate(tenantId: string, leadId: strin
           actorType: true,
           occurredAt: true,
           isReply: true,
-          payloadJson: true
+          payloadJson: true,
         },
-        orderBy: [{ occurredAt: "asc" }, { createdAt: "asc" }]
+        orderBy: [{ occurredAt: "asc" }, { createdAt: "asc" }],
       },
       conversationActions: {
         select: {
@@ -288,9 +297,9 @@ export async function getLeadAutomationCandidate(tenantId: string, leadId: strin
           initiator: true,
           status: true,
           createdAt: true,
-          completedAt: true
+          completedAt: true,
         },
-        orderBy: [{ createdAt: "asc" }]
+        orderBy: [{ createdAt: "asc" }],
       },
       conversationAutomationState: true,
       conversationAutomationTurns: {
@@ -300,10 +309,10 @@ export async function getLeadAutomationCandidate(tenantId: string, leadId: strin
           template: {
             select: {
               id: true,
-              name: true
-            }
-          }
-        }
+              name: true,
+            },
+          },
+        },
       },
       automationAttempts: {
         include: {
@@ -312,22 +321,22 @@ export async function getLeadAutomationCandidate(tenantId: string, leadId: strin
               location: {
                 select: {
                   id: true,
-                  name: true
-                }
+                  name: true,
+                },
               },
               serviceCategory: {
                 select: {
                   id: true,
-                  name: true
-                }
-              }
-            }
+                  name: true,
+                },
+              },
+            },
           },
-          template: true
+          template: true,
         },
-        orderBy: [{ triggeredAt: "desc" }, { createdAt: "desc" }]
-      }
-    }
+        orderBy: [{ triggeredAt: "desc" }, { createdAt: "desc" }],
+      },
+    },
   });
 }
 
@@ -337,8 +346,8 @@ export async function listEnabledLeadAutomationRules(tenantId: string) {
       tenantId,
       isEnabled: true,
       template: {
-        isEnabled: true
-      }
+        isEnabled: true,
+      },
     },
     include: {
       template: true,
@@ -346,23 +355,23 @@ export async function listEnabledLeadAutomationRules(tenantId: string) {
         select: {
           id: true,
           name: true,
-          encryptedYelpBusinessId: true
-        }
+          encryptedYelpBusinessId: true,
+        },
       },
       location: {
         select: {
           id: true,
-          name: true
-        }
+          name: true,
+        },
       },
       serviceCategory: {
         select: {
           id: true,
-          name: true
-        }
-      }
+          name: true,
+        },
+      },
     },
-    orderBy: [{ priority: "asc" }, { createdAt: "asc" }]
+    orderBy: [{ priority: "asc" }, { createdAt: "asc" }],
   });
 }
 
@@ -374,99 +383,114 @@ export async function listLeadAutomationBusinessOverrides(tenantId: string) {
         select: {
           id: true,
           name: true,
-          encryptedYelpBusinessId: true
-        }
-      }
+          encryptedYelpBusinessId: true,
+        },
+      },
     },
-    orderBy: [{ business: { name: "asc" } }]
+    orderBy: [{ business: { name: "asc" } }],
   });
 }
 
-export async function getLeadAutomationBusinessOverrideByBusinessId(tenantId: string, businessId: string) {
+export async function getLeadAutomationBusinessOverrideByBusinessId(
+  tenantId: string,
+  businessId: string,
+) {
   return prisma.leadAutomationBusinessOverride.findUnique({
     where: {
       tenantId_businessId: {
         tenantId,
-        businessId
-      }
+        businessId,
+      },
     },
     include: {
       business: {
         select: {
           id: true,
           name: true,
-          encryptedYelpBusinessId: true
-        }
-      }
-    }
+          encryptedYelpBusinessId: true,
+        },
+      },
+    },
   });
 }
 
 export async function upsertLeadAutomationBusinessOverride(
   tenantId: string,
   businessId: string,
-  data: Omit<Prisma.LeadAutomationBusinessOverrideUncheckedCreateInput, "tenantId" | "businessId">
+  data: Omit<
+    Prisma.LeadAutomationBusinessOverrideUncheckedCreateInput,
+    "tenantId" | "businessId"
+  >,
 ) {
   return prisma.leadAutomationBusinessOverride.upsert({
     where: {
       tenantId_businessId: {
         tenantId,
-        businessId
-      }
+        businessId,
+      },
     },
     update: data,
     create: {
       tenantId,
       businessId,
-      ...data
+      ...data,
     },
     include: {
       business: {
         select: {
           id: true,
           name: true,
-          encryptedYelpBusinessId: true
-        }
-      }
-    }
+          encryptedYelpBusinessId: true,
+        },
+      },
+    },
   });
 }
 
-export async function deleteLeadAutomationBusinessOverride(tenantId: string, businessId: string) {
+export async function deleteLeadAutomationBusinessOverride(
+  tenantId: string,
+  businessId: string,
+) {
   return prisma.leadAutomationBusinessOverride.delete({
     where: {
       tenantId_businessId: {
         tenantId,
-        businessId
-      }
-    }
+        businessId,
+      },
+    },
   });
 }
 
-export async function getLeadConversationAutomationState(tenantId: string, leadId: string) {
+export async function getLeadConversationAutomationState(
+  tenantId: string,
+  leadId: string,
+) {
   return prisma.leadConversationAutomationState.findFirst({
     where: {
       tenantId,
-      leadId
-    }
+      leadId,
+    },
   });
 }
 
 export async function upsertLeadConversationAutomationState(
   tenantId: string,
   leadId: string,
-  data: Omit<Prisma.LeadConversationAutomationStateUncheckedCreateInput, "tenantId" | "leadId">
+  data: Omit<
+    Prisma.LeadConversationAutomationStateUncheckedCreateInput,
+    "tenantId" | "leadId"
+  >,
 ) {
   return prisma.leadConversationAutomationState.upsert({
     where: {
-      leadId
+      leadId,
     },
     update: data,
     create: {
       tenantId,
       leadId,
-      ...data
-    }
+      ...data,
+    },
   });
 }
 
@@ -506,62 +530,74 @@ export async function createLeadConversationAutomationTurn(data: {
       renderedSubject: data.renderedSubject ?? null,
       renderedBody: data.renderedBody ?? null,
       errorSummary: data.errorSummary ?? null,
-      metadataJson: data.metadataJson === undefined ? undefined : toJsonValue(data.metadataJson),
-      completedAt: data.completedAt ?? null
-    }
+      metadataJson:
+        data.metadataJson === undefined
+          ? undefined
+          : toJsonValue(data.metadataJson),
+      completedAt: data.completedAt ?? null,
+    },
   });
 }
 
-export async function getLeadConversationAutomationTurnBySourceEventKey(tenantId: string, sourceEventKey: string) {
+export async function getLeadConversationAutomationTurnBySourceEventKey(
+  tenantId: string,
+  sourceEventKey: string,
+) {
   return prisma.leadConversationAutomationTurn.findUnique({
     where: {
       tenantId_sourceEventKey: {
         tenantId,
-        sourceEventKey
-      }
+        sourceEventKey,
+      },
     },
     include: {
       template: {
         select: {
           id: true,
-          name: true
-        }
-      }
-    }
+          name: true,
+        },
+      },
+    },
   });
 }
 
-export async function listLeadConversationAutomationTurnMetrics(tenantId: string, since: Date) {
+export async function listLeadConversationAutomationTurnMetrics(
+  tenantId: string,
+  since: Date,
+) {
   return prisma.leadConversationAutomationTurn.findMany({
     where: {
       tenantId,
       createdAt: {
-        gte: since
-      }
+        gte: since,
+      },
     },
     select: {
       leadId: true,
       decision: true,
       stopReason: true,
-      createdAt: true
+      createdAt: true,
     },
-    orderBy: [{ createdAt: "desc" }]
+    orderBy: [{ createdAt: "desc" }],
   });
 }
 
-export async function countLeadConversationOperatorTakeovers(tenantId: string, since: Date) {
+export async function countLeadConversationOperatorTakeovers(
+  tenantId: string,
+  since: Date,
+) {
   return prisma.leadConversationAction.count({
     where: {
       tenantId,
       initiator: "OPERATOR",
       status: "SENT",
       actionType: {
-        in: ["SEND_MESSAGE", "MARK_REPLIED"]
+        in: ["SEND_MESSAGE", "MARK_REPLIED"],
       },
       createdAt: {
-        gte: since
-      }
-    }
+        gte: since,
+      },
+    },
   });
 }
 
@@ -570,17 +606,17 @@ export async function listLeadConversationReviewTurns(
   params: {
     since: Date;
     take?: number;
-  }
+  },
 ) {
   return prisma.leadConversationAutomationTurn.findMany({
     where: {
       tenantId,
       createdAt: {
-        gte: params.since
+        gte: params.since,
       },
       decision: {
-        in: ["REVIEW_ONLY", "HUMAN_HANDOFF"]
-      }
+        in: ["REVIEW_ONLY", "HUMAN_HANDOFF"],
+      },
     },
     select: {
       id: true,
@@ -601,31 +637,31 @@ export async function listLeadConversationReviewTurns(
           business: {
             select: {
               id: true,
-              name: true
-            }
+              name: true,
+            },
           },
           conversationActions: {
             where: {
               initiator: "OPERATOR",
               status: "SENT",
               actionType: {
-                in: ["SEND_MESSAGE", "MARK_REPLIED"]
-              }
+                in: ["SEND_MESSAGE", "MARK_REPLIED"],
+              },
             },
             select: {
               id: true,
               actionType: true,
               createdAt: true,
-              completedAt: true
+              completedAt: true,
             },
             orderBy: [{ createdAt: "desc" }],
-            take: 8
-          }
-        }
-      }
+            take: 8,
+          },
+        },
+      },
     },
     orderBy: [{ createdAt: "desc" }],
-    ...(params.take ? { take: params.take } : {})
+    ...(params.take ? { take: params.take } : {}),
   });
 }
 
@@ -641,7 +677,7 @@ export async function updateLeadConversationAutomationTurn(
     errorSummary?: string | null;
     metadataJson?: unknown;
     completedAt?: Date | null;
-  }
+  },
 ) {
   return prisma.leadConversationAutomationTurn.update({
     where: { id: turnId },
@@ -650,12 +686,22 @@ export async function updateLeadConversationAutomationTurn(
       ...(data.confidence !== undefined ? { confidence: data.confidence } : {}),
       ...(data.stopReason !== undefined ? { stopReason: data.stopReason } : {}),
       ...(data.templateId !== undefined ? { templateId: data.templateId } : {}),
-      ...(data.renderedSubject !== undefined ? { renderedSubject: data.renderedSubject } : {}),
-      ...(data.renderedBody !== undefined ? { renderedBody: data.renderedBody } : {}),
-      ...(data.errorSummary !== undefined ? { errorSummary: data.errorSummary } : {}),
-      ...(data.metadataJson !== undefined ? { metadataJson: toJsonValue(data.metadataJson) } : {}),
-      ...(data.completedAt !== undefined ? { completedAt: data.completedAt } : {})
-    }
+      ...(data.renderedSubject !== undefined
+        ? { renderedSubject: data.renderedSubject }
+        : {}),
+      ...(data.renderedBody !== undefined
+        ? { renderedBody: data.renderedBody }
+        : {}),
+      ...(data.errorSummary !== undefined
+        ? { errorSummary: data.errorSummary }
+        : {}),
+      ...(data.metadataJson !== undefined
+        ? { metadataJson: toJsonValue(data.metadataJson) }
+        : {}),
+      ...(data.completedAt !== undefined
+        ? { completedAt: data.completedAt }
+        : {}),
+    },
   });
 }
 
@@ -704,13 +750,15 @@ export async function createLeadAutomationAttempt(data: {
       providerMessageId: data.providerMessageId ?? null,
       providerStatus: data.providerStatus ?? null,
       providerMetadataJson:
-        data.providerMetadataJson === undefined ? undefined : toJsonValue(data.providerMetadataJson),
+        data.providerMetadataJson === undefined
+          ? undefined
+          : toJsonValue(data.providerMetadataJson),
       errorSummary: data.errorSummary ?? null,
       triggeredAt: data.triggeredAt ?? new Date(),
       dueAt: data.dueAt ?? null,
       startedAt: data.startedAt ?? null,
-      completedAt: data.completedAt ?? null
-    }
+      completedAt: data.completedAt ?? null,
+    },
   });
 }
 
@@ -728,15 +776,15 @@ export async function upsertLeadAutomationAttemptByLeadCadence(data: {
     where: {
       leadId_cadence: {
         leadId: data.leadId,
-        cadence: data.cadence
-      }
+        cadence: data.cadence,
+      },
     },
     update: {
       businessId: data.businessId ?? null,
       locationId: data.locationId ?? null,
       serviceCategoryId: data.serviceCategoryId ?? null,
       sourceSystem: data.sourceSystem ?? "INTERNAL",
-      ...(data.dueAt !== undefined ? { dueAt: data.dueAt } : {})
+      ...(data.dueAt !== undefined ? { dueAt: data.dueAt } : {}),
     },
     create: {
       tenantId: data.tenantId,
@@ -746,8 +794,8 @@ export async function upsertLeadAutomationAttemptByLeadCadence(data: {
       serviceCategoryId: data.serviceCategoryId ?? null,
       cadence: data.cadence,
       sourceSystem: data.sourceSystem ?? "INTERNAL",
-      dueAt: data.dueAt ?? null
-    }
+      dueAt: data.dueAt ?? null,
+    },
   });
 }
 
@@ -769,7 +817,7 @@ export async function updateLeadAutomationAttempt(
     dueAt?: Date | null;
     startedAt?: Date | null;
     completedAt?: Date | null;
-  }
+  },
 ) {
   return prisma.leadAutomationAttempt.update({
     where: { id: attemptId },
@@ -780,68 +828,87 @@ export async function updateLeadAutomationAttempt(
       ...(data.templateId !== undefined ? { templateId: data.templateId } : {}),
       ...(data.channel !== undefined ? { channel: data.channel } : {}),
       ...(data.recipient !== undefined ? { recipient: data.recipient } : {}),
-      ...(data.renderedSubject !== undefined ? { renderedSubject: data.renderedSubject } : {}),
-      ...(data.renderedBody !== undefined ? { renderedBody: data.renderedBody } : {}),
-      ...(data.providerMessageId !== undefined ? { providerMessageId: data.providerMessageId } : {}),
-      ...(data.providerStatus !== undefined ? { providerStatus: data.providerStatus } : {}),
+      ...(data.renderedSubject !== undefined
+        ? { renderedSubject: data.renderedSubject }
+        : {}),
+      ...(data.renderedBody !== undefined
+        ? { renderedBody: data.renderedBody }
+        : {}),
+      ...(data.providerMessageId !== undefined
+        ? { providerMessageId: data.providerMessageId }
+        : {}),
+      ...(data.providerStatus !== undefined
+        ? { providerStatus: data.providerStatus }
+        : {}),
       ...(data.providerMetadataJson !== undefined
         ? { providerMetadataJson: toJsonValue(data.providerMetadataJson) }
         : {}),
-      ...(data.errorSummary !== undefined ? { errorSummary: data.errorSummary } : {}),
+      ...(data.errorSummary !== undefined
+        ? { errorSummary: data.errorSummary }
+        : {}),
       ...(data.dueAt !== undefined ? { dueAt: data.dueAt } : {}),
       ...(data.startedAt !== undefined ? { startedAt: data.startedAt } : {}),
-      ...(data.completedAt !== undefined ? { completedAt: data.completedAt } : {})
-    }
+      ...(data.completedAt !== undefined
+        ? { completedAt: data.completedAt }
+        : {}),
+    },
   });
 }
 
 export async function getLeadAutomationAttemptSummary(tenantId: string) {
   const now = new Date();
-  const [sentCount, failedCount, skippedCount, pendingCount, pendingDueCount, lastSuccessfulAttempt] = await Promise.all([
+  const [
+    sentCount,
+    failedCount,
+    skippedCount,
+    pendingCount,
+    pendingDueCount,
+    lastSuccessfulAttempt,
+  ] = await Promise.all([
     prisma.leadAutomationAttempt.count({
       where: {
         tenantId,
-        status: "SENT"
-      }
+        status: "SENT",
+      },
     }),
     prisma.leadAutomationAttempt.count({
       where: {
         tenantId,
-        status: "FAILED"
-      }
+        status: "FAILED",
+      },
     }),
     prisma.leadAutomationAttempt.count({
       where: {
         tenantId,
-        status: "SKIPPED"
-      }
+        status: "SKIPPED",
+      },
     }),
     prisma.leadAutomationAttempt.count({
       where: {
         tenantId,
-        status: "PENDING"
-      }
+        status: "PENDING",
+      },
     }),
     prisma.leadAutomationAttempt.count({
       where: {
         tenantId,
         status: "PENDING",
         dueAt: {
-          lte: now
-        }
-      }
+          lte: now,
+        },
+      },
     }),
     prisma.leadAutomationAttempt.findFirst({
       where: {
         tenantId,
-        status: "SENT"
+        status: "SENT",
       },
       select: {
         completedAt: true,
-        triggeredAt: true
+        triggeredAt: true,
       },
-      orderBy: [{ completedAt: "desc" }, { triggeredAt: "desc" }]
-    })
+      orderBy: [{ completedAt: "desc" }, { triggeredAt: "desc" }],
+    }),
   ]);
 
   return {
@@ -851,153 +918,211 @@ export async function getLeadAutomationAttemptSummary(tenantId: string) {
     pendingCount,
     pendingDueCount,
     scheduledCount: Math.max(pendingCount - pendingDueCount, 0),
-    lastSuccessfulAt: lastSuccessfulAttempt?.completedAt ?? lastSuccessfulAttempt?.triggeredAt ?? null
+    lastSuccessfulAt:
+      lastSuccessfulAttempt?.completedAt ??
+      lastSuccessfulAttempt?.triggeredAt ??
+      null,
   };
 }
 
 export async function getLeadAutomationBusinessAttemptHealth(tenantId: string) {
   const now = new Date();
-  const [sentCounts, failedCounts, pendingDueCounts, lastSuccessfulAttempts] = await Promise.all([
-    prisma.leadAutomationAttempt.groupBy({
-      by: ["businessId"],
-      where: {
-        tenantId,
-        businessId: {
-          not: null
+  const [sentCounts, failedCounts, pendingDueCounts, lastSuccessfulAttempts] =
+    await Promise.all([
+      prisma.leadAutomationAttempt.groupBy({
+        by: ["businessId"],
+        where: {
+          tenantId,
+          businessId: {
+            not: null,
+          },
+          status: "SENT",
         },
-        status: "SENT"
-      },
-      _count: {
-        _all: true
-      }
-    }),
-    prisma.leadAutomationAttempt.groupBy({
-      by: ["businessId"],
-      where: {
-        tenantId,
-        businessId: {
-          not: null
+        _count: {
+          _all: true,
         },
-        status: "FAILED"
-      },
-      _count: {
-        _all: true
-      }
-    }),
-    prisma.leadAutomationAttempt.groupBy({
-      by: ["businessId"],
-      where: {
-        tenantId,
-        businessId: {
-          not: null
+      }),
+      prisma.leadAutomationAttempt.groupBy({
+        by: ["businessId"],
+        where: {
+          tenantId,
+          businessId: {
+            not: null,
+          },
+          status: "FAILED",
         },
-        status: "PENDING",
-        dueAt: {
-          lte: now
-        }
-      },
-      _count: {
-        _all: true
-      }
-    }),
-    prisma.leadAutomationAttempt.findMany({
-      where: {
-        tenantId,
-        businessId: {
-          not: null
+        _count: {
+          _all: true,
         },
-        status: "SENT"
-      },
-      select: {
-        businessId: true,
-        completedAt: true,
-        triggeredAt: true
-      },
-      orderBy: [{ completedAt: "desc" }, { triggeredAt: "desc" }],
-      distinct: ["businessId"]
-    })
-  ]);
+      }),
+      prisma.leadAutomationAttempt.groupBy({
+        by: ["businessId"],
+        where: {
+          tenantId,
+          businessId: {
+            not: null,
+          },
+          status: "PENDING",
+          dueAt: {
+            lte: now,
+          },
+        },
+        _count: {
+          _all: true,
+        },
+      }),
+      prisma.leadAutomationAttempt.findMany({
+        where: {
+          tenantId,
+          businessId: {
+            not: null,
+          },
+          status: "SENT",
+        },
+        select: {
+          businessId: true,
+          completedAt: true,
+          triggeredAt: true,
+        },
+        orderBy: [{ completedAt: "desc" }, { triggeredAt: "desc" }],
+        distinct: ["businessId"],
+      }),
+    ]);
 
   return {
     sentCounts,
     failedCounts,
     pendingDueCounts,
-    lastSuccessfulAttempts
+    lastSuccessfulAttempts,
   };
 }
 
-const yelpLeadSyncTypes: SyncRunType[] = ["YELP_LEADS_WEBHOOK", "YELP_LEADS_BACKFILL"];
+export async function getLeadAutomationPilotState(tenantId: string) {
+  const [businesses, overrides, templates, rules, sentCounts] =
+    await Promise.all([
+      prisma.business.findMany({
+        where: { tenantId },
+        select: { id: true, name: true },
+        orderBy: [{ name: "asc" }],
+      }),
+      prisma.leadAutomationBusinessOverride.findMany({
+        where: { tenantId },
+        select: {
+          businessId: true,
+          isEnabled: true,
+          conversationAutomationEnabled: true,
+          conversationMode: true,
+          aiModel: true,
+        },
+      }),
+      prisma.leadAutomationTemplate.findMany({
+        where: { tenantId },
+        select: { id: true, isEnabled: true },
+      }),
+      prisma.leadAutomationRule.findMany({
+        where: { tenantId },
+        select: {
+          businessId: true,
+          templateId: true,
+          cadence: true,
+          isEnabled: true,
+        },
+      }),
+      prisma.leadAutomationAttempt.groupBy({
+        by: ["businessId"],
+        where: {
+          tenantId,
+          businessId: { not: null },
+          status: "SENT",
+        },
+        _count: { _all: true },
+      }),
+    ]);
 
-export async function getLeadAutomationBusinessConnectionHealth(tenantId: string) {
+  return { businesses, overrides, templates, rules, sentCounts };
+}
+
+const yelpLeadSyncTypes: SyncRunType[] = [
+  "YELP_LEADS_WEBHOOK",
+  "YELP_LEADS_BACKFILL",
+];
+
+export async function getLeadAutomationBusinessConnectionHealth(
+  tenantId: string,
+) {
   const [
     leadCounts,
     latestLeadActivity,
     latestWebhookActivity,
     latestSuccessfulSyncRuns,
     latestFailedSyncRuns,
-    pendingSyncCounts
+    pendingSyncCounts,
   ] = await Promise.all([
     prisma.yelpLead.groupBy({
       by: ["businessId"],
       where: {
         tenantId,
         businessId: {
-          not: null
-        }
+          not: null,
+        },
       },
       _count: {
-        _all: true
-      }
+        _all: true,
+      },
     }),
     prisma.yelpLead.findMany({
       where: {
         tenantId,
         businessId: {
-          not: null
-        }
+          not: null,
+        },
       },
       select: {
         businessId: true,
         externalLeadId: true,
         latestInteractionAt: true,
         createdAtYelp: true,
-        lastSyncedAt: true
+        lastSyncedAt: true,
       },
-      orderBy: [{ latestInteractionAt: "desc" }, { createdAtYelp: "desc" }, { updatedAt: "desc" }],
-      distinct: ["businessId"]
+      orderBy: [
+        { latestInteractionAt: "desc" },
+        { createdAtYelp: "desc" },
+        { updatedAt: "desc" },
+      ],
+      distinct: ["businessId"],
     }),
     prisma.yelpLead.findMany({
       where: {
         tenantId,
         businessId: {
-          not: null
+          not: null,
         },
         latestWebhookReceivedAt: {
-          not: null
-        }
+          not: null,
+        },
       },
       select: {
         businessId: true,
         externalLeadId: true,
         latestWebhookReceivedAt: true,
         latestWebhookStatus: true,
-        latestWebhookErrorSummary: true
+        latestWebhookErrorSummary: true,
       },
       orderBy: [{ latestWebhookReceivedAt: "desc" }, { updatedAt: "desc" }],
-      distinct: ["businessId"]
+      distinct: ["businessId"],
     }),
     prisma.syncRun.findMany({
       where: {
         tenantId,
         businessId: {
-          not: null
+          not: null,
         },
         type: {
-          in: yelpLeadSyncTypes
+          in: yelpLeadSyncTypes,
         },
         status: {
-          in: ["COMPLETED", "PARTIAL"]
-        }
+          in: ["COMPLETED", "PARTIAL"],
+        },
       },
       select: {
         businessId: true,
@@ -1006,23 +1131,23 @@ export async function getLeadAutomationBusinessConnectionHealth(tenantId: string
         startedAt: true,
         finishedAt: true,
         lastSuccessfulSyncAt: true,
-        errorSummary: true
+        errorSummary: true,
       },
       orderBy: [{ finishedAt: "desc" }, { startedAt: "desc" }],
-      distinct: ["businessId"]
+      distinct: ["businessId"],
     }),
     prisma.syncRun.findMany({
       where: {
         tenantId,
         businessId: {
-          not: null
+          not: null,
         },
         type: {
-          in: yelpLeadSyncTypes
+          in: yelpLeadSyncTypes,
         },
         status: {
-          in: ["FAILED", "PARTIAL"]
-        }
+          in: ["FAILED", "PARTIAL"],
+        },
       },
       select: {
         businessId: true,
@@ -1030,33 +1155,33 @@ export async function getLeadAutomationBusinessConnectionHealth(tenantId: string
         status: true,
         startedAt: true,
         finishedAt: true,
-        errorSummary: true
+        errorSummary: true,
       },
       orderBy: [{ finishedAt: "desc" }, { startedAt: "desc" }],
-      distinct: ["businessId"]
+      distinct: ["businessId"],
     }),
     prisma.syncRun.groupBy({
       by: ["businessId"],
       where: {
         tenantId,
         businessId: {
-          not: null
+          not: null,
         },
         type: {
-          in: yelpLeadSyncTypes
+          in: yelpLeadSyncTypes,
         },
         status: {
-          in: ["QUEUED", "PROCESSING"]
-        }
+          in: ["QUEUED", "PROCESSING"],
+        },
       },
       _count: {
-        _all: true
+        _all: true,
       },
       _min: {
         startedAt: true,
-        updatedAt: true
-      }
-    })
+        updatedAt: true,
+      },
+    }),
   ]);
 
   return {
@@ -1065,55 +1190,58 @@ export async function getLeadAutomationBusinessConnectionHealth(tenantId: string
     latestWebhookActivity,
     latestSuccessfulSyncRuns,
     latestFailedSyncRuns,
-    pendingSyncCounts
+    pendingSyncCounts,
   };
 }
 
-export async function listRecentLeadAutomationAttempts(tenantId: string, take = 10) {
+export async function listRecentLeadAutomationAttempts(
+  tenantId: string,
+  take = 10,
+) {
   return prisma.leadAutomationAttempt.findMany({
     where: { tenantId },
     include: {
       business: {
         select: {
           id: true,
-          name: true
-        }
+          name: true,
+        },
       },
       lead: {
         select: {
           id: true,
           externalLeadId: true,
-          customerName: true
-        }
+          customerName: true,
+        },
       },
       location: {
         select: {
           id: true,
-          name: true
-        }
+          name: true,
+        },
       },
       serviceCategory: {
         select: {
           id: true,
-          name: true
-        }
+          name: true,
+        },
       },
       template: {
         select: {
-        id: true,
-        name: true
-      }
+          id: true,
+          name: true,
+        },
+      },
+      rule: {
+        select: {
+          id: true,
+          name: true,
+          cadence: true,
+        },
+      },
     },
-    rule: {
-      select: {
-        id: true,
-        name: true,
-        cadence: true
-      }
-    }
-  },
     orderBy: [{ triggeredAt: "desc" }, { createdAt: "desc" }],
-    take
+    take,
   });
 }
 
@@ -1122,29 +1250,32 @@ export async function listDueLeadAutomationAttempts(limit: number, now: Date) {
     where: {
       status: "PENDING",
       cadence: {
-        in: ["FOLLOW_UP_24H", "FOLLOW_UP_7D"]
+        in: ["FOLLOW_UP_24H", "FOLLOW_UP_7D"],
       },
       dueAt: {
-        lte: now
+        lte: now,
       },
-      OR: [{ startedAt: null }, { startedAt: { lte: new Date(now.getTime() - 15 * 60 * 1000) } }]
+      OR: [
+        { startedAt: null },
+        { startedAt: { lte: new Date(now.getTime() - 15 * 60 * 1000) } },
+      ],
     },
     select: {
       id: true,
       tenantId: true,
       leadId: true,
       cadence: true,
-      dueAt: true
+      dueAt: true,
     },
     orderBy: [{ dueAt: "asc" }, { triggeredAt: "asc" }],
-    take: limit
+    take: limit,
   });
 }
 
 export async function claimLeadAutomationAttemptForProcessing(
   attemptId: string,
   now: Date,
-  staleBefore = new Date(now.getTime() - 15 * 60 * 1000)
+  staleBefore = new Date(now.getTime() - 15 * 60 * 1000),
 ) {
   const result = await prisma.leadAutomationAttempt.updateMany({
     where: {
@@ -1152,13 +1283,13 @@ export async function claimLeadAutomationAttemptForProcessing(
       status: "PENDING",
       completedAt: null,
       dueAt: {
-        lte: now
+        lte: now,
       },
-      OR: [{ startedAt: null }, { startedAt: { lte: staleBefore } }]
+      OR: [{ startedAt: null }, { startedAt: { lte: staleBefore } }],
     },
     data: {
-      startedAt: now
-    }
+      startedAt: now,
+    },
   });
 
   return result.count > 0;

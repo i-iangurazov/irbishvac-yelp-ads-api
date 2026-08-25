@@ -1,30 +1,32 @@
 import "server-only";
 
-import type { LeadAutomationCadence, LeadConversationAutomationMode, LeadConversationConfidence, LeadConversationDecision, LeadConversationStopReason, SyncRunStatus } from "@prisma/client";
+import type {
+  LeadAutomationCadence,
+  LeadConversationAutomationMode,
+  LeadConversationConfidence,
+  LeadConversationDecision,
+  LeadConversationStopReason,
+  SyncRunStatus,
+} from "@prisma/client";
 
 import { LEAD_AUTORESPONDER_SETTING_KEY } from "@/features/autoresponder/constants";
 import { readLeadAutoresponderSettings } from "@/features/autoresponder/config";
-import {
-  getLeadAiModelLabel
-} from "@/features/autoresponder/config";
+import { getLeadAiModelLabel } from "@/features/autoresponder/config";
 import {
   getLeadConversationRolloutState,
   humanizeLeadConversationMode,
-  humanizeLeadConversationStopReason
+  humanizeLeadConversationStopReason,
 } from "@/features/autoresponder/conversation";
+import { getLeadAutomationPilotState } from "@/lib/db/autoresponder-repository";
 import {
-  getLeadAutomationBusinessAttemptHealth,
-  listLeadAutomationBusinessOverrides,
-  listLeadAutomationOptions,
-  listLeadAutomationRules,
-  listLeadAutomationTemplates
-} from "@/lib/db/autoresponder-repository";
-import { getOperatorIssueSummaryCounts, listOperatorIssues } from "@/lib/db/issues-repository";
+  getOpenAutoresponderIssueCountsByBusiness,
+  getOperatorIssueSummaryCounts,
+} from "@/lib/db/issues-repository";
 import {
   incrementOperationalMetricCounter,
   listOperationalMetricRollups,
   recordOperationalMetricDistribution,
-  setOperationalMetricGauge
+  setOperationalMetricGauge,
 } from "@/lib/db/metrics-repository";
 import { getSystemSetting } from "@/lib/db/settings-repository";
 
@@ -56,11 +58,16 @@ export const operationalMetricKeys = {
   serviceTitanLifecycleSucceeded: "servicetitan.lifecycle.succeeded",
   serviceTitanLifecycleFailed: "servicetitan.lifecycle.failed",
   serviceTitanReferenceSucceeded: "servicetitan.reference.succeeded",
-  serviceTitanReferenceFailed: "servicetitan.reference.failed"
+  serviceTitanReferenceFailed: "servicetitan.reference.failed",
 } as const;
 
-type MetricDimensions = Record<string, string | number | boolean | null | undefined>;
-type MetricRow = Awaited<ReturnType<typeof listOperationalMetricRollups>>[number];
+type MetricDimensions = Record<
+  string,
+  string | number | boolean | null | undefined
+>;
+type MetricRow = Awaited<
+  ReturnType<typeof listOperationalMetricRollups>
+>[number];
 
 function asRecord(value: unknown) {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -84,27 +91,56 @@ function matchesDimensions(row: MetricRow, expected?: MetricDimensions) {
   });
 }
 
-function filterRows(rows: MetricRow[], metricKey: string, since: Date, dimensions?: MetricDimensions) {
+function filterRows(
+  rows: MetricRow[],
+  metricKey: string,
+  since: Date,
+  dimensions?: MetricDimensions,
+) {
   return rows.filter(
-    (row) => row.metricKey === metricKey && row.bucketStart >= since && matchesDimensions(row, dimensions)
+    (row) =>
+      row.metricKey === metricKey &&
+      row.bucketStart >= since &&
+      matchesDimensions(row, dimensions),
   );
 }
 
-function sumMetric(rows: MetricRow[], metricKey: string, since: Date, dimensions?: MetricDimensions) {
-  return filterRows(rows, metricKey, since, dimensions).reduce((total, row) => total + row.totalValue, 0);
+function sumMetric(
+  rows: MetricRow[],
+  metricKey: string,
+  since: Date,
+  dimensions?: MetricDimensions,
+) {
+  return filterRows(rows, metricKey, since, dimensions).reduce(
+    (total, row) => total + row.totalValue,
+    0,
+  );
 }
 
-function averageMetric(rows: MetricRow[], metricKey: string, since: Date, dimensions?: MetricDimensions) {
+function averageMetric(
+  rows: MetricRow[],
+  metricKey: string,
+  since: Date,
+  dimensions?: MetricDimensions,
+) {
   const relevant = filterRows(rows, metricKey, since, dimensions);
   const totalValue = relevant.reduce((total, row) => total + row.totalValue, 0);
-  const sampleCount = relevant.reduce((total, row) => total + row.sampleCount, 0);
+  const sampleCount = relevant.reduce(
+    (total, row) => total + row.sampleCount,
+    0,
+  );
 
   return sampleCount > 0 ? Math.round(totalValue / sampleCount) : 0;
 }
 
-function latestGauge(rows: MetricRow[], metricKey: string, since: Date, dimensions?: MetricDimensions) {
+function latestGauge(
+  rows: MetricRow[],
+  metricKey: string,
+  since: Date,
+  dimensions?: MetricDimensions,
+) {
   const relevant = filterRows(rows, metricKey, since, dimensions).sort(
-    (left, right) => right.bucketStart.getTime() - left.bucketStart.getTime()
+    (left, right) => right.bucketStart.getTime() - left.bucketStart.getTime(),
   );
   const latest = relevant[0] ?? null;
   return latest?.lastValue ?? latest?.totalValue ?? 0;
@@ -118,8 +154,14 @@ function percentage(numerator: number, denominator: number) {
   return Math.round((numerator / denominator) * 100);
 }
 
-function getDefaultsCoverage(settings: ReturnType<typeof readLeadAutoresponderSettings>, businessId: string) {
-  return settings.scopeMode === "ALL_BUSINESSES" || settings.scopedBusinessIds.includes(businessId);
+function getDefaultsCoverage(
+  settings: ReturnType<typeof readLeadAutoresponderSettings>,
+  businessId: string,
+) {
+  return (
+    settings.scopeMode === "ALL_BUSINESSES" ||
+    settings.scopedBusinessIds.includes(businessId)
+  );
 }
 
 function getConversationModeLabel(mode: LeadConversationAutomationMode) {
@@ -152,7 +194,9 @@ function getPilotLabel(params: {
   }
 
   if (params.conversationEnabled) {
-    return params.conversationMode === "BOUNDED_AUTO_REPLY" ? "Limited auto-reply" : "Review pilot";
+    return params.conversationMode === "BOUNDED_AUTO_REPLY"
+      ? "Limited auto-reply"
+      : "Review pilot";
   }
 
   return params.proofOfSend ? "Initial reply live" : "Initial reply ready";
@@ -167,7 +211,7 @@ export async function recordWebhookIntakeMetric(params: {
   if (params.deliveryStatus === "DUPLICATE") {
     await incrementOperationalMetricCounter({
       tenantId: params.tenantId,
-      metricKey: operationalMetricKeys.webhookIntakeDuplicate
+      metricKey: operationalMetricKeys.webhookIntakeDuplicate,
     });
     return;
   }
@@ -176,15 +220,18 @@ export async function recordWebhookIntakeMetric(params: {
     tenantId: params.tenantId,
     metricKey: operationalMetricKeys.webhookIntakeAccepted,
     dimensions: {
-      status: params.deliveryStatus
-    }
+      status: params.deliveryStatus,
+    },
   });
 
   if (params.occurredAt && params.receivedAt) {
     await recordOperationalMetricDistribution({
       tenantId: params.tenantId,
       metricKey: operationalMetricKeys.webhookIntakeLagMs,
-      value: Math.max(0, params.receivedAt.getTime() - params.occurredAt.getTime())
+      value: Math.max(
+        0,
+        params.receivedAt.getTime() - params.occurredAt.getTime(),
+      ),
     });
   }
 }
@@ -201,19 +248,22 @@ export async function recordWebhookReconcileMetric(params: {
     metricKey:
       params.status === "SUCCEEDED"
         ? operationalMetricKeys.webhookReconcileSucceeded
-        : operationalMetricKeys.webhookReconcileFailed
+        : operationalMetricKeys.webhookReconcileFailed,
   });
   await recordOperationalMetricDistribution({
     tenantId: params.tenantId,
     metricKey: operationalMetricKeys.webhookReconcileProcessingMs,
-    value: params.processingMs
+    value: params.processingMs,
   });
 
   if (params.receivedAt && params.completedAt) {
     await recordOperationalMetricDistribution({
       tenantId: params.tenantId,
       metricKey: operationalMetricKeys.webhookReconcileQueueLagMs,
-      value: Math.max(0, params.completedAt.getTime() - params.receivedAt.getTime())
+      value: Math.max(
+        0,
+        params.completedAt.getTime() - params.receivedAt.getTime(),
+      ),
     });
   }
 }
@@ -244,8 +294,8 @@ export async function recordAutoresponderMetric(params: {
     metricKey,
     dimensions: {
       cadence: params.cadence,
-      ...(params.skipReason ? { skipReason: params.skipReason } : {})
-    }
+      ...(params.skipReason ? { skipReason: params.skipReason } : {}),
+    },
   });
 }
 
@@ -262,8 +312,8 @@ export async function recordConversationDecisionMetric(params: {
     dimensions: {
       decision: params.decision,
       mode: params.mode,
-      confidence: params.confidence
-    }
+      confidence: params.confidence,
+    },
   });
 
   if (params.stopReason) {
@@ -272,8 +322,8 @@ export async function recordConversationDecisionMetric(params: {
       metricKey: operationalMetricKeys.conversationStopReason,
       dimensions: {
         stopReason: params.stopReason,
-        mode: params.mode
-      }
+        mode: params.mode,
+      },
     });
   }
 }
@@ -289,7 +339,7 @@ export async function recordOperatorIssueRefreshMetrics(params: {
     await incrementOperationalMetricCounter({
       tenantId: params.tenantId,
       metricKey: operationalMetricKeys.issueCreated,
-      amount: params.createdCount
+      amount: params.createdCount,
     });
   }
 
@@ -297,7 +347,7 @@ export async function recordOperatorIssueRefreshMetrics(params: {
     await incrementOperationalMetricCounter({
       tenantId: params.tenantId,
       metricKey: operationalMetricKeys.issueReopened,
-      amount: params.reopenedCount
+      amount: params.reopenedCount,
     });
   }
 
@@ -305,14 +355,14 @@ export async function recordOperatorIssueRefreshMetrics(params: {
     await incrementOperationalMetricCounter({
       tenantId: params.tenantId,
       metricKey: operationalMetricKeys.issueAutoResolved,
-      amount: params.autoResolvedCount
+      amount: params.autoResolvedCount,
     });
   }
 
   await setOperationalMetricGauge({
     tenantId: params.tenantId,
     metricKey: operationalMetricKeys.issueOpenGauge,
-    value: params.openCount
+    value: params.openCount,
   });
 }
 
@@ -330,7 +380,7 @@ export async function recordReportMetric(params: {
           : operationalMetricKeys.reportGenerationFailed
         : params.status === "SUCCEEDED"
           ? operationalMetricKeys.reportDeliverySucceeded
-          : operationalMetricKeys.reportDeliveryFailed
+          : operationalMetricKeys.reportDeliveryFailed,
   });
 }
 
@@ -348,7 +398,7 @@ export async function recordServiceTitanMetric(params: {
           : operationalMetricKeys.serviceTitanLifecycleFailed
         : params.status === "SUCCEEDED"
           ? operationalMetricKeys.serviceTitanReferenceSucceeded
-          : operationalMetricKeys.serviceTitanReferenceFailed
+          : operationalMetricKeys.serviceTitanReferenceFailed,
   });
 }
 
@@ -356,65 +406,91 @@ export async function getOperationalPilotOverview(tenantId: string) {
   const now = new Date();
   const since24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const since7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-  const [rows, issueSummary, settingsValue, overrides, options, rules, templates, attemptHealth, openAutoresponderIssues] =
-    await Promise.all([
-      listOperationalMetricRollups({
-        tenantId,
-        since: since7d
-      }),
-      getOperatorIssueSummaryCounts(tenantId),
-      getSystemSetting(tenantId, LEAD_AUTORESPONDER_SETTING_KEY),
-      listLeadAutomationBusinessOverrides(tenantId),
-      listLeadAutomationOptions(tenantId),
-      listLeadAutomationRules(tenantId),
-      listLeadAutomationTemplates(tenantId),
-      getLeadAutomationBusinessAttemptHealth(tenantId),
-      listOperatorIssues(tenantId, {
-        issueType: "AUTORESPONDER_FAILURE",
-        status: "OPEN"
-      })
-    ]);
+  const pilotMetricKeys = [
+    operationalMetricKeys.webhookIntakeAccepted,
+    operationalMetricKeys.webhookIntakeDuplicate,
+    operationalMetricKeys.webhookReconcileQueueLagMs,
+    operationalMetricKeys.webhookReconcileFailed,
+    operationalMetricKeys.autoresponderInitialSent,
+    operationalMetricKeys.autoresponderInitialFailed,
+    operationalMetricKeys.autoresponderFollowUpSent,
+    operationalMetricKeys.autoresponderFollowUpFailed,
+    operationalMetricKeys.conversationDecision,
+    operationalMetricKeys.conversationStopReason,
+    operationalMetricKeys.issueCreated,
+    operationalMetricKeys.issueReopened,
+    operationalMetricKeys.issueOpenGauge,
+    operationalMetricKeys.reportDeliverySucceeded,
+    operationalMetricKeys.reportDeliveryFailed,
+    operationalMetricKeys.serviceTitanLifecycleFailed,
+    operationalMetricKeys.serviceTitanReferenceFailed,
+  ];
+  const [
+    rows,
+    issueSummary,
+    settingsValue,
+    pilotState,
+    openAutoresponderIssueCounts,
+  ] = await Promise.all([
+    listOperationalMetricRollups({
+      tenantId,
+      metricKeys: pilotMetricKeys,
+      since: since7d,
+    }),
+    getOperatorIssueSummaryCounts(tenantId),
+    getSystemSetting(tenantId, LEAD_AUTORESPONDER_SETTING_KEY),
+    getLeadAutomationPilotState(tenantId),
+    getOpenAutoresponderIssueCountsByBusiness(tenantId),
+  ]);
   const settings = readLeadAutoresponderSettings(settingsValue);
-  const overrideByBusinessId = new Map(overrides.map((override) => [override.businessId, override]));
-  const enabledTemplateIds = new Set(templates.filter((template) => template.isEnabled).map((template) => template.id));
-  const enabledInitialRules = rules.filter(
-    (rule) => rule.isEnabled && rule.cadence === "INITIAL" && enabledTemplateIds.has(rule.templateId)
+  const overrideByBusinessId = new Map(
+    pilotState.overrides.map((override) => [override.businessId, override]),
+  );
+  const enabledTemplateIds = new Set(
+    pilotState.templates
+      .filter((template) => template.isEnabled)
+      .map((template) => template.id),
+  );
+  const enabledInitialRules = pilotState.rules.filter(
+    (rule) =>
+      rule.isEnabled &&
+      rule.cadence === "INITIAL" &&
+      enabledTemplateIds.has(rule.templateId),
   );
   const sentCountByBusiness = new Map(
-    attemptHealth.sentCounts
+    pilotState.sentCounts
       .filter((entry) => entry.businessId)
-      .map((entry) => [entry.businessId as string, entry._count._all])
+      .map((entry) => [entry.businessId as string, entry._count._all]),
   );
-  const openIssueCountByBusiness = new Map<string, number>();
+  const openIssueCountByBusiness = new Map(
+    openAutoresponderIssueCounts
+      .filter((entry) => entry.businessId)
+      .map((entry) => [entry.businessId as string, entry._count._all]),
+  );
 
-  for (const issue of openAutoresponderIssues) {
-    const businessId = issue.business?.id;
-
-    if (!businessId) {
-      continue;
-    }
-
-    openIssueCountByBusiness.set(businessId, (openIssueCountByBusiness.get(businessId) ?? 0) + 1);
-  }
-
-  const rolloutPosture = options.businesses
+  const rolloutPosture = pilotState.businesses
     .map((business) => {
       const override = overrideByBusinessId.get(business.id) ?? null;
       const defaultsApply = getDefaultsCoverage(settings, business.id);
-      const effectiveEnabled = override ? override.isEnabled : settings.isEnabled && defaultsApply;
+      const effectiveEnabled = override
+        ? override.isEnabled
+        : settings.isEnabled && defaultsApply;
       const conversationEnabled = override
         ? override.isEnabled && override.conversationAutomationEnabled
-        : settings.conversationAutomationEnabled && settings.isEnabled && defaultsApply;
-      const conversationMode = (override?.conversationMode ?? settings.conversationMode) as LeadConversationAutomationMode;
+        : settings.conversationAutomationEnabled &&
+          settings.isEnabled &&
+          defaultsApply;
+      const conversationMode = (override?.conversationMode ??
+        settings.conversationMode) as LeadConversationAutomationMode;
       const openIssueCount = openIssueCountByBusiness.get(business.id) ?? 0;
       const proofOfSend = (sentCountByBusiness.get(business.id) ?? 0) > 0;
       const hasInitialRule = enabledInitialRules.some(
-        (rule) => !rule.businessId || rule.businessId === business.id
+        (rule) => !rule.businessId || rule.businessId === business.id,
       );
       const rollout = getLeadConversationRolloutState({
         enabled: conversationEnabled,
         paused: settings.conversationGlobalPauseEnabled,
-        mode: conversationMode
+        mode: conversationMode,
       });
 
       return {
@@ -426,7 +502,9 @@ export async function getOperationalPilotOverview(tenantId: string) {
         conversationEnabled,
         conversationMode,
         conversationModeLabel: getConversationModeLabel(conversationMode),
-        aiModelLabel: getLeadAiModelLabel(override?.aiModel ?? settings.aiModel),
+        aiModelLabel: getLeadAiModelLabel(
+          override?.aiModel ?? settings.aiModel,
+        ),
         rolloutLabel: getPilotLabel({
           isEnabled: effectiveEnabled,
           paused: settings.conversationGlobalPauseEnabled,
@@ -434,11 +512,15 @@ export async function getOperationalPilotOverview(tenantId: string) {
           conversationMode,
           hasInitialRule,
           proofOfSend,
-          openIssueCount
+          openIssueCount,
         }),
         rolloutStateLabel: rollout.label,
         hasInitialRule,
-        scopeSource: override ? "BUSINESS_OVERRIDE" : defaultsApply ? "TENANT_DEFAULT" : "NOT_COVERED"
+        scopeSource: override
+          ? "BUSINESS_OVERRIDE"
+          : defaultsApply
+            ? "TENANT_DEFAULT"
+            : "NOT_COVERED",
       };
     })
     .sort((left, right) => {
@@ -458,59 +540,139 @@ export async function getOperationalPilotOverview(tenantId: string) {
     sumMetric(rows, operationalMetricKeys.autoresponderInitialSent, since24h) +
     sumMetric(rows, operationalMetricKeys.autoresponderFollowUpSent, since24h);
   const automationFailed24h =
-    sumMetric(rows, operationalMetricKeys.autoresponderInitialFailed, since24h) +
-    sumMetric(rows, operationalMetricKeys.autoresponderFollowUpFailed, since24h);
-  const conversationDecisions7d = sumMetric(rows, operationalMetricKeys.conversationDecision, since7d);
-  const conversationHandoffs7d = sumMetric(rows, operationalMetricKeys.conversationDecision, since7d, {
-    decision: "HUMAN_HANDOFF"
-  });
-  const conversationBlocked7d = sumMetric(rows, operationalMetricKeys.conversationStopReason, since7d);
-  const reportDeliveryFailures7d = sumMetric(rows, operationalMetricKeys.reportDeliveryFailed, since7d);
-  const reportDeliverySuccesses7d = sumMetric(rows, operationalMetricKeys.reportDeliverySucceeded, since7d);
+    sumMetric(
+      rows,
+      operationalMetricKeys.autoresponderInitialFailed,
+      since24h,
+    ) +
+    sumMetric(
+      rows,
+      operationalMetricKeys.autoresponderFollowUpFailed,
+      since24h,
+    );
+  const conversationDecisions7d = sumMetric(
+    rows,
+    operationalMetricKeys.conversationDecision,
+    since7d,
+  );
+  const conversationHandoffs7d = sumMetric(
+    rows,
+    operationalMetricKeys.conversationDecision,
+    since7d,
+    {
+      decision: "HUMAN_HANDOFF",
+    },
+  );
+  const conversationBlocked7d = sumMetric(
+    rows,
+    operationalMetricKeys.conversationStopReason,
+    since7d,
+  );
+  const reportDeliveryFailures7d = sumMetric(
+    rows,
+    operationalMetricKeys.reportDeliveryFailed,
+    since7d,
+  );
+  const reportDeliverySuccesses7d = sumMetric(
+    rows,
+    operationalMetricKeys.reportDeliverySucceeded,
+    since7d,
+  );
   const serviceTitanFailures24h =
-    sumMetric(rows, operationalMetricKeys.serviceTitanLifecycleFailed, since24h) +
-    sumMetric(rows, operationalMetricKeys.serviceTitanReferenceFailed, since24h);
+    sumMetric(
+      rows,
+      operationalMetricKeys.serviceTitanLifecycleFailed,
+      since24h,
+    ) +
+    sumMetric(
+      rows,
+      operationalMetricKeys.serviceTitanReferenceFailed,
+      since24h,
+    );
 
   return {
     windows: {
       last24h: {
-        webhookAccepted: sumMetric(rows, operationalMetricKeys.webhookIntakeAccepted, since24h),
-        webhookDuplicates: sumMetric(rows, operationalMetricKeys.webhookIntakeDuplicate, since24h),
-        webhookAvgLagMs: averageMetric(rows, operationalMetricKeys.webhookReconcileQueueLagMs, since24h),
-        webhookFailed: sumMetric(rows, operationalMetricKeys.webhookReconcileFailed, since24h),
+        webhookAccepted: sumMetric(
+          rows,
+          operationalMetricKeys.webhookIntakeAccepted,
+          since24h,
+        ),
+        webhookDuplicates: sumMetric(
+          rows,
+          operationalMetricKeys.webhookIntakeDuplicate,
+          since24h,
+        ),
+        webhookAvgLagMs: averageMetric(
+          rows,
+          operationalMetricKeys.webhookReconcileQueueLagMs,
+          since24h,
+        ),
+        webhookFailed: sumMetric(
+          rows,
+          operationalMetricKeys.webhookReconcileFailed,
+          since24h,
+        ),
         automationSent: automationSent24h,
         automationFailed: automationFailed24h,
-        issueCreated: sumMetric(rows, operationalMetricKeys.issueCreated, since24h),
-        issueReopened: sumMetric(rows, operationalMetricKeys.issueReopened, since24h),
-        serviceTitanFailures: serviceTitanFailures24h
+        issueCreated: sumMetric(
+          rows,
+          operationalMetricKeys.issueCreated,
+          since24h,
+        ),
+        issueReopened: sumMetric(
+          rows,
+          operationalMetricKeys.issueReopened,
+          since24h,
+        ),
+        serviceTitanFailures: serviceTitanFailures24h,
       },
       last7d: {
         conversationHandoffs: conversationHandoffs7d,
         conversationBlocked: conversationBlocked7d,
-        lowConfidence: sumMetric(rows, operationalMetricKeys.conversationStopReason, since7d, {
-          stopReason: "LOW_CONFIDENCE"
-        }),
-        maxTurnHits: sumMetric(rows, operationalMetricKeys.conversationStopReason, since7d, {
-          stopReason: "MAX_AUTOMATED_TURNS_REACHED"
-        }),
+        lowConfidence: sumMetric(
+          rows,
+          operationalMetricKeys.conversationStopReason,
+          since7d,
+          {
+            stopReason: "LOW_CONFIDENCE",
+          },
+        ),
+        maxTurnHits: sumMetric(
+          rows,
+          operationalMetricKeys.conversationStopReason,
+          since7d,
+          {
+            stopReason: "MAX_AUTOMATED_TURNS_REACHED",
+          },
+        ),
         reportDeliveryFailures: reportDeliveryFailures7d,
         reportDeliverySuccessRate: percentage(
           reportDeliverySuccesses7d,
-          reportDeliverySuccesses7d + reportDeliveryFailures7d
+          reportDeliverySuccesses7d + reportDeliveryFailures7d,
         ),
-        handoffRate: percentage(conversationHandoffs7d, conversationDecisions7d)
-      }
+        handoffRate: percentage(
+          conversationHandoffs7d,
+          conversationDecisions7d,
+        ),
+      },
     },
     queue: {
       openIssues: issueSummary.open,
       highSeverity: issueSummary.highSeverity,
       retryableOpen: issueSummary.retryableOpen,
-      currentOpenGauge: latestGauge(rows, operationalMetricKeys.issueOpenGauge, since7d)
+      currentOpenGauge: latestGauge(
+        rows,
+        operationalMetricKeys.issueOpenGauge,
+        since7d,
+      ),
     },
-    rolloutPosture
+    rolloutPosture,
   };
 }
 
-export function getConversationStopReasonLabel(stopReason: LeadConversationStopReason | null) {
+export function getConversationStopReasonLabel(
+  stopReason: LeadConversationStopReason | null,
+) {
   return stopReason ? humanizeLeadConversationStopReason(stopReason) : "None";
 }

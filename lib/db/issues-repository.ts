@@ -16,7 +16,10 @@ type OperatorIssueListFilters = {
   olderThanDays?: number;
 };
 
-function buildOperatorIssueWhere(tenantId: string, filters?: OperatorIssueListFilters): Prisma.OperatorIssueWhereInput {
+function buildOperatorIssueWhere(
+  tenantId: string,
+  filters?: OperatorIssueListFilters,
+): Prisma.OperatorIssueWhereInput {
   return {
     tenantId,
     ...(filters?.issueType ? { issueType: filters.issueType as never } : {}),
@@ -27,10 +30,12 @@ function buildOperatorIssueWhere(tenantId: string, filters?: OperatorIssueListFi
     ...(filters?.olderThanDays
       ? {
           firstDetectedAt: {
-            lte: new Date(Date.now() - filters.olderThanDays * 24 * 60 * 60 * 1000)
-          }
+            lte: new Date(
+              Date.now() - filters.olderThanDays * 24 * 60 * 60 * 1000,
+            ),
+          },
         }
-      : {})
+      : {}),
   };
 }
 
@@ -41,38 +46,44 @@ export async function listExistingOperatorIssues(tenantId: string) {
       id: true,
       dedupeKey: true,
       status: true,
-      detectedCount: true
-    }
+      detectedCount: true,
+    },
   });
 }
 
 export async function createOperatorIssue(
   tenantId: string,
-  data: Omit<Prisma.OperatorIssueUncheckedCreateInput, "tenantId">
+  data: Omit<Prisma.OperatorIssueUncheckedCreateInput, "tenantId">,
 ) {
   return prisma.operatorIssue.create({
     data: {
       ...data,
-      tenantId
-    }
+      tenantId,
+    },
   });
 }
 
-export async function getOperatorIssueByDedupeKey(tenantId: string, dedupeKey: string) {
+export async function getOperatorIssueByDedupeKey(
+  tenantId: string,
+  dedupeKey: string,
+) {
   return prisma.operatorIssue.findUnique({
     where: {
       tenantId_dedupeKey: {
         tenantId,
-        dedupeKey
-      }
-    }
+        dedupeKey,
+      },
+    },
   });
 }
 
-export async function updateOperatorIssue(id: string, data: Parameters<typeof prisma.operatorIssue.update>[0]["data"]) {
+export async function updateOperatorIssue(
+  id: string,
+  data: Parameters<typeof prisma.operatorIssue.update>[0]["data"],
+) {
   return prisma.operatorIssue.update({
     where: { id },
-    data
+    data,
   });
 }
 
@@ -80,21 +91,21 @@ export async function getOperatorIssueById(tenantId: string, issueId: string) {
   return prisma.operatorIssue.findFirstOrThrow({
     where: {
       tenantId,
-      id: issueId
+      id: issueId,
     },
     include: {
       business: {
         select: {
           id: true,
           name: true,
-          encryptedYelpBusinessId: true
-        }
+          encryptedYelpBusinessId: true,
+        },
       },
       location: {
         select: {
           id: true,
-          name: true
-        }
+          name: true,
+        },
       },
       lead: {
         select: {
@@ -108,10 +119,10 @@ export async function getOperatorIssueById(tenantId: string, issueId: string) {
           business: {
             select: {
               id: true,
-              name: true
-            }
-          }
-        }
+              name: true,
+            },
+          },
+        },
       },
       reportRequest: {
         select: {
@@ -123,10 +134,10 @@ export async function getOperatorIssueById(tenantId: string, issueId: string) {
           business: {
             select: {
               id: true,
-              name: true
-            }
-          }
-        }
+              name: true,
+            },
+          },
+        },
       },
       reportScheduleRun: {
         include: {
@@ -134,62 +145,62 @@ export async function getOperatorIssueById(tenantId: string, issueId: string) {
             select: {
               id: true,
               name: true,
-              cadence: true
-            }
+              cadence: true,
+            },
           },
           location: {
             select: {
               id: true,
-              name: true
-            }
+              name: true,
+            },
           },
           reportRequest: {
             select: {
               id: true,
-              status: true
-            }
-          }
-        }
+              status: true,
+            },
+          },
+        },
       },
       syncRun: {
         include: {
           business: {
             select: {
               id: true,
-              name: true
-            }
+              name: true,
+            },
           },
           location: {
             select: {
               id: true,
-              name: true
-            }
+              name: true,
+            },
           },
           lead: {
             select: {
               id: true,
               externalLeadId: true,
-              customerName: true
-            }
+              customerName: true,
+            },
           },
-          errors: true
-        }
+          errors: true,
+        },
       },
       resolvedBy: {
         select: {
           id: true,
           name: true,
-          email: true
-        }
+          email: true,
+        },
       },
       ignoredBy: {
         select: {
           id: true,
           name: true,
-          email: true
-        }
-      }
-    }
+          email: true,
+        },
+      },
+    },
   });
 }
 
@@ -198,7 +209,7 @@ export async function listOperatorIssues(
   filters?: OperatorIssueListFilters & {
     skip?: number;
     take?: number;
-  }
+  },
 ) {
   return prisma.operatorIssue.findMany({
     where: buildOperatorIssueWhere(tenantId, filters),
@@ -206,110 +217,93 @@ export async function listOperatorIssues(
       business: {
         select: {
           id: true,
-          name: true
-        }
+          name: true,
+        },
       },
       location: {
         select: {
           id: true,
-          name: true
-        }
+          name: true,
+        },
       },
       lead: {
         select: {
           id: true,
           externalLeadId: true,
-          customerName: true
-        }
+          customerName: true,
+        },
       },
       reportScheduleRun: {
         include: {
           schedule: {
             select: {
               id: true,
-              name: true
-            }
-          }
-        }
+              name: true,
+            },
+          },
+        },
       },
       syncRun: {
         select: {
           id: true,
           type: true,
-          status: true
-        }
-      }
+          status: true,
+        },
+      },
     },
     orderBy: [
       { status: "asc" },
       { severity: "desc" },
       { lastDetectedAt: "desc" },
-      { createdAt: "desc" }
+      { createdAt: "desc" },
     ],
     ...(filters?.skip !== undefined ? { skip: filters.skip } : {}),
-    ...(filters?.take !== undefined ? { take: filters.take } : {})
+    ...(filters?.take !== undefined ? { take: filters.take } : {}),
   });
 }
 
-export async function countOperatorIssues(tenantId: string, filters?: OperatorIssueListFilters) {
+export async function countOperatorIssues(
+  tenantId: string,
+  filters?: OperatorIssueListFilters,
+) {
   return prisma.operatorIssue.count({
-    where: buildOperatorIssueWhere(tenantId, filters)
+    where: buildOperatorIssueWhere(tenantId, filters),
   });
 }
 
 export async function getOperatorIssueSummaryCounts(tenantId: string) {
-  const [total, open, highSeverity, retryableOpen, deliveryFailures, unmappedLeads, staleLeads] = await Promise.all([
-    prisma.operatorIssue.count({
-      where: {
-        tenantId
-      }
-    }),
-    prisma.operatorIssue.count({
-      where: {
-        tenantId,
-        status: "OPEN"
-      }
-    }),
-    prisma.operatorIssue.count({
-      where: {
-        tenantId,
-        status: "OPEN",
-        severity: {
-          in: ["HIGH", "CRITICAL"]
-        }
-      }
-    }),
-    prisma.operatorIssue.count({
-      where: {
-        tenantId,
-        status: "OPEN",
-        issueType: {
-          in: ["LEAD_SYNC_FAILURE", "CRM_SYNC_FAILURE", "AUTORESPONDER_FAILURE", "REPORT_DELIVERY_FAILURE"]
-        }
-      }
-    }),
-    prisma.operatorIssue.count({
-      where: {
-        tenantId,
-        issueType: "REPORT_DELIVERY_FAILURE",
-        status: "OPEN"
-      }
-    }),
-    prisma.operatorIssue.count({
-      where: {
-        tenantId,
-        issueType: "UNMAPPED_LEAD",
-        status: "OPEN"
-      }
-    }),
-    prisma.operatorIssue.count({
-      where: {
-        tenantId,
-        issueType: "STALE_LEAD",
-        status: "OPEN"
-      }
-    })
+  const groups = await prisma.operatorIssue.groupBy({
+    by: ["status", "severity", "issueType"],
+    where: { tenantId },
+    _count: { _all: true },
+  });
+  const retryableTypes = new Set([
+    "LEAD_SYNC_FAILURE",
+    "CRM_SYNC_FAILURE",
+    "AUTORESPONDER_FAILURE",
+    "REPORT_DELIVERY_FAILURE",
   ]);
+  const total = groups.reduce((sum, group) => sum + group._count._all, 0);
+  const openGroups = groups.filter((group) => group.status === "OPEN");
+  const countOpen = (predicate: (group: (typeof groups)[number]) => boolean) =>
+    openGroups.reduce(
+      (sum, group) => sum + (predicate(group) ? group._count._all : 0),
+      0,
+    );
+  const open = countOpen(() => true);
+  const highSeverity = countOpen(
+    (group) => group.severity === "HIGH" || group.severity === "CRITICAL",
+  );
+  const retryableOpen = countOpen((group) =>
+    retryableTypes.has(group.issueType),
+  );
+  const deliveryFailures = countOpen(
+    (group) => group.issueType === "REPORT_DELIVERY_FAILURE",
+  );
+  const unmappedLeads = countOpen(
+    (group) => group.issueType === "UNMAPPED_LEAD",
+  );
+  const staleLeads = countOpen((group) => group.issueType === "STALE_LEAD");
 
   return {
     total,
@@ -318,56 +312,74 @@ export async function getOperatorIssueSummaryCounts(tenantId: string) {
     retryableOpen,
     deliveryFailures,
     unmappedLeads,
-    staleLeads
+    staleLeads,
   };
 }
 
-export async function listOperatorIssuesByIds(tenantId: string, issueIds: string[]) {
+export async function getOpenAutoresponderIssueCountsByBusiness(
+  tenantId: string,
+) {
+  return prisma.operatorIssue.groupBy({
+    by: ["businessId"],
+    where: {
+      tenantId,
+      businessId: { not: null },
+      issueType: "AUTORESPONDER_FAILURE",
+      status: "OPEN",
+    },
+    _count: { _all: true },
+  });
+}
+
+export async function listOperatorIssuesByIds(
+  tenantId: string,
+  issueIds: string[],
+) {
   return prisma.operatorIssue.findMany({
     where: {
       tenantId,
       id: {
-        in: issueIds
-      }
+        in: issueIds,
+      },
     },
     include: {
       business: {
         select: {
           id: true,
-          name: true
-        }
+          name: true,
+        },
       },
       location: {
         select: {
           id: true,
-          name: true
-        }
+          name: true,
+        },
       },
       lead: {
         select: {
           id: true,
           externalLeadId: true,
-          customerName: true
-        }
+          customerName: true,
+        },
       },
       reportScheduleRun: {
         include: {
           schedule: {
             select: {
               id: true,
-              name: true
-            }
-          }
-        }
+              name: true,
+            },
+          },
+        },
       },
       syncRun: {
         select: {
           id: true,
           type: true,
-          status: true
-        }
-      }
-    }
+          status: true,
+        },
+      },
+    },
   });
 }
 
@@ -377,30 +389,33 @@ export async function listOperatorIssueFilterOptions(tenantId: string) {
       where: { tenantId },
       select: {
         id: true,
-        name: true
+        name: true,
       },
-      orderBy: [{ name: "asc" }]
+      orderBy: [{ name: "asc" }],
     }),
     prisma.location.findMany({
       where: {
         tenantId,
-        isActive: true
+        isActive: true,
       },
       select: {
         id: true,
-        name: true
+        name: true,
       },
-      orderBy: [{ name: "asc" }]
-    })
+      orderBy: [{ name: "asc" }],
+    }),
   ]);
 
   return {
     businesses,
-    locations
+    locations,
   };
 }
 
-export async function listOpenOperatorIssuesForLeadIds(tenantId: string, leadIds: string[]) {
+export async function listOpenOperatorIssuesForLeadIds(
+  tenantId: string,
+  leadIds: string[],
+) {
   if (leadIds.length === 0) {
     return [];
   }
@@ -410,8 +425,8 @@ export async function listOpenOperatorIssuesForLeadIds(tenantId: string, leadIds
       tenantId,
       status: "OPEN",
       leadId: {
-        in: leadIds
-      }
+        in: leadIds,
+      },
     },
     select: {
       id: true,
@@ -419,18 +434,26 @@ export async function listOpenOperatorIssuesForLeadIds(tenantId: string, leadIds
       issueType: true,
       severity: true,
       summary: true,
-      lastDetectedAt: true
+      lastDetectedAt: true,
     },
-    orderBy: [{ severity: "desc" }, { lastDetectedAt: "desc" }, { createdAt: "desc" }]
+    orderBy: [
+      { severity: "desc" },
+      { lastDetectedAt: "desc" },
+      { createdAt: "desc" },
+    ],
   });
 }
 
-export async function listOpenOperatorIssuesForLead(tenantId: string, leadId: string, take = 10) {
+export async function listOpenOperatorIssuesForLead(
+  tenantId: string,
+  leadId: string,
+  take = 10,
+) {
   return prisma.operatorIssue.findMany({
     where: {
       tenantId,
       status: "OPEN",
-      leadId
+      leadId,
     },
     select: {
       id: true,
@@ -438,14 +461,21 @@ export async function listOpenOperatorIssuesForLead(tenantId: string, leadId: st
       severity: true,
       summary: true,
       lastDetectedAt: true,
-      syncRunId: true
+      syncRunId: true,
     },
-    orderBy: [{ severity: "desc" }, { lastDetectedAt: "desc" }, { createdAt: "desc" }],
-    take
+    orderBy: [
+      { severity: "desc" },
+      { lastDetectedAt: "desc" },
+      { createdAt: "desc" },
+    ],
+    take,
   });
 }
 
-export async function listOpenOperatorIssuesForReportScheduleRunIds(tenantId: string, runIds: string[]) {
+export async function listOpenOperatorIssuesForReportScheduleRunIds(
+  tenantId: string,
+  runIds: string[],
+) {
   if (runIds.length === 0) {
     return [];
   }
@@ -455,8 +485,8 @@ export async function listOpenOperatorIssuesForReportScheduleRunIds(tenantId: st
       tenantId,
       status: "OPEN",
       reportScheduleRunId: {
-        in: runIds
-      }
+        in: runIds,
+      },
     },
     select: {
       id: true,
@@ -464,9 +494,13 @@ export async function listOpenOperatorIssuesForReportScheduleRunIds(tenantId: st
       issueType: true,
       severity: true,
       summary: true,
-      lastDetectedAt: true
+      lastDetectedAt: true,
     },
-    orderBy: [{ severity: "desc" }, { lastDetectedAt: "desc" }, { createdAt: "desc" }]
+    orderBy: [
+      { severity: "desc" },
+      { lastDetectedAt: "desc" },
+      { createdAt: "desc" },
+    ],
   });
 }
 
@@ -475,25 +509,25 @@ export async function listLeadSyncFailureCandidates(tenantId: string) {
     where: {
       tenantId,
       type: {
-        in: [...leadSyncTypes]
+        in: [...leadSyncTypes],
       },
       status: {
-        in: ["FAILED", "PARTIAL"]
-      }
+        in: ["FAILED", "PARTIAL"],
+      },
     },
     include: {
       business: {
         select: {
           id: true,
           name: true,
-          locationId: true
-        }
+          locationId: true,
+        },
       },
       location: {
         select: {
           id: true,
-          name: true
-        }
+          name: true,
+        },
       },
       lead: {
         select: {
@@ -501,15 +535,15 @@ export async function listLeadSyncFailureCandidates(tenantId: string) {
           externalLeadId: true,
           customerName: true,
           businessId: true,
-          locationId: true
-        }
+          locationId: true,
+        },
       },
       errors: {
         orderBy: [{ occurredAt: "desc" }],
-        take: 3
-      }
+        take: 3,
+      },
     },
-    orderBy: [{ startedAt: "desc" }]
+    orderBy: [{ startedAt: "desc" }],
   });
 }
 
@@ -520,43 +554,43 @@ export async function listUnmappedLeadCandidates(tenantId: string) {
       OR: [
         {
           crmLeadMappings: {
-            none: {}
-          }
+            none: {},
+          },
         },
         {
           crmLeadMappings: {
             some: {
-              state: "UNRESOLVED"
-            }
-          }
-        }
-      ]
+              state: "UNRESOLVED",
+            },
+          },
+        },
+      ],
     },
     include: {
       business: {
         select: {
           id: true,
           name: true,
-          locationId: true
-        }
+          locationId: true,
+        },
       },
       location: {
         select: {
           id: true,
-          name: true
-        }
+          name: true,
+        },
       },
       serviceCategory: {
         select: {
           id: true,
-          name: true
-        }
+          name: true,
+        },
       },
       crmLeadMappings: {
-        take: 1
-      }
+        take: 1,
+      },
     },
-    orderBy: [{ createdAtYelp: "desc" }]
+    orderBy: [{ createdAtYelp: "desc" }],
   });
 }
 
@@ -565,25 +599,25 @@ export async function listCrmSyncFailureCandidates(tenantId: string) {
     where: {
       tenantId,
       type: {
-        in: ["CRM_LEAD_ENRICHMENT", "LOCATION_MAPPING", "SERVICE_MAPPING"]
+        in: ["CRM_LEAD_ENRICHMENT", "LOCATION_MAPPING", "SERVICE_MAPPING"],
       },
       status: {
-        in: ["FAILED", "PARTIAL"]
-      }
+        in: ["FAILED", "PARTIAL"],
+      },
     },
     include: {
       business: {
         select: {
           id: true,
           name: true,
-          locationId: true
-        }
+          locationId: true,
+        },
       },
       location: {
         select: {
           id: true,
-          name: true
-        }
+          name: true,
+        },
       },
       lead: {
         select: {
@@ -591,51 +625,54 @@ export async function listCrmSyncFailureCandidates(tenantId: string) {
           externalLeadId: true,
           customerName: true,
           businessId: true,
-          locationId: true
-        }
+          locationId: true,
+        },
       },
       errors: {
         orderBy: [{ occurredAt: "desc" }],
-        take: 3
-      }
+        take: 3,
+      },
     },
-    orderBy: [{ startedAt: "desc" }]
+    orderBy: [{ startedAt: "desc" }],
   });
 }
 
-export async function listStaleLifecycleSyncCandidates(tenantId: string, staleBefore: Date) {
+export async function listStaleLifecycleSyncCandidates(
+  tenantId: string,
+  staleBefore: Date,
+) {
   return prisma.crmLeadMapping.findMany({
     where: {
       tenantId,
       state: {
-        in: ["MATCHED", "MANUAL_OVERRIDE"]
+        in: ["MATCHED", "MANUAL_OVERRIDE"],
       },
       OR: [
         {
           externalCrmLeadId: {
-            not: null
-          }
+            not: null,
+          },
         },
         {
           externalJobId: {
-            not: null
-          }
-        }
+            not: null,
+          },
+        },
       ],
       AND: [
         {
           OR: [
             {
-              lastSyncedAt: null
+              lastSyncedAt: null,
             },
             {
               lastSyncedAt: {
-                lte: staleBefore
-              }
-            }
-          ]
-        }
-      ]
+                lte: staleBefore,
+              },
+            },
+          ],
+        },
+      ],
     },
     include: {
       lead: {
@@ -644,25 +681,25 @@ export async function listStaleLifecycleSyncCandidates(tenantId: string, staleBe
             select: {
               id: true,
               name: true,
-              locationId: true
-            }
+              locationId: true,
+            },
           },
           serviceCategory: {
             select: {
               id: true,
-              name: true
-            }
-          }
-        }
+              name: true,
+            },
+          },
+        },
       },
       location: {
         select: {
           id: true,
-          name: true
-        }
-      }
+          name: true,
+        },
+      },
     },
-    orderBy: [{ lastSyncedAt: "asc" }, { updatedAt: "asc" }]
+    orderBy: [{ lastSyncedAt: "asc" }, { updatedAt: "asc" }],
   });
 }
 
@@ -670,7 +707,7 @@ export async function listMappingConflictCandidates(tenantId: string) {
   return prisma.crmLeadMapping.findMany({
     where: {
       tenantId,
-      state: "CONFLICT"
+      state: "CONFLICT",
     },
     include: {
       lead: {
@@ -679,47 +716,50 @@ export async function listMappingConflictCandidates(tenantId: string) {
             select: {
               id: true,
               name: true,
-              locationId: true
-            }
-          }
-        }
+              locationId: true,
+            },
+          },
+        },
       },
       location: {
         select: {
           id: true,
-          name: true
-        }
-      }
+          name: true,
+        },
+      },
     },
-    orderBy: [{ updatedAt: "desc" }]
+    orderBy: [{ updatedAt: "desc" }],
   });
 }
 
-export async function listAutoresponderFailureCandidates(tenantId: string, pendingBefore: Date) {
+export async function listAutoresponderFailureCandidates(
+  tenantId: string,
+  pendingBefore: Date,
+) {
   return prisma.leadAutomationAttempt.findMany({
     where: {
       tenantId,
       OR: [
         {
-          status: "FAILED"
+          status: "FAILED",
         },
         {
           status: "PENDING",
           OR: [
             {
               dueAt: {
-                lte: pendingBefore
-              }
+                lte: pendingBefore,
+              },
             },
             {
               dueAt: null,
               triggeredAt: {
-                lte: pendingBefore
-              }
-            }
-          ]
-        }
-      ]
+                lte: pendingBefore,
+              },
+            },
+          ],
+        },
+      ],
     },
     include: {
       lead: {
@@ -728,45 +768,45 @@ export async function listAutoresponderFailureCandidates(tenantId: string, pendi
             select: {
               id: true,
               name: true,
-              locationId: true
-            }
-          }
-        }
+              locationId: true,
+            },
+          },
+        },
       },
       business: {
         select: {
           id: true,
           name: true,
-          locationId: true
-        }
+          locationId: true,
+        },
       },
       location: {
         select: {
           id: true,
-          name: true
-        }
+          name: true,
+        },
       },
       serviceCategory: {
         select: {
           id: true,
-          name: true
-        }
+          name: true,
+        },
       },
       rule: {
         select: {
           id: true,
           name: true,
-          cadence: true
-        }
+          cadence: true,
+        },
       },
       template: {
         select: {
           id: true,
-          name: true
-        }
-      }
+          name: true,
+        },
+      },
     },
-    orderBy: [{ dueAt: "asc" }, { triggeredAt: "desc" }]
+    orderBy: [{ dueAt: "asc" }, { triggeredAt: "desc" }],
   });
 }
 
@@ -776,26 +816,26 @@ export async function listReportDeliveryFailureCandidates(tenantId: string) {
       tenantId,
       OR: [
         {
-          generationStatus: "FAILED"
+          generationStatus: "FAILED",
         },
         {
-          deliveryStatus: "FAILED"
-        }
-      ]
+          deliveryStatus: "FAILED",
+        },
+      ],
     },
     include: {
       schedule: {
         select: {
           id: true,
           name: true,
-          cadence: true
-        }
+          cadence: true,
+        },
       },
       location: {
         select: {
           id: true,
-          name: true
-        }
+          name: true,
+        },
       },
       reportRequest: {
         select: {
@@ -806,84 +846,101 @@ export async function listReportDeliveryFailureCandidates(tenantId: string) {
           business: {
             select: {
               id: true,
-              name: true
-            }
-          }
-        }
-      }
+              name: true,
+            },
+          },
+        },
+      },
     },
-    orderBy: [{ scheduledFor: "desc" }, { createdAt: "desc" }]
+    orderBy: [{ scheduledFor: "desc" }, { createdAt: "desc" }],
   });
 }
 
-export async function listStaleLeadCandidates(tenantId: string, staleBefore: Date) {
+export async function listStaleLeadCandidates(
+  tenantId: string,
+  staleBefore: Date,
+) {
   return prisma.yelpLead.findMany({
     where: {
       tenantId,
       internalStatus: {
-        in: ["ACTIVE", "NEW", "CONTACTED", "BOOKED", "SCHEDULED", "JOB_IN_PROGRESS"]
+        in: [
+          "ACTIVE",
+          "NEW",
+          "CONTACTED",
+          "BOOKED",
+          "SCHEDULED",
+          "JOB_IN_PROGRESS",
+        ],
       },
       OR: [
         {
           latestInteractionAt: {
-            lte: staleBefore
-          }
+            lte: staleBefore,
+          },
         },
         {
           latestInteractionAt: null,
           createdAtYelp: {
-            lte: staleBefore
-          }
-        }
-      ]
+            lte: staleBefore,
+          },
+        },
+      ],
     },
     include: {
       business: {
         select: {
           id: true,
           name: true,
-          locationId: true
-        }
+          locationId: true,
+        },
       },
       location: {
         select: {
           id: true,
-          name: true
-        }
+          name: true,
+        },
       },
       serviceCategory: {
         select: {
           id: true,
-          name: true
-        }
-      }
+          name: true,
+        },
+      },
     },
-    orderBy: [{ latestInteractionAt: "asc" }, { createdAtYelp: "asc" }]
+    orderBy: [{ latestInteractionAt: "asc" }, { createdAtYelp: "asc" }],
   });
 }
 
-export async function listIssueAuditContext(tenantId: string, correlationId: string, take = 25) {
+export async function listIssueAuditContext(
+  tenantId: string,
+  correlationId: string,
+  take = 25,
+) {
   return prisma.auditEvent.findMany({
     where: {
       tenantId,
-      correlationId
+      correlationId,
     },
     include: {
       actor: true,
       business: true,
       program: true,
-      reportRequest: true
+      reportRequest: true,
     },
     orderBy: [{ createdAt: "desc" }],
-    take
+    take,
   });
 }
 
-export async function updateOperatorIssueDetails(id: string, detailsJson: unknown) {
+export async function updateOperatorIssueDetails(
+  id: string,
+  detailsJson: unknown,
+) {
   return prisma.operatorIssue.update({
     where: { id },
     data: {
-      detailsJson: toJsonValue(detailsJson)
-    }
+      detailsJson: toJsonValue(detailsJson),
+    },
   });
 }
