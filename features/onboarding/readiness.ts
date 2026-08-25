@@ -25,6 +25,18 @@ export type OnboardingAction =
   | "EMERGENCY_DISABLE"
   | "CLEAR_EMERGENCY";
 
+export function buildClaudeRuntimeCheck(configured: boolean): OnboardingCheck {
+  return {
+    id: "claude-runtime",
+    label: "Claude runtime connected",
+    passed: configured,
+    detail: configured
+      ? "The server-side Anthropic connection is available."
+      : "Claude is unavailable in this deployment. A platform administrator must configure the Anthropic connection before activation.",
+    href: "/autoresponder",
+  };
+}
+
 export function isOnboardingActionAllowed(params: {
   action: OnboardingAction;
   canActivate: boolean;

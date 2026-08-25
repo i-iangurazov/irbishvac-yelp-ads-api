@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildClaudeRuntimeCheck,
   buildOnboardingActionTransition,
   deriveOnboardingReadiness,
   isOnboardingActionAllowed,
@@ -21,6 +22,25 @@ function checks(overrides: Partial<Record<string, boolean>> = {}) {
 }
 
 describe("onboarding readiness", () => {
+  it("blocks readiness when Claude is unavailable in the deployment", () => {
+    const claudeCheck = buildClaudeRuntimeCheck(false);
+    const result = deriveOnboardingReadiness({
+      checks: [...checks(), claudeCheck],
+      persistedStatus: "DRAFT",
+      emergencyDisabled: false,
+    });
+
+    expect(claudeCheck).toMatchObject({
+      id: "claude-runtime",
+      passed: false,
+      href: "/autoresponder",
+    });
+    expect(result.canActivate).toBe(false);
+    expect(result.failedChecks.map((check) => check.id)).toContain(
+      "claude-runtime",
+    );
+  });
+
   it("allows activation only when every check passes", () => {
     const result = deriveOnboardingReadiness({
       checks: checks(),

@@ -1,11 +1,13 @@
 import "server-only";
 
+import { isAnthropicConfigured } from "@/features/autoresponder/anthropic-client";
 import { leadAutoresponderSettingsSchema } from "@/features/autoresponder/schemas";
 import { getAnthropicMonthlySpendState } from "@/features/autoresponder/anthropic-budget";
 import { readLeadAutoresponderSettings } from "@/features/autoresponder/config";
 import { LEAD_AUTORESPONDER_SETTING_KEY } from "@/features/autoresponder/constants";
 import { recordAuditEvent } from "@/features/audit/service";
 import {
+  buildClaudeRuntimeCheck,
   buildOnboardingActionTransition,
   deriveOnboardingReadiness,
   isOnboardingActionAllowed,
@@ -278,6 +280,7 @@ export async function getTenantOnboardingOverview(
           "An operator-approved Claude tier, allowlist, warning and hard limits are required.",
         href: "/autoresponder",
       },
+      buildClaudeRuntimeCheck(isAnthropicConfigured()),
       {
         id: "review-only",
         label: "Review-only business policy",
