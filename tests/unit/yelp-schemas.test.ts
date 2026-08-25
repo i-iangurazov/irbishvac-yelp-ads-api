@@ -1,6 +1,24 @@
 import { describe, expect, it } from "vitest";
 
-import { yelpJobStatusResponseSchema, yelpProgramInfoResponseSchema, yelpProgramListResponseSchema } from "@/lib/yelp/schemas";
+import { yelpJobStatusResponseSchema, yelpLeadDetailSchema, yelpProgramInfoResponseSchema, yelpProgramListResponseSchema } from "@/lib/yelp/schemas";
+
+describe("yelp lead detail schema", () => {
+  it("accepts unavailable phone fields returned as null", () => {
+    const result = yelpLeadDetailSchema.safeParse({
+      id: "lead_1",
+      business_id: "business_1",
+      phone_number: null,
+      temporary_phone_number: null,
+      temporary_phone_number_expiry: null,
+      customer: {
+        phone: null,
+        phone_number: null
+      }
+    });
+
+    expect(result.success).toBe(true);
+  });
+});
 
 describe("yelp job status schema", () => {
   it("accepts array-shaped ad_categories entries in program_added update results", () => {
