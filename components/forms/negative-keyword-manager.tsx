@@ -29,13 +29,13 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  type KeywordWriteMode,
   MAX_BLOCKED_KEYWORDS,
   normalizeBlockedKeywords,
 } from "@/features/program-features/keywords";
 import { apiFetch } from "@/lib/utils/client-api";
 
 type KeywordSource = "YELP_LIVE" | "LOCAL_SNAPSHOT" | "DEMO_SNAPSHOT";
-type KeywordWriteMode = "LIVE" | "DEMO" | "READ_ONLY";
 
 type KeywordState = {
   suggestedKeywords: string[];
@@ -75,6 +75,7 @@ export function NegativeKeywordManager({
   syncedAt,
   message,
   writeMode,
+  canWrite,
 }: {
   programId: string;
   supported: boolean;
@@ -84,6 +85,7 @@ export function NegativeKeywordManager({
   syncedAt: string | null;
   message: string;
   writeMode: KeywordWriteMode;
+  canWrite: boolean;
 }) {
   const router = useRouter();
   const initial = useMemo(
@@ -241,7 +243,7 @@ export function NegativeKeywordManager({
                 ? "Live saves are accepted only after Yelp returns the exact blocked set on read-back."
                 : writeMode === "DEMO"
                   ? "Demo changes remain local and are never represented as Yelp writes."
-                  : "This saved state is read-only until Program Feature API access is enabled."}
+                  : "This saved state is read-only until Yelp successfully returns this feature for the program."}
             </div>
           </div>
         </div>
@@ -406,7 +408,9 @@ export function NegativeKeywordManager({
               </div>
             ) : (
               <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                Your role can review keyword targeting but cannot change it.
+                {canWrite
+                  ? "Live updates are unavailable until Yelp successfully returns Negative Keyword Targeting for this program."
+                  : "Your role can review keyword targeting but cannot change it."}
               </div>
             )}
           </>

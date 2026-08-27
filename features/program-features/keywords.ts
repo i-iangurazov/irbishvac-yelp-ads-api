@@ -42,6 +42,34 @@ export const negativeKeywordUpdateSchema = z
 
 export type NegativeKeywordUpdate = z.infer<typeof negativeKeywordUpdateSchema>;
 
+export type KeywordWriteMode = "LIVE" | "DEMO" | "READ_ONLY";
+
+export function resolveKeywordWriteMode({
+  canWrite,
+  capabilityEnabled,
+  demoMode,
+  providerLoaded,
+  supported,
+}: {
+  canWrite: boolean;
+  capabilityEnabled: boolean;
+  demoMode: boolean;
+  providerLoaded: boolean;
+  supported: boolean;
+}): KeywordWriteMode {
+  if (!canWrite) {
+    return "READ_ONLY";
+  }
+
+  if (demoMode) {
+    return "DEMO";
+  }
+
+  return capabilityEnabled && providerLoaded && supported
+    ? "LIVE"
+    : "READ_ONLY";
+}
+
 export function keywordSetsMatch(expected: string[], actual: string[]) {
   const canonicalize = (values: string[]) =>
     normalizeBlockedKeywords(values)

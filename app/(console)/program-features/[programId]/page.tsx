@@ -4,6 +4,7 @@ import { CapabilityState } from "@/components/shared/capability-state";
 import { PageHeader } from "@/components/shared/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { resolveKeywordWriteMode } from "@/features/program-features/keywords";
 import { getProgramFeatureOverview } from "@/features/program-features/service";
 import { requirePermission } from "@/lib/auth/service";
 import { hasPermission } from "@/lib/permissions";
@@ -17,14 +18,22 @@ export default async function ProgramFeaturesPage({
   const user = await requirePermission("features:read");
   const { programId } = await params;
   const overview = await getProgramFeatureOverview(user.tenantId, programId);
-  const canManageFeatures =
-    hasPermission(user.role.code, "features:write") &&
-    (overview.capabilityState.enabled || overview.capabilityState.demoMode);
-  const writeMode = canManageFeatures
-    ? overview.capabilityState.enabled
-      ? ("LIVE" as const)
-      : ("DEMO" as const)
-    : ("READ_ONLY" as const);
+  const canWriteFeatures = hasPermission(user.role.code, "features:write");
+  const writeMode = resolveKeywordWriteMode({
+    canWrite: canWriteFeatures,
+    capabilityEnabled: overview.capabilityState.enabled,
+    demoMode: overview.capabilityState.demoMode,
+    providerLoaded: overview.liveFeatureState.loaded,
+    supported: overview.negativeKeywords.supported,
+  });
+  const capabilityOperational =
+    overview.capabilityState.demoMode ||
+    (overview.capabilityState.enabled && overview.liveFeatureState.loaded);
+  const capabilityMessage = overview.capabilityState.demoMode
+    ? overview.capabilityState.message
+    : overview.liveFeatureState.loaded
+      ? overview.capabilityState.message
+      : overview.liveFeatureState.message;
 
   return (
     <div>
@@ -35,8 +44,8 @@ export default async function ProgramFeaturesPage({
       />
 
       <CapabilityState
-        enabled={overview.capabilityState.enabled}
-        message={overview.capabilityState.message}
+        enabled={capabilityOperational}
+        message={capabilityMessage}
       />
 
       <Card className="mt-6">
@@ -75,6 +84,7 @@ export default async function ProgramFeaturesPage({
         syncedAt={overview.negativeKeywords.syncedAt}
         message={overview.negativeKeywords.message}
         writeMode={writeMode}
+        canWrite={canWriteFeatures}
       />
     </div>
   );

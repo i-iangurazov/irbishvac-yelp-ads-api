@@ -4,6 +4,7 @@ import {
   keywordSetsMatch,
   negativeKeywordUpdateSchema,
   normalizeBlockedKeywords,
+  resolveKeywordWriteMode,
 } from "@/features/program-features/keywords";
 
 describe("program feature keywords", () => {
@@ -37,5 +38,27 @@ describe("program feature keywords", () => {
       true,
     );
     expect(keywordSetsMatch(["HVAC jobs"], ["HVAC careers"])).toBe(false);
+  });
+
+  it("allows live writes only after the provider feature loaded successfully", () => {
+    expect(
+      resolveKeywordWriteMode({
+        canWrite: true,
+        capabilityEnabled: true,
+        demoMode: false,
+        providerLoaded: false,
+        supported: true,
+      }),
+    ).toBe("READ_ONLY");
+
+    expect(
+      resolveKeywordWriteMode({
+        canWrite: true,
+        capabilityEnabled: true,
+        demoMode: false,
+        providerLoaded: true,
+        supported: true,
+      }),
+    ).toBe("LIVE");
   });
 });
