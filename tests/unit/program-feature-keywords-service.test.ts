@@ -96,6 +96,11 @@ describe("negative-keyword provider workflow", () => {
     );
 
     expect(mocks.getProgramById).toHaveBeenCalledWith("program-1", "tenant-a");
+    expect(mocks.ensureYelpAccess).toHaveBeenCalledWith({
+      tenantId: "tenant-a",
+      capabilityKey: "programFeatureApiEnabled",
+      credentialKind: "DATA_INGESTION",
+    });
     expect(mocks.updateNegativeKeywords).toHaveBeenCalledWith(
       "yelp-program-1",
       ["hvac jobs", "free hvac"],

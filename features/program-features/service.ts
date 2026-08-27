@@ -180,7 +180,7 @@ export async function getProgramFeatureOverview(
       const { credential } = await ensureYelpAccess({
         tenantId,
         capabilityKey: "programFeatureApiEnabled",
-        credentialKind: "ADS_BASIC_AUTH",
+        credentialKind: "DATA_INGESTION",
       });
       const response = await new YelpFeaturesClient(
         credential,
@@ -259,7 +259,7 @@ export async function updateProgramFeatureWorkflow(
       const { credential } = await ensureYelpAccess({
         tenantId,
         capabilityKey: "programFeatureApiEnabled",
-        credentialKind: "ADS_BASIC_AUTH",
+        credentialKind: "DATA_INGESTION",
       });
       const client = new YelpFeaturesClient(credential);
       const beforeResponse = await client.getProgramFeatures(upstreamProgramId);
@@ -383,7 +383,7 @@ export async function deleteProgramFeatureWorkflow(
       const { credential } = await ensureYelpAccess({
         tenantId,
         capabilityKey: "programFeatureApiEnabled",
-        credentialKind: "ADS_BASIC_AUTH",
+        credentialKind: "DATA_INGESTION",
       });
       const client = new YelpFeaturesClient(credential);
       const beforeResponse = await client.getProgramFeatures(upstreamProgramId);

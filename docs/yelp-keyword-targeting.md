@@ -8,7 +8,7 @@ The provider workflow is:
 
 1. Resolve the authenticated tenant and tenant-scoped local program.
 2. Require a confirmed upstream Yelp program ID and an editable program state.
-3. Require `programFeatureApiEnabled` and the tenant's encrypted `ADS_BASIC_AUTH` credential.
+3. Require `programFeatureApiEnabled` and the tenant's encrypted `DATA_INGESTION` credential. Yelp's Program Feature API documentation explicitly requires the credentials used for the Data Ingestion API.
 4. Read the current feature state from Yelp.
 5. Send only the negative-keyword feature subset to Yelp.
 6. Read the feature state from Yelp again.
@@ -22,7 +22,7 @@ Clearing exclusions uses Yelp's feature DELETE contract and is also verified by 
 - Read: `GET /program/{programId}/features/v1`
 - Update: `POST /program/{programId}/features/v1`
 - Clear: `DELETE /program/{programId}/features/v1`
-- Authentication: Yelp Partner API Basic authentication from the tenant's encrypted Ads credential
+- Authentication: Yelp Partner API Basic authentication from the tenant's encrypted Data Ingestion credential
 
 The update body contains only:
 
@@ -45,7 +45,7 @@ The clear body contains only:
 ## Operator setup
 
 1. Yelp must enable Program Feature API access for the partner account.
-2. Save and successfully test the tenant's Partner API Basic Auth credential in Admin Settings.
+2. Save and successfully test the tenant's Data Ingestion Basic Auth credential in Admin Settings. Ads API Basic Auth is not the documented credential for this endpoint.
 3. Enable `programFeatureApiEnabled` for that tenant.
 4. Synchronize Yelp programs so each managed program has its canonical upstream program ID.
 5. Open Programs, select a program, and open its Program Features view.

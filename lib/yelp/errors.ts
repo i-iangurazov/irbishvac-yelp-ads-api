@@ -7,7 +7,7 @@ export class YelpApiError extends Error {
     message: string,
     public readonly code: string,
     public readonly status: number,
-    public readonly details?: unknown
+    public readonly details?: unknown,
   ) {
     super(message);
     this.name = new.target.name;
@@ -16,36 +16,59 @@ export class YelpApiError extends Error {
 
 export class YelpAuthFailureError extends YelpApiError {
   constructor(details?: unknown) {
-    super("Yelp authentication failed. Check the configured credentials.", "AUTH_FAILURE", 401, details);
+    super(
+      "Yelp authentication failed. Check the configured credentials.",
+      "AUTH_FAILURE",
+      401,
+      details,
+    );
   }
 }
 
 export class YelpMissingAccessError extends YelpApiError {
-  constructor(message = "This Yelp capability is not enabled or credentials are missing.", details?: unknown) {
+  constructor(
+    message = "This Yelp capability is not enabled or credentials are missing.",
+    details?: unknown,
+  ) {
     super(message, "MISSING_ACCESS", 403, details);
   }
 }
 
 export class YelpValidationError extends YelpApiError {
-  constructor(message = "The submitted request is invalid.", details?: unknown) {
-    super(message, "VALIDATION_ERROR", 422, details);
+  constructor(
+    message = "The submitted request is invalid.",
+    details?: unknown,
+    status = 422,
+  ) {
+    super(message, "VALIDATION_ERROR", status, details);
   }
 }
 
 export class YelpNotFoundError extends YelpApiError {
-  constructor(message = "The requested Yelp resource was not found.", details?: unknown) {
+  constructor(
+    message = "The requested Yelp resource was not found.",
+    details?: unknown,
+  ) {
     super(message, "NOT_FOUND", 404, details);
   }
 }
 
 export class YelpRateLimitError extends YelpApiError {
   constructor(details?: unknown) {
-    super("Yelp rate limited the request. Please retry shortly.", "RATE_LIMIT", 429, details);
+    super(
+      "Yelp rate limited the request. Please retry shortly.",
+      "RATE_LIMIT",
+      429,
+      details,
+    );
   }
 }
 
 export class YelpPartialAsyncJobFailureError extends YelpApiError {
-  constructor(message = "The Yelp job completed with partial failures.", details?: unknown) {
+  constructor(
+    message = "The Yelp job completed with partial failures.",
+    details?: unknown,
+  ) {
     super(message, "PARTIAL_ASYNC_JOB_FAILURE", 207, details);
   }
 }
@@ -73,12 +96,19 @@ export async function normalizeYelpError(response: Response) {
     case 401:
       return new YelpAuthFailureError(payload);
     case 403:
-      return new YelpMissingAccessError("The current Yelp account does not have access to this capability.", payload);
+      return new YelpMissingAccessError(
+        "The current Yelp account does not have access to this capability.",
+        payload,
+      );
     case 404:
       return new YelpNotFoundError(undefined, payload);
     case 422:
     case 400:
-      return new YelpValidationError("Yelp rejected the request payload.", payload);
+      return new YelpValidationError(
+        "Yelp rejected the request payload.",
+        payload,
+        response.status,
+      );
     case 429:
       return new YelpRateLimitError(payload);
     case 500:
@@ -91,7 +121,7 @@ export async function normalizeYelpError(response: Response) {
         "The Yelp API returned an unexpected error.",
         "UNEXPECTED_UPSTREAM_ERROR",
         response.status,
-        payload
+        payload,
       );
   }
 }
@@ -102,9 +132,14 @@ export function normalizeUnknownError(error: unknown) {
   }
 
   if (error instanceof ZodError) {
-    return new YelpApiError("Yelp returned a response format this console could not parse.", "UPSTREAM_RESPONSE_INVALID", 502, {
-      issues: error.issues
-    });
+    return new YelpApiError(
+      "Yelp returned a response format this console could not parse.",
+      "UPSTREAM_RESPONSE_INVALID",
+      502,
+      {
+        issues: error.issues,
+      },
+    );
   }
 
   if (error instanceof Error) {
@@ -119,16 +154,26 @@ export function normalizeUnknownError(error: unknown) {
         "Could not reach Yelp. Check the base URL, network access, or VPN requirements.",
         {
           name: error.name,
-          message: error.message
-        }
+          message: error.message,
+        },
       );
     }
 
-    return new YelpApiError(error.message || "An unexpected server error occurred.", "UNKNOWN_ERROR", 500, {
-      name: error.name,
-      message: error.message
-    });
+    return new YelpApiError(
+      error.message || "An unexpected server error occurred.",
+      "UNKNOWN_ERROR",
+      500,
+      {
+        name: error.name,
+        message: error.message,
+      },
+    );
   }
 
-  return new YelpApiError("An unexpected server error occurred.", "UNKNOWN_ERROR", 500, error);
+  return new YelpApiError(
+    "An unexpected server error occurred.",
+    "UNKNOWN_ERROR",
+    500,
+    error,
+  );
 }
