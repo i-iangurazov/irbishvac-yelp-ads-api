@@ -424,7 +424,16 @@ async function main() {
         programId: program.id,
         type: "NEGATIVE_KEYWORD_TARGETING",
         valueJson: {
-          keywords: ["jobs", "careers"],
+          type: "NEGATIVE_KEYWORD_TARGETING",
+          suggestedKeywords: [
+            "air conditioning repair",
+            "commercial hvac",
+            "heating repair",
+            "hvac jobs",
+            "hvac service",
+          ],
+          blockedKeywords: ["hvac jobs"],
+          source: "DEMO_SNAPSHOT",
         },
       },
     ],

@@ -2,10 +2,9 @@ import "server-only";
 
 import { DEFAULT_YELP_ENDPOINTS, resolveEndpoint } from "@/lib/yelp/endpoints";
 import {
-  yelpFeatureDeleteResponseSchema,
-  yelpProgramFeatureCollectionSchema,
-  yelpProgramFeatureSchema,
-  type YelpProgramFeatureDto
+  yelpNegativeKeywordUpdateRequestSchema,
+  yelpProgramFeatureDeleteRequestSchema,
+  yelpProgramFeaturesResponseSchema,
 } from "@/lib/yelp/schemas";
 import { requestYelp } from "@/lib/yelp/base-client";
 import type { YelpCredentialConfig } from "@/lib/yelp/runtime";
@@ -17,39 +16,59 @@ export class YelpFeaturesClient {
     return requestYelp({
       credential: this.credential,
       authType: "basic",
-      path: resolveEndpoint(DEFAULT_YELP_ENDPOINTS.features.getProgramFeatures, { programId }),
-      schema: yelpProgramFeatureCollectionSchema
+      path: resolveEndpoint(
+        DEFAULT_YELP_ENDPOINTS.features.getProgramFeatures,
+        { programId },
+      ),
+      schema: yelpProgramFeaturesResponseSchema,
     });
   }
 
-  async updateProgramFeatures(programId: string, features: YelpProgramFeatureDto[]) {
-    const body = yelpProgramFeatureCollectionSchema.parse(features.map((feature) => yelpProgramFeatureSchema.parse(feature)));
+  async updateNegativeKeywords(programId: string, blockedKeywords: string[]) {
+    const body = yelpNegativeKeywordUpdateRequestSchema.parse({
+      NEGATIVE_KEYWORD_TARGETING: {
+        blocked_keywords: blockedKeywords,
+      },
+    });
 
     return requestYelp({
       credential: this.credential,
       authType: "basic",
-      method: "PUT",
-      path: resolveEndpoint(DEFAULT_YELP_ENDPOINTS.features.updateProgramFeatures, { programId }),
+      method: "POST",
+      path: resolveEndpoint(
+        DEFAULT_YELP_ENDPOINTS.features.updateProgramFeatures,
+        { programId },
+      ),
       body,
-      schema: yelpProgramFeatureCollectionSchema
+      schema: yelpProgramFeaturesResponseSchema,
     });
   }
 
-  async deleteProgramFeatures(programId: string, featureType: YelpProgramFeatureDto["type"]) {
+  async deleteProgramFeatures(programId: string, featureTypes: string[]) {
+    const body = yelpProgramFeatureDeleteRequestSchema.parse({
+      features: featureTypes,
+    });
+
     return requestYelp({
       credential: this.credential,
       authType: "basic",
       method: "DELETE",
-      path: resolveEndpoint(DEFAULT_YELP_ENDPOINTS.features.deleteProgramFeatures, { programId, featureType }),
-      schema: yelpFeatureDeleteResponseSchema
+      path: resolveEndpoint(
+        DEFAULT_YELP_ENDPOINTS.features.deleteProgramFeatures,
+        { programId },
+      ),
+      body,
+      schema: yelpProgramFeaturesResponseSchema,
     });
   }
 
-  async testConnection(path: string = DEFAULT_YELP_ENDPOINTS.features.testConnection) {
+  async testConnection(
+    path: string = DEFAULT_YELP_ENDPOINTS.features.testConnection,
+  ) {
     return requestYelp({
       credential: this.credential,
       authType: "basic",
-      path
+      path,
     });
   }
 }

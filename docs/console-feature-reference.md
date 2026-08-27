@@ -172,9 +172,7 @@ Internal payload:
   "city": "San Francisco",
   "state": "CA",
   "country": "US",
-  "categories": [
-    { "label": "Plumbing", "alias": "plumbing" }
-  ]
+  "categories": [{ "label": "Plumbing", "alias": "plumbing" }]
 }
 ```
 
@@ -639,22 +637,17 @@ Outputs shown:
 
 Page: `app/(console)/program-features/[programId]/page.tsx`
 
-One card is rendered for each supported feature type:
+The page reads Yelp's available feature types from the official Program Feature API. Availability badges are informational; the production write workflow is intentionally limited to `NEGATIVE_KEYWORD_TARGETING` until another feature receives its own provider-specific contract and verification workflow.
 
-- `LINK_TRACKING`
-- `NEGATIVE_KEYWORD_TARGETING`
-- `STRICT_CATEGORY_TARGETING`
-- `AD_SCHEDULING`
-- `CUSTOM_LOCATION_TARGETING`
-- `AD_GOAL`
-- `CALL_TRACKING`
-- `BUSINESS_HIGHLIGHTS`
-- `VERIFIED_LICENSE`
-- `CUSTOM_RADIUS_TARGETING`
-- `CUSTOM_AD_TEXT`
-- `CUSTOM_AD_PHOTO`
-- `BUSINESS_LOGO`
-- `YELP_PORTFOLIO`
+Negative-keyword controls show:
+
+- Yelp-suggested search terms, selectable as exclusions
+- custom blocked search terms
+- normalized and deduplicated blocked-term count
+- live, local-snapshot, demo, stale, and unsupported states
+- last successful provider load
+- confirmation before clearing all exclusions
+- read-only state for roles without `features:write`
 
 Internal routes:
 
@@ -664,54 +657,26 @@ Internal routes:
 
 Common outputs:
 
-- save success toast
-- delete success toast
-- local feature snapshot persisted
-- audit event written for every update/delete
+- success only after an exact Yelp provider read-back
+- no local success snapshot when read-back differs
+- tenant-scoped audit event for every successful or failed update/clear
+- provider correlation ID and upstream program reference in the audit event
+- saved snapshot of Yelp-suggested and blocked terms after verification
 
-Feature input reference:
+The write workflow uses:
 
-- `LINK_TRACKING`
-  - `Destination URL`: landing URL
-  - `Tracking template`: optional tracking template URL
-- `NEGATIVE_KEYWORD_TARGETING`
-  - `Blocked keywords`: comma-separated negative keywords
-- `STRICT_CATEGORY_TARGETING`
-  - `Enabled`: `true` or `false`
-  - `Categories (comma separated)`: categories to keep
-- `AD_SCHEDULING`
-  - `Schedule JSON`: JSON array of `{ dayOfWeek, startTime, endTime }`
-- `CUSTOM_LOCATION_TARGETING`
-  - `Neighborhoods`: comma-separated neighborhoods
-- `AD_GOAL`
-  - `Goal`: one of the feature schema goal values
-- `CALL_TRACKING`
-  - `Enabled`: `true` or `false`
-- `BUSINESS_HIGHLIGHTS`
-  - `Highlights`: comma-separated highlight strings
-- `VERIFIED_LICENSE`
-  - `License number`
-  - `Issuing state`
-- `CUSTOM_RADIUS_TARGETING`
-  - `Radius miles`
-- `CUSTOM_AD_TEXT`
-  - `Headline`
-  - `Description`
-  - `Call to action`
-- `CUSTOM_AD_PHOTO`
-  - `Photo ID`
-  - `Caption`
-- `BUSINESS_LOGO`
-  - `Logo URL`
-- `YELP_PORTFOLIO`
-  - `Portfolio item IDs`: comma-separated IDs
+- `POST /program/{programId}/features/v1` with only the `NEGATIVE_KEYWORD_TARGETING` feature subset
+- `GET /program/{programId}/features/v1` for explicit read-back verification
+- `DELETE /program/{programId}/features/v1` with Yelp's feature-list delete body
+
+Yelp's suggestions are not an exhaustive list of searches and are not positive bid keywords. Campaign category targeting remains a separate Ads Program operation.
 
 Feature update payload example:
 
 ```json
 {
   "type": "NEGATIVE_KEYWORD_TARGETING",
-  "keywords": ["jobs", "careers", "free"]
+  "blockedKeywords": ["hvac jobs", "free hvac"]
 }
 ```
 
@@ -725,8 +690,9 @@ Delete payload example:
 
 Yelp feature behavior:
 
-- updates send the full merged feature collection for the program
-- deletes call the feature-specific DELETE endpoint
+- writes are tenant-scoped and require `features:write`
+- updates and deletes are accepted locally only after exact provider read-back
+- demo snapshots are clearly labeled and never represented as Yelp writes
 
 ### 6. Reporting
 
@@ -992,26 +958,26 @@ Audit is written for:
 
 These are the main internal routes used by the UI.
 
-| Route | Method | Purpose | Permission |
-| --- | --- | --- | --- |
-| `/api/auth/login` | `POST` | Sign in | public |
-| `/api/auth/logout` | `POST` | Sign out | signed-in user |
-| `/api/businesses` | `POST` | Save business | `businesses:write` |
-| `/api/businesses/search` | `POST` | Search local + Business Match | `businesses:read` |
-| `/api/businesses/[businessId]/readiness` | `PATCH` | Patch readiness via Data Ingestion | `businesses:write` |
-| `/api/programs` | `GET`, `POST` | List or create programs | `programs:read`, `programs:write` |
-| `/api/programs/[programId]` | `GET`, `PATCH` | Read or edit program | `programs:read`, `programs:write` |
-| `/api/programs/[programId]/budget` | `POST` | Submit focused CPC budget operation | `programs:write` |
-| `/api/programs/[programId]/terminate` | `POST` | Submit termination | `programs:terminate` |
-| `/api/jobs/[jobId]` | `GET` | Poll program job | `programs:read` |
-| `/api/programs/[programId]/features` | `GET`, `PUT`, `DELETE` | Read/update/delete feature state | `features:read`, `features:write` |
-| `/api/reports` | `GET`, `POST` | List or request reports | `reports:read`, `reports:request` |
-| `/api/reports/[reportId]` | `GET` | Get or poll report | `reports:read` |
-| `/api/reports/[reportId]/export` | `GET` | Export CSV | `reports:read` |
-| `/api/settings/credentials` | `POST` | Save credentials | `settings:write` |
-| `/api/settings/credentials/test` | `POST` | Test saved credentials | `settings:write` |
-| `/api/settings/capabilities` | `POST` | Save capability flags | `settings:write` |
-| `/api/settings/users` | `PATCH` | Change user role | `settings:write` |
+| Route                                    | Method                 | Purpose                             | Permission                        |
+| ---------------------------------------- | ---------------------- | ----------------------------------- | --------------------------------- |
+| `/api/auth/login`                        | `POST`                 | Sign in                             | public                            |
+| `/api/auth/logout`                       | `POST`                 | Sign out                            | signed-in user                    |
+| `/api/businesses`                        | `POST`                 | Save business                       | `businesses:write`                |
+| `/api/businesses/search`                 | `POST`                 | Search local + Business Match       | `businesses:read`                 |
+| `/api/businesses/[businessId]/readiness` | `PATCH`                | Patch readiness via Data Ingestion  | `businesses:write`                |
+| `/api/programs`                          | `GET`, `POST`          | List or create programs             | `programs:read`, `programs:write` |
+| `/api/programs/[programId]`              | `GET`, `PATCH`         | Read or edit program                | `programs:read`, `programs:write` |
+| `/api/programs/[programId]/budget`       | `POST`                 | Submit focused CPC budget operation | `programs:write`                  |
+| `/api/programs/[programId]/terminate`    | `POST`                 | Submit termination                  | `programs:terminate`              |
+| `/api/jobs/[jobId]`                      | `GET`                  | Poll program job                    | `programs:read`                   |
+| `/api/programs/[programId]/features`     | `GET`, `PUT`, `DELETE` | Read/update/delete feature state    | `features:read`, `features:write` |
+| `/api/reports`                           | `GET`, `POST`          | List or request reports             | `reports:read`, `reports:request` |
+| `/api/reports/[reportId]`                | `GET`                  | Get or poll report                  | `reports:read`                    |
+| `/api/reports/[reportId]/export`         | `GET`                  | Export CSV                          | `reports:read`                    |
+| `/api/settings/credentials`              | `POST`                 | Save credentials                    | `settings:write`                  |
+| `/api/settings/credentials/test`         | `POST`                 | Test saved credentials              | `settings:write`                  |
+| `/api/settings/capabilities`             | `POST`                 | Save capability flags               | `settings:write`                  |
+| `/api/settings/users`                    | `PATCH`                | Change user role                    | `settings:write`                  |
 
 ## Local persistence and side effects
 

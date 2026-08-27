@@ -56,15 +56,12 @@ test("terminate flow", async ({ page }) => {
 test("feature updates flow", async ({ page }) => {
   await login(page);
   await gotoReady(page, "/program-features/demo-program-cpc");
-  const linkTracking = page
-    .getByRole("heading", { name: "Link Tracking", exact: true })
-    .locator("..")
-    .locator("..");
-  await linkTracking
-    .locator('input[name="destinationUrl"]')
-    .fill("https://northwindhvac.example/new-offer");
-  await linkTracking.getByRole("button", { name: "Save feature" }).click();
-  await expect(page.getByText("Link Tracking updated.")).toBeVisible();
+  await page.getByLabel("air conditioning repair").check();
+  await page
+    .getByLabel("Custom blocked search terms")
+    .fill("free hvac\ndiy air conditioner repair");
+  await page.getByRole("button", { name: "Save demo snapshot" }).click();
+  await expect(page.getByText("Demo keyword snapshot updated.")).toBeVisible();
 });
 
 test("report request and fetch flow", async ({ page }) => {

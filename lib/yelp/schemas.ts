@@ -10,7 +10,7 @@ export const yelpProgramTypeSchema = z.enum([
   "BH",
   "VL",
   "LOGO",
-  "PORTFOLIO"
+  "PORTFOLIO",
 ]);
 
 const yelpDateInputSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -29,7 +29,7 @@ export const yelpCreateProgramRequestSchema = z.object({
   max_bid: z.number().int().positive().optional(),
   pacing_method: yelpPacingMethodSchema.optional(),
   fee_period: yelpFeePeriodSchema.optional(),
-  ad_categories: z.array(z.string().min(1)).optional()
+  ad_categories: z.array(z.string().min(1)).optional(),
 });
 
 export const yelpEditProgramRequestSchema = z.object({
@@ -39,41 +39,50 @@ export const yelpEditProgramRequestSchema = z.object({
   future_budget_date: yelpDateInputSchema.optional(),
   max_bid: z.number().int().positive().optional(),
   pacing_method: yelpPacingMethodSchema.optional(),
-  ad_categories: z.array(z.string().min(1)).optional()
+  ad_categories: z.array(z.string().min(1)).optional(),
 });
 
 export const yelpTerminateProgramRequestSchema = z.object({}).default({});
 
 export const yelpJobSubmissionResponseSchema = z
   .object({
-    job_id: z.string()
+    job_id: z.string(),
   })
   .passthrough();
 
 const yelpJobReceiptErrorSchema = z
   .object({
     code: z.string().optional(),
-    message: z.string().optional()
+    message: z.string().optional(),
   })
   .passthrough();
 
-const yelpJobReceiptPrimitiveSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+const yelpJobReceiptPrimitiveSchema = z.union([
+  z.string(),
+  z.number(),
+  z.boolean(),
+  z.null(),
+]);
 
 const yelpJobReceiptValueSchema = z
   .object({
     status: z.string().optional(),
     requested_value: z.unknown().optional(),
-    error: yelpJobReceiptErrorSchema.optional()
+    error: yelpJobReceiptErrorSchema.optional(),
   })
   .passthrough();
 
 const yelpJobReceiptUpdateEntrySchema: z.ZodTypeAny = z.lazy(() =>
-  z.union([yelpJobReceiptValueSchema, yelpJobReceiptPrimitiveSchema, z.array(yelpJobReceiptUpdateEntrySchema)])
+  z.union([
+    yelpJobReceiptValueSchema,
+    yelpJobReceiptPrimitiveSchema,
+    z.array(yelpJobReceiptUpdateEntrySchema),
+  ]),
 );
 
 const yelpJobReceiptUpdateGroupSchema = z
   .object({
-    status: z.string().optional()
+    status: z.string().optional(),
   })
   .catchall(yelpJobReceiptUpdateEntrySchema);
 
@@ -83,7 +92,9 @@ const yelpBusinessResultSchema = z
     identifier_type: z.string().optional(),
     identifier: z.string().optional(),
     error: yelpJobReceiptErrorSchema.optional(),
-    update_results: z.record(z.string(), yelpJobReceiptUpdateGroupSchema).optional()
+    update_results: z
+      .record(z.string(), yelpJobReceiptUpdateGroupSchema)
+      .optional(),
   })
   .passthrough();
 
@@ -92,7 +103,7 @@ export const yelpJobStatusResponseSchema = z
     status: z.string(),
     created_at: z.string().optional().nullable(),
     completed_at: z.string().optional().nullable(),
-    business_results: z.array(yelpBusinessResultSchema).default([])
+    business_results: z.array(yelpBusinessResultSchema).default([]),
   })
   .passthrough();
 
@@ -105,14 +116,14 @@ const yelpProgramMetricsSchema = z
     fee_period: z.string().optional().nullable(),
     billed_impressions: z.number().optional().nullable(),
     billed_clicks: z.number().optional().nullable(),
-    ad_cost: z.number().optional().nullable()
+    ad_cost: z.number().optional().nullable(),
   })
   .passthrough();
 
 const yelpPageUpgradeInfoSchema = z
   .object({
     cost: z.number().optional().nullable(),
-    monthly_rate: z.number().optional().nullable()
+    monthly_rate: z.number().optional().nullable(),
   })
   .passthrough();
 
@@ -132,7 +143,7 @@ export const yelpUpstreamProgramSchema = z
     future_budget_changes: z.array(z.unknown()).default([]),
     yelp_business_id: z.string().optional().nullable(),
     partner_business_id: z.string().optional().nullable(),
-    page_upgrade_info: yelpPageUpgradeInfoSchema.optional()
+    page_upgrade_info: yelpPageUpgradeInfoSchema.optional(),
   })
   .passthrough();
 
@@ -142,21 +153,21 @@ const yelpProgramListBusinessSchema = z
     advertiser_status: z.string().optional().nullable(),
     partner_business_id: z.string().optional().nullable(),
     destination_yelp_business_id: z.string().optional().nullable(),
-    programs: z.array(yelpUpstreamProgramSchema).default([])
+    programs: z.array(yelpUpstreamProgramSchema).default([]),
   })
   .passthrough();
 
 export const yelpProgramListResponseSchema = z
   .object({
     businesses: z.array(yelpProgramListBusinessSchema).default([]),
-    errors: z.array(z.unknown()).default([])
+    errors: z.array(z.unknown()).default([]),
   })
   .passthrough();
 
 export const yelpProgramInfoResponseSchema = z
   .object({
     programs: z.array(yelpUpstreamProgramSchema).default([]),
-    errors: z.array(z.unknown()).default([])
+    errors: z.array(z.unknown()).default([]),
   })
   .passthrough();
 
@@ -167,25 +178,25 @@ export const yelpLegacyJobStatusResponseSchema = z.object({
   program_id: z.string().optional(),
   errors: z.array(z.record(z.unknown())).optional(),
   warnings: z.array(z.record(z.unknown())).optional(),
-  updated_at: z.string().datetime().optional()
+  updated_at: z.string().datetime().optional(),
 });
 
 export const linkTrackingFeatureSchema = z.object({
   type: z.literal("LINK_TRACKING"),
   destinationUrl: z.string().url(),
   trackingTemplate: z.string().url().optional(),
-  clickSuffix: z.string().max(200).optional()
+  clickSuffix: z.string().max(200).optional(),
 });
 
 export const negativeKeywordFeatureSchema = z.object({
   type: z.literal("NEGATIVE_KEYWORD_TARGETING"),
-  keywords: z.array(z.string().min(1).max(80)).max(100)
+  keywords: z.array(z.string().min(1).max(80)).max(100),
 });
 
 export const strictCategoryFeatureSchema = z.object({
   type: z.literal("STRICT_CATEGORY_TARGETING"),
   enabled: z.boolean(),
-  categories: z.array(z.string()).default([])
+  categories: z.array(z.string()).default([]),
 });
 
 export const adSchedulingFeatureSchema = z.object({
@@ -194,63 +205,63 @@ export const adSchedulingFeatureSchema = z.object({
     z.object({
       dayOfWeek: z.enum(["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]),
       startTime: z.string().regex(/^\d{2}:\d{2}$/),
-      endTime: z.string().regex(/^\d{2}:\d{2}$/)
-    })
-  )
+      endTime: z.string().regex(/^\d{2}:\d{2}$/),
+    }),
+  ),
 });
 
 export const customLocationFeatureSchema = z.object({
   type: z.literal("CUSTOM_LOCATION_TARGETING"),
-  neighborhoods: z.array(z.string().min(1)).max(25)
+  neighborhoods: z.array(z.string().min(1)).max(25),
 });
 
 export const adGoalFeatureSchema = z.object({
   type: z.literal("AD_GOAL"),
-  goal: z.enum(["LEADS", "CALLS", "WEBSITE", "AWARENESS"])
+  goal: z.enum(["LEADS", "CALLS", "WEBSITE", "AWARENESS"]),
 });
 
 export const callTrackingFeatureSchema = z.object({
   type: z.literal("CALL_TRACKING"),
-  enabled: z.boolean()
+  enabled: z.boolean(),
 });
 
 export const businessHighlightsFeatureSchema = z.object({
   type: z.literal("BUSINESS_HIGHLIGHTS"),
-  highlights: z.array(z.string().min(1).max(50)).max(10)
+  highlights: z.array(z.string().min(1).max(50)).max(10),
 });
 
 export const verifiedLicenseFeatureSchema = z.object({
   type: z.literal("VERIFIED_LICENSE"),
   licenseNumber: z.string().min(3).max(100),
-  issuingState: z.string().min(2).max(50)
+  issuingState: z.string().min(2).max(50),
 });
 
 export const customRadiusFeatureSchema = z.object({
   type: z.literal("CUSTOM_RADIUS_TARGETING"),
-  radiusMiles: z.number().min(1).max(100)
+  radiusMiles: z.number().min(1).max(100),
 });
 
 export const customAdTextFeatureSchema = z.object({
   type: z.literal("CUSTOM_AD_TEXT"),
   headline: z.string().max(30).optional(),
   description: z.string().max(90).optional(),
-  callToAction: z.string().max(25).optional()
+  callToAction: z.string().max(25).optional(),
 });
 
 export const customAdPhotoFeatureSchema = z.object({
   type: z.literal("CUSTOM_AD_PHOTO"),
   photoId: z.string().min(1),
-  caption: z.string().max(120).optional()
+  caption: z.string().max(120).optional(),
 });
 
 export const businessLogoFeatureSchema = z.object({
   type: z.literal("BUSINESS_LOGO"),
-  logoUrl: z.string().url()
+  logoUrl: z.string().url(),
 });
 
 export const yelpPortfolioFeatureSchema = z.object({
   type: z.literal("YELP_PORTFOLIO"),
-  itemIds: z.array(z.string().min(1)).min(1).max(50)
+  itemIds: z.array(z.string().min(1)).min(1).max(50),
 });
 
 export const yelpProgramFeatureSchema = z.discriminatedUnion("type", [
@@ -267,15 +278,57 @@ export const yelpProgramFeatureSchema = z.discriminatedUnion("type", [
   customAdTextFeatureSchema,
   customAdPhotoFeatureSchema,
   businessLogoFeatureSchema,
-  yelpPortfolioFeatureSchema
+  yelpPortfolioFeatureSchema,
 ]);
 
-export const yelpProgramFeatureCollectionSchema = z.array(yelpProgramFeatureSchema);
+export const yelpProgramFeatureCollectionSchema = z.array(
+  yelpProgramFeatureSchema,
+);
 
 export const yelpFeatureDeleteResponseSchema = z.object({
   success: z.boolean(),
   feature_type: z.string(),
-  message: z.string().optional()
+  message: z.string().optional(),
+});
+
+const yelpProviderKeywordSchema = z.string().trim().min(1).max(80);
+
+export const yelpNegativeKeywordStateSchema = z
+  .object({
+    suggested_keywords: z
+      .array(z.string())
+      .max(25)
+      .nullish()
+      .transform((value) => value ?? []),
+    blocked_keywords: z
+      .array(z.string())
+      .nullish()
+      .transform((value) => value ?? []),
+  })
+  .passthrough();
+
+export const yelpProgramFeaturesResponseSchema = z
+  .object({
+    features: z
+      .object({
+        NEGATIVE_KEYWORD_TARGETING: yelpNegativeKeywordStateSchema
+          .nullable()
+          .optional(),
+      })
+      .catchall(z.unknown()),
+    program_id: z.string(),
+    program_type: z.string(),
+  })
+  .passthrough();
+
+export const yelpNegativeKeywordUpdateRequestSchema = z.object({
+  NEGATIVE_KEYWORD_TARGETING: z.object({
+    blocked_keywords: z.array(yelpProviderKeywordSchema).max(100),
+  }),
+});
+
+export const yelpProgramFeatureDeleteRequestSchema = z.object({
+  features: z.array(z.string().min(1)).min(1),
 });
 
 export const yelpReportRequestSchema = z.object({
@@ -283,7 +336,7 @@ export const yelpReportRequestSchema = z.object({
   start_date: z.string().date(),
   end_date: z.string().date(),
   metrics: z.array(z.string()).default([]),
-  filters: z.record(z.unknown()).optional()
+  filters: z.record(z.unknown()).optional(),
 });
 
 export const yelpReportResponseSchema = z.object({
@@ -292,7 +345,7 @@ export const yelpReportResponseSchema = z.object({
   granularity: z.enum(["DAILY", "MONTHLY"]),
   totals: z.record(z.union([z.number(), z.string(), z.null()])),
   rows: z.array(z.record(z.union([z.number(), z.string(), z.null()]))),
-  message: z.string().optional()
+  message: z.string().optional(),
 });
 
 export const yelpBusinessMatchResultSchema = z.object({
@@ -310,10 +363,10 @@ export const yelpBusinessMatchResultSchema = z.object({
             label: z.string().optional(),
             title: z.string().optional(),
             name: z.string().optional(),
-            alias: z.string().optional()
+            alias: z.string().optional(),
           })
-          .passthrough()
-      ])
+          .passthrough(),
+      ]),
     )
     .default([]),
   about_text_present: z.boolean().optional(),
@@ -321,13 +374,13 @@ export const yelpBusinessMatchResultSchema = z.object({
     .object({
       hasAboutText: z.boolean().optional(),
       hasCategories: z.boolean().optional(),
-      missingItems: z.array(z.string()).default([])
+      missingItems: z.array(z.string()).default([]),
     })
-    .optional()
+    .optional(),
 });
 
 export const yelpBusinessMatchResponseSchema = z.object({
-  matches: z.array(yelpBusinessMatchResultSchema)
+  matches: z.array(yelpBusinessMatchResultSchema),
 });
 
 export const yelpLeadWebhookUpdateSchema = z
@@ -335,7 +388,7 @@ export const yelpLeadWebhookUpdateSchema = z
     event_type: z.string().min(1),
     event_id: z.string().optional(),
     lead_id: z.string().min(1),
-    interaction_time: z.string().optional()
+    interaction_time: z.string().optional(),
   })
   .passthrough();
 
@@ -346,9 +399,9 @@ export const yelpLeadWebhookPayloadSchema = z
     data: z
       .object({
         id: z.string().min(1),
-        updates: z.array(yelpLeadWebhookUpdateSchema).default([])
+        updates: z.array(yelpLeadWebhookUpdateSchema).default([]),
       })
-      .passthrough()
+      .passthrough(),
   })
   .passthrough();
 
@@ -360,7 +413,7 @@ const yelpLeadPersonSchema = z
     phone_number: z.string().nullish(),
     temporary_phone_number: z.string().nullish(),
     masked_phone_number: z.string().nullish(),
-    temporary_email_address: z.string().optional()
+    temporary_email_address: z.string().optional(),
   })
   .partial()
   .passthrough();
@@ -394,7 +447,7 @@ export const yelpLeadDetailSchema = z
     consumer: yelpLeadPersonSchema.optional(),
     user: yelpLeadPersonSchema.optional(),
     lead: z.record(z.unknown()).optional(),
-    data: z.record(z.unknown()).optional()
+    data: z.record(z.unknown()).optional(),
   })
   .passthrough();
 
@@ -410,34 +463,38 @@ export const yelpLeadEventSchema = z
     created_at: z.string().optional(),
     timestamp: z.string().optional(),
     message: z.string().optional(),
-    text: z.string().optional()
+    text: z.string().optional(),
   })
   .passthrough();
 
 export const yelpLeadEventsResponseSchema = z.union([
   z
     .object({
-      events: z.array(yelpLeadEventSchema).default([])
+      events: z.array(yelpLeadEventSchema).default([]),
     })
     .passthrough(),
-  z.array(yelpLeadEventSchema)
+  z.array(yelpLeadEventSchema),
 ]);
 
 export const yelpBusinessLeadIdsResponseSchema = z.union([
   z
     .object({
       lead_ids: z.array(z.string()).default([]),
-      has_more: z.boolean().optional()
+      has_more: z.boolean().optional(),
     })
     .passthrough(),
-  z.array(z.string())
+  z.array(z.string()),
 ]);
 
-export const yelpBusinessSubscriptionTypeSchema = z.enum(["WEBHOOK", "YELP_KNOWLEDGE", "LISTING_MANAGEMENT"]);
+export const yelpBusinessSubscriptionTypeSchema = z.enum([
+  "WEBHOOK",
+  "YELP_KNOWLEDGE",
+  "LISTING_MANAGEMENT",
+]);
 
 export const yelpBusinessSubscriptionRequestSchema = z.object({
   subscription_types: z.array(yelpBusinessSubscriptionTypeSchema).min(1),
-  business_ids: z.array(z.string().min(1)).min(1).max(1000)
+  business_ids: z.array(z.string().min(1)).min(1).max(1000),
 });
 
 export const yelpBusinessSubscriptionsResponseSchema = z
@@ -451,48 +508,90 @@ export const yelpBusinessSubscriptionsResponseSchema = z
         z
           .object({
             business_id: z.string(),
-            subscribed_at: z.string().optional().nullable()
+            subscribed_at: z.string().optional().nullable(),
           })
-          .passthrough()
+          .passthrough(),
       )
-      .default([])
+      .default([]),
   })
   .passthrough();
 
 export const yelpWriteLeadEventRequestSchema = z.object({
   request_content: z.string().trim().min(1),
-  request_type: z.literal("TEXT").default("TEXT")
+  request_type: z.literal("TEXT").default("TEXT"),
 });
 
 export const yelpMarkLeadEventAsReadRequestSchema = z.object({
   event_id: z.string().trim().min(1),
-  time_read: z.string().datetime()
+  time_read: z.string().datetime(),
 });
 
 export const yelpMarkLeadAsRepliedRequestSchema = z.object({
-  reply_type: z.enum(["EMAIL", "PHONE"])
+  reply_type: z.enum(["EMAIL", "PHONE"]),
 });
 
-export type YelpCreateProgramRequestDto = z.infer<typeof yelpCreateProgramRequestSchema>;
-export type YelpEditProgramRequestDto = z.infer<typeof yelpEditProgramRequestSchema>;
-export type YelpTerminateProgramRequestDto = z.infer<typeof yelpTerminateProgramRequestSchema>;
-export type YelpJobSubmissionResponseDto = z.infer<typeof yelpJobSubmissionResponseSchema>;
-export type YelpJobStatusResponseDto = z.infer<typeof yelpJobStatusResponseSchema>;
-export type YelpProgramListResponseDto = z.infer<typeof yelpProgramListResponseSchema>;
-export type YelpProgramInfoResponseDto = z.infer<typeof yelpProgramInfoResponseSchema>;
+export type YelpCreateProgramRequestDto = z.infer<
+  typeof yelpCreateProgramRequestSchema
+>;
+export type YelpEditProgramRequestDto = z.infer<
+  typeof yelpEditProgramRequestSchema
+>;
+export type YelpTerminateProgramRequestDto = z.infer<
+  typeof yelpTerminateProgramRequestSchema
+>;
+export type YelpJobSubmissionResponseDto = z.infer<
+  typeof yelpJobSubmissionResponseSchema
+>;
+export type YelpJobStatusResponseDto = z.infer<
+  typeof yelpJobStatusResponseSchema
+>;
+export type YelpProgramListResponseDto = z.infer<
+  typeof yelpProgramListResponseSchema
+>;
+export type YelpProgramInfoResponseDto = z.infer<
+  typeof yelpProgramInfoResponseSchema
+>;
 export type YelpUpstreamProgramDto = z.infer<typeof yelpUpstreamProgramSchema>;
 export type YelpProgramFeatureDto = z.infer<typeof yelpProgramFeatureSchema>;
+export type YelpProgramFeaturesResponseDto = z.infer<
+  typeof yelpProgramFeaturesResponseSchema
+>;
+export type YelpNegativeKeywordUpdateRequestDto = z.infer<
+  typeof yelpNegativeKeywordUpdateRequestSchema
+>;
 export type YelpReportRequestDto = z.infer<typeof yelpReportRequestSchema>;
 export type YelpReportResponseDto = z.infer<typeof yelpReportResponseSchema>;
-export type YelpBusinessMatchResponseDto = z.infer<typeof yelpBusinessMatchResponseSchema>;
-export type YelpLeadWebhookPayloadDto = z.infer<typeof yelpLeadWebhookPayloadSchema>;
-export type YelpLeadWebhookUpdateDto = z.infer<typeof yelpLeadWebhookUpdateSchema>;
+export type YelpBusinessMatchResponseDto = z.infer<
+  typeof yelpBusinessMatchResponseSchema
+>;
+export type YelpLeadWebhookPayloadDto = z.infer<
+  typeof yelpLeadWebhookPayloadSchema
+>;
+export type YelpLeadWebhookUpdateDto = z.infer<
+  typeof yelpLeadWebhookUpdateSchema
+>;
 export type YelpLeadDetailDto = z.infer<typeof yelpLeadDetailSchema>;
-export type YelpLeadEventsResponseDto = z.infer<typeof yelpLeadEventsResponseSchema>;
-export type YelpBusinessLeadIdsResponseDto = z.infer<typeof yelpBusinessLeadIdsResponseSchema>;
-export type YelpBusinessSubscriptionTypeDto = z.infer<typeof yelpBusinessSubscriptionTypeSchema>;
-export type YelpBusinessSubscriptionRequestDto = z.infer<typeof yelpBusinessSubscriptionRequestSchema>;
-export type YelpBusinessSubscriptionsResponseDto = z.infer<typeof yelpBusinessSubscriptionsResponseSchema>;
-export type YelpWriteLeadEventRequestDto = z.infer<typeof yelpWriteLeadEventRequestSchema>;
-export type YelpMarkLeadEventAsReadRequestDto = z.infer<typeof yelpMarkLeadEventAsReadRequestSchema>;
-export type YelpMarkLeadAsRepliedRequestDto = z.infer<typeof yelpMarkLeadAsRepliedRequestSchema>;
+export type YelpLeadEventsResponseDto = z.infer<
+  typeof yelpLeadEventsResponseSchema
+>;
+export type YelpBusinessLeadIdsResponseDto = z.infer<
+  typeof yelpBusinessLeadIdsResponseSchema
+>;
+export type YelpBusinessSubscriptionTypeDto = z.infer<
+  typeof yelpBusinessSubscriptionTypeSchema
+>;
+export type YelpBusinessSubscriptionRequestDto = z.infer<
+  typeof yelpBusinessSubscriptionRequestSchema
+>;
+export type YelpBusinessSubscriptionsResponseDto = z.infer<
+  typeof yelpBusinessSubscriptionsResponseSchema
+>;
+export type YelpWriteLeadEventRequestDto = z.infer<
+  typeof yelpWriteLeadEventRequestSchema
+>;
+export type YelpMarkLeadEventAsReadRequestDto = z.infer<
+  typeof yelpMarkLeadEventAsReadRequestSchema
+>;
+export type YelpMarkLeadAsRepliedRequestDto = z.infer<
+  typeof yelpMarkLeadAsRepliedRequestSchema
+>;

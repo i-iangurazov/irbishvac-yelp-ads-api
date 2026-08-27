@@ -1,10 +1,9 @@
-import { FeatureFormCard } from "@/components/forms/feature-form-card";
+import { NegativeKeywordManager } from "@/components/forms/negative-keyword-manager";
 import { YelpSyncButton } from "@/components/forms/yelp-sync-button";
 import { CapabilityState } from "@/components/shared/capability-state";
 import { PageHeader } from "@/components/shared/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { featureCatalog } from "@/features/program-features/schemas";
 import { getProgramFeatureOverview } from "@/features/program-features/service";
 import { requirePermission } from "@/lib/auth/service";
 import { hasPermission } from "@/lib/permissions";
@@ -18,22 +17,21 @@ export default async function ProgramFeaturesPage({
   const user = await requirePermission("features:read");
   const { programId } = await params;
   const overview = await getProgramFeatureOverview(user.tenantId, programId);
-  const canManageFeatures = hasPermission(user.role.code, "features:write");
-
-  const latestMap = new Map<string, (typeof overview.features)[number]>(
-    overview.features.map((feature) => [feature.type, feature]),
-  );
+  const canManageFeatures =
+    hasPermission(user.role.code, "features:write") &&
+    (overview.capabilityState.enabled || overview.capabilityState.demoMode);
+  const writeMode = canManageFeatures
+    ? overview.capabilityState.enabled
+      ? ("LIVE" as const)
+      : ("DEMO" as const)
+    : ("READ_ONLY" as const);
 
   return (
     <div>
       <PageHeader
         title={`Program features · ${overview.program.business.name}`}
-        description="Update individual feature settings with contextual descriptions, explicit save actions, and delete handling where Yelp expects DELETE semantics."
-        actions={
-          canManageFeatures ? (
-            <YelpSyncButton label="Refresh live features" />
-          ) : null
-        }
+        description="Review Yelp's available program features and manage search-term exclusions with provider read-back verification."
+        actions={<YelpSyncButton label="Refresh from Yelp" />}
       />
 
       <CapabilityState
@@ -43,7 +41,7 @@ export default async function ProgramFeaturesPage({
 
       <Card className="mt-6">
         <CardHeader>
-          <CardTitle>Enabled on Yelp</CardTitle>
+          <CardTitle>Available on Yelp</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           {overview.enabledFeatureTypes.length > 0 ? (
@@ -56,34 +54,28 @@ export default async function ProgramFeaturesPage({
             </div>
           ) : (
             <div className="text-sm text-muted-foreground">
-              No enabled Yelp features were detected for this program.
+              No available Yelp features were detected for this program.
             </div>
           )}
           <div className="text-xs text-muted-foreground">
             {overview.liveFeatureState.loaded
-              ? "These feature types come from live Yelp program info. Only enabled features are shown below."
+              ? "These feature types come from the live Yelp Program Feature API. Availability does not necessarily mean a feature is currently active."
               : (overview.liveFeatureState.message ??
                 "Live Yelp feature visibility is unavailable, so the console is falling back to saved local snapshots.")}
           </div>
         </CardContent>
       </Card>
 
-      {canManageFeatures ? (
-        <div className="mt-6 grid gap-6 lg:grid-cols-2">
-          {overview.enabledFeatureTypes.map((featureType) => (
-            <FeatureFormCard
-              key={featureType}
-              programId={overview.program.id}
-              featureType={featureType as keyof typeof featureCatalog}
-              initialValue={
-                (latestMap.get(featureType)?.valueJson as
-                  | Record<string, unknown>
-                  | undefined) ?? { type: featureType }
-              }
-            />
-          ))}
-        </div>
-      ) : null}
+      <NegativeKeywordManager
+        programId={overview.program.id}
+        supported={overview.negativeKeywords.supported}
+        suggestedKeywords={overview.negativeKeywords.suggestedKeywords}
+        blockedKeywords={overview.negativeKeywords.blockedKeywords}
+        source={overview.negativeKeywords.source}
+        syncedAt={overview.negativeKeywords.syncedAt}
+        message={overview.negativeKeywords.message}
+        writeMode={writeMode}
+      />
     </div>
   );
 }

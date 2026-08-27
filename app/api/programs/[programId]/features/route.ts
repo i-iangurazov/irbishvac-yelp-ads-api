@@ -4,15 +4,18 @@ import { z } from "zod";
 import {
   deleteProgramFeatureWorkflow,
   getProgramFeatureOverview,
-  updateProgramFeatureWorkflow
+  updateProgramFeatureWorkflow,
 } from "@/features/program-features/service";
 import { handleRouteError, requireApiPermission } from "@/lib/utils/http";
 
 const deleteSchema = z.object({
-  featureType: z.string().min(1)
+  featureType: z.literal("NEGATIVE_KEYWORD_TARGETING"),
 });
 
-export async function GET(_: Request, context: { params: Promise<{ programId: string }> }) {
+export async function GET(
+  _: Request,
+  context: { params: Promise<{ programId: string }> },
+) {
   try {
     const user = await requireApiPermission("features:read");
 
@@ -29,7 +32,10 @@ export async function GET(_: Request, context: { params: Promise<{ programId: st
   }
 }
 
-export async function PUT(request: Request, context: { params: Promise<{ programId: string }> }) {
+export async function PUT(
+  request: Request,
+  context: { params: Promise<{ programId: string }> },
+) {
   try {
     const user = await requireApiPermission("features:write");
 
@@ -39,7 +45,12 @@ export async function PUT(request: Request, context: { params: Promise<{ program
 
     const body = await request.json();
     const { programId } = await context.params;
-    const result = await updateProgramFeatureWorkflow(user.tenantId, user.id, programId, body);
+    const result = await updateProgramFeatureWorkflow(
+      user.tenantId,
+      user.id,
+      programId,
+      body,
+    );
 
     return NextResponse.json(result);
   } catch (error) {
@@ -47,7 +58,10 @@ export async function PUT(request: Request, context: { params: Promise<{ program
   }
 }
 
-export async function DELETE(request: Request, context: { params: Promise<{ programId: string }> }) {
+export async function DELETE(
+  request: Request,
+  context: { params: Promise<{ programId: string }> },
+) {
   try {
     const user = await requireApiPermission("features:write");
 
@@ -57,7 +71,12 @@ export async function DELETE(request: Request, context: { params: Promise<{ prog
 
     const { programId } = await context.params;
     const parsed = deleteSchema.parse(await request.json());
-    const result = await deleteProgramFeatureWorkflow(user.tenantId, user.id, programId, parsed.featureType);
+    const result = await deleteProgramFeatureWorkflow(
+      user.tenantId,
+      user.id,
+      programId,
+      parsed.featureType,
+    );
 
     return NextResponse.json(result);
   } catch (error) {

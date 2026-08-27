@@ -9,9 +9,9 @@ export const DEFAULT_YELP_ENDPOINTS = {
     testConnection: "",
   },
   features: {
-    getProgramFeatures: "/ads/programs/{programId}/features",
-    updateProgramFeatures: "/ads/programs/{programId}/features",
-    deleteProgramFeatures: "/ads/programs/{programId}/features/{featureType}",
+    getProgramFeatures: "/program/{programId}/features/v1",
+    updateProgramFeatures: "/program/{programId}/features/v1",
+    deleteProgramFeatures: "/program/{programId}/features/v1",
     testConnection: "/",
   },
   reporting: {
