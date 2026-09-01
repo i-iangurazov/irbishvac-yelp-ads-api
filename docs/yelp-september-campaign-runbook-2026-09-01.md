@@ -39,8 +39,7 @@ business `cmo7k8w1d01x3jm04ia48ixb5`.
   `plumbing`, and ends September 30. The create job completed and the
   idempotent reconciliation passed exact Yelp read-back.
 - HVAC Maintenance plans as `CREATE`; no current $3,000 duplicate exists.
-- Commercial HVAC has the same safe create plan from the same inventory, but
-  service targeting remains blocked.
+- Commercial HVAC has the same safe create plan from the same inventory.
 - Caitlyn/Emil confirmed that the End-of-Month Boost may be redirected among
   HVAC Repair, HVAC Installation/Replacement, HVAC Maintenance, Plumbing, and
   Water Heater. Boost `80ss91a6TCoIZ4qHnDI5Gg` was created with all five
@@ -48,6 +47,22 @@ business `cmo7k8w1d01x3jm04ia48ixb5`.
   `waterheaterinstallrepair`. It is exactly $5,000 for September 25-30. Yelp
   reports future programs as `INACTIVE`; the application correctly retains it
   as `SCHEDULED`, and exact provider read-back passed.
+
+## End-of-Month Boost focus controls
+
+The Programs screen provides five allowlisted switches and quick presets for
+HVAC Repair, HVAC Installation/Replacement, HVAC Maintenance, Plumbing, and
+Water Heater. An operator selects the focus and confirms one audited operation;
+the browser never submits arbitrary Yelp keyword IDs.
+
+- Category aliases are derived server-side from the selected directions.
+- Partial HVAC focus uses the fixed Yelp-derived negative-keyword policies.
+- Plumbing and Water Heater terms remain allowed when those categories are
+  selected alongside a partial HVAC focus.
+- Returning to all HVAC directions or a non-HVAC focus clears stale HVAC
+  service exclusions.
+- A change is reported successful only after Yelp category and Program Features
+  read-back succeeds.
 
 ## Service-targeting evidence
 
@@ -109,10 +124,11 @@ pnpm yelp:reconcile:september
 
 ## Remaining live actions
 
-1. The operator identifies whether existing $12,000 program
-   `chZwdNae5UHK2asYXSiizg` is Repair or Installation and approves the exact
-   negative-keyword isolation policy. This prevents a duplicate $12,000 layer.
-2. Apply and read back the four HVAC layers after that assignment.
+1. Apply existing $12,000 program `chZwdNae5UHK2asYXSiizg` as HVAC Repair with
+   the verified 39-term provider-derived policy. The dry-run passed with no
+   blockers; the live request has not been sent.
+2. Apply and read back Installation, Maintenance, and Commercial after the
+   Repair assignment prevents a duplicate $12,000 layer.
 3. Yelp or Emil provides the exact Yelp business/program ID for “Services Corp,
    test listing.” It is absent from local business records and cannot be safely
    deleted by display-name guesswork.

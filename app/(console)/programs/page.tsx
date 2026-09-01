@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { SeptemberBoostFocusControl } from "@/components/forms/september-boost-focus-control";
 import { YelpSyncButton } from "@/components/forms/yelp-sync-button";
 import { MetricCard } from "@/components/shared/metric-card";
 import { PageHeader } from "@/components/shared/page-header";
@@ -27,7 +28,11 @@ import {
   getProgramBudgetPolicy,
   getProgramsIndex,
 } from "@/features/ads-programs/service";
-import { campaignLayerLabels } from "@/features/ads-programs/layers";
+import {
+  campaignLayerLabels,
+  septemberBoostScopes,
+  type SeptemberBoostScope,
+} from "@/features/ads-programs/layers";
 import {
   getProgramSpendState,
   inferProgramCampaignLayer,
@@ -86,6 +91,21 @@ export default async function ProgramsPage() {
         businessName: businessPrograms[0]!.business.name,
       })),
   );
+  const septemberBoost = programs.find(
+    (program) =>
+      inferProgramCampaignLayer(program) === "SEPTEMBER_END_OF_MONTH_BOOST",
+  );
+  const boostConfiguration =
+    typeof septemberBoost?.configurationJson === "object" &&
+    septemberBoost.configurationJson !== null
+      ? (septemberBoost.configurationJson as Record<string, unknown>)
+      : {};
+  const currentBoostScopes = Array.isArray(boostConfiguration.boostScopes)
+    ? boostConfiguration.boostScopes.filter(
+        (scope): scope is SeptemberBoostScope =>
+          septemberBoostScopes.includes(scope as SeptemberBoostScope),
+      )
+    : [];
 
   return (
     <div>
@@ -202,6 +222,13 @@ export default async function ProgramsPage() {
             ))}
           </div>
         </div>
+      ) : null}
+
+      {canManagePrograms && septemberBoost?.upstreamProgramId ? (
+        <SeptemberBoostFocusControl
+          currentScopes={currentBoostScopes}
+          upstreamProgramId={septemberBoost.upstreamProgramId}
+        />
       ) : null}
 
       <Card className="mt-6">

@@ -51,10 +51,12 @@ import {
   programBudgetOperationSchema,
   programCategoryTargetingOperationSchema,
   septemberCampaignReconcileSchema,
+  septemberBoostFocusSchema,
   temporaryAugustCampaignReconcileSchema,
   terminateProgramFormSchema,
 } from "@/features/ads-programs/schemas";
 import { updateProgramFeatureWorkflow } from "@/features/program-features/service";
+import { resolveSeptemberBoostBlockedKeywords } from "@/features/ads-programs/september-targeting";
 import { recordAuditEvent } from "@/features/audit/service";
 import {
   findBusinessByEncryptedYelpBusinessId,
@@ -984,6 +986,8 @@ export async function reconcileSeptemberCampaignWorkflow(
     values.campaignLayer,
     values.boostScopes,
   );
+  const managesBoostKeywordPolicy =
+    values.campaignLayer === "SEPTEMBER_END_OF_MONTH_BOOST";
   const { credential } = await ensureYelpAccess({
     tenantId,
     capabilityKey: "adsApiEnabled",
@@ -1189,7 +1193,11 @@ export async function reconcileSeptemberCampaignWorkflow(
     programId = synchronized.id;
   }
 
-  if (requiresServiceTargeting && programId && livePlan.action !== "CREATE") {
+  if (
+    (requiresServiceTargeting || managesBoostKeywordPolicy) &&
+    programId &&
+    livePlan.action !== "CREATE"
+  ) {
     await updateProgramFeatureWorkflow(
       tenantId,
       actorId,
@@ -1294,7 +1302,10 @@ export async function reconcileSeptemberCampaignWorkflow(
     );
   }
 
-  if (requiresServiceTargeting && livePlan.action === "CREATE") {
+  if (
+    (requiresServiceTargeting || managesBoostKeywordPolicy) &&
+    livePlan.action === "CREATE"
+  ) {
     try {
       await updateProgramFeatureWorkflow(
         tenantId,
@@ -1394,6 +1405,61 @@ export async function reconcileSeptemberCampaignWorkflow(
     boostScopes: values.boostScopes,
     categoryAliases,
   };
+}
+
+export async function updateSeptemberBoostFocusWorkflow(
+  tenantId: string,
+  actorId: string,
+  input: unknown,
+) {
+  const values = septemberBoostFocusSchema.parse(input);
+  const programs = await getProgramsIndex(tenantId);
+  const boosts = programs.filter(
+    (program) =>
+      getProgramCampaignLayer(program.configurationJson) ===
+      "SEPTEMBER_END_OF_MONTH_BOOST",
+  );
+
+  if (boosts.length !== 1) {
+    throw new YelpValidationError(
+      `Expected exactly one current End-of-Month Boost campaign; found ${boosts.length}.`,
+    );
+  }
+
+  const boost = boosts[0]!;
+  const mainPrograms = programs.filter(
+    (program) =>
+      program.businessId === boost.businessId &&
+      getProgramCampaignLayer(program.configurationJson) === "MAIN",
+  );
+
+  if (mainPrograms.length !== 1 || !mainPrograms[0]!.upstreamProgramId) {
+    throw new YelpValidationError(
+      "The verified Main campaign could not be resolved for this Boost campaign.",
+    );
+  }
+
+  if (!boost.upstreamProgramId) {
+    throw new YelpValidationError(
+      "The End-of-Month Boost campaign has no confirmed Yelp ID.",
+    );
+  }
+
+  const blockedKeywords = resolveSeptemberBoostBlockedKeywords(
+    values.boostScopes,
+  );
+
+  return reconcileSeptemberCampaignWorkflow(tenantId, actorId, {
+    businessId: boost.businessId,
+    campaignLayer: "SEPTEMBER_END_OF_MONTH_BOOST",
+    mainProgramId: mainPrograms[0]!.upstreamProgramId,
+    adoptUpstreamProgramId: boost.upstreamProgramId,
+    blockedKeywords,
+    boostScopes: values.boostScopes,
+    serviceTargetingConfirmed: blockedKeywords.length > 0,
+    dryRun: false,
+    confirmation: "APPLY_APPROVED_SEPTEMBER_CAMPAIGN",
+  });
 }
 
 export async function createProgramWorkflow(

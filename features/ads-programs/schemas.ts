@@ -166,8 +166,7 @@ function validateProgramForm(
       value.campaignLayer === "SEPTEMBER_END_OF_MONTH_BOOST"
         ? value.adCategories.length === 0 ||
           value.adCategories.some(
-            (alias) =>
-              !septemberBoostAllowedCategoryAliases.includes(alias),
+            (alias) => !septemberBoostAllowedCategoryAliases.includes(alias),
           )
         : value.adCategories.length !== expectedCategoryAliases.length ||
           !expectedCategoryAliases.every((alias) =>
@@ -349,6 +348,12 @@ export const septemberCampaignReconcileSchema = z
       });
     }
   });
+
+export const septemberBoostFocusSchema = z.object({
+  boostScopes: z
+    .array(z.enum(septemberBoostScopes))
+    .min(1, "Select at least one End-of-Month Boost direction."),
+});
 
 function validateMinimumBudget(
   path: string[],
