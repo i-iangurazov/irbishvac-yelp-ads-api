@@ -135,6 +135,53 @@ describe("validation", () => {
     ).toBe(true);
   });
 
+  it("requires an allowlisted direction for the September boost", () => {
+    const base = {
+      businessId: "business_1",
+      campaignLayer: "SEPTEMBER_END_OF_MONTH_BOOST",
+      mainProgramId: "main_program",
+      dryRun: true,
+    };
+
+    expect(septemberCampaignReconcileSchema.safeParse(base).success).toBe(
+      false,
+    );
+    expect(
+      septemberCampaignReconcileSchema.safeParse({
+        ...base,
+        boostScopes: ["PLUMBING", "WATER_HEATER"],
+      }).success,
+    ).toBe(true);
+    expect(
+      septemberCampaignReconcileSchema.safeParse({
+        ...base,
+        boostScopes: ["COMMERCIAL_HVAC"],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("requires keyword targeting when a live boost includes HVAC", () => {
+    const base = {
+      businessId: "business_1",
+      campaignLayer: "SEPTEMBER_END_OF_MONTH_BOOST",
+      mainProgramId: "main_program",
+      boostScopes: ["HVAC_REPAIR"],
+      dryRun: false,
+      confirmation: "APPLY_APPROVED_SEPTEMBER_CAMPAIGN",
+    };
+
+    expect(septemberCampaignReconcileSchema.safeParse(base).success).toBe(
+      false,
+    );
+    expect(
+      septemberCampaignReconcileSchema.safeParse({
+        ...base,
+        serviceTargetingConfirmed: true,
+        blockedKeywords: ["ac maintenance"],
+      }).success,
+    ).toBe(true);
+  });
+
   it("requires confirmation text for business deletion", () => {
     const result = deleteBusinessFormSchema.safeParse({
       businessId: "business_1",

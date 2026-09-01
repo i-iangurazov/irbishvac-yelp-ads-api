@@ -63,6 +63,8 @@ function matchesCategories(actual: unknown, expected: readonly string[]) {
 function matchesExactSpecification(
   program: UpstreamProgram,
   layer: SeptemberCampaignLayer,
+  categoryAliases: readonly string[] =
+    septemberCampaigns[layer].categoryAliases,
 ) {
   const specification = septemberCampaigns[layer];
 
@@ -70,7 +72,7 @@ function matchesExactSpecification(
     program.program_metrics?.budget ===
       Number(specification.monthlyBudgetDollars) * 100 &&
     program.end_date === specification.endDate &&
-    matchesCategories(program.ad_categories, specification.categoryAliases)
+    matchesCategories(program.ad_categories, categoryAliases)
   );
 }
 
@@ -79,16 +81,23 @@ export function planSeptemberCampaignReconciliation(input: {
   localPrograms: LocalProgram[];
   upstreamPrograms: UpstreamProgram[];
   adoptUpstreamProgramId?: string;
+  categoryAliases?: readonly string[];
 }): SeptemberCampaignReconciliationPlan {
   const specification = septemberCampaigns[input.layer];
+  const categoryAliases =
+    input.categoryAliases ?? specification.categoryAliases;
 
-  if (!specification.applyEnabled) {
+  if (
+    input.layer === "SEPTEMBER_END_OF_MONTH_BOOST" &&
+    categoryAliases.length === 0
+  ) {
     return {
       action: "BLOCKED",
       layer: input.layer,
       localProgramId: null,
       upstreamProgramId: null,
-      reason: specification.blocker,
+      reason:
+        "Select at least one approved End-of-Month Boost service direction.",
     };
   }
 
@@ -166,7 +175,7 @@ export function planSeptemberCampaignReconciliation(input: {
     }
 
     if (
-      !matchesCategories(candidate.ad_categories, specification.categoryAliases)
+      !matchesCategories(candidate.ad_categories, categoryAliases)
     ) {
       return {
         action: "BLOCKED",
@@ -186,13 +195,21 @@ export function planSeptemberCampaignReconciliation(input: {
       null;
 
     return {
-      action: matchesExactSpecification(candidate, input.layer)
+      action: matchesExactSpecification(
+        candidate,
+        input.layer,
+        categoryAliases,
+      )
         ? "NOOP"
         : "UPDATE",
       layer: input.layer,
       localProgramId: localMatch?.id ?? null,
       upstreamProgramId: candidate.program_id,
-      reason: matchesExactSpecification(candidate, input.layer)
+      reason: matchesExactSpecification(
+        candidate,
+        input.layer,
+        categoryAliases,
+      )
         ? "The selected Yelp program already has the approved September values."
         : "The selected Yelp program exists but does not match the approved September values.",
     };
@@ -202,7 +219,7 @@ export function planSeptemberCampaignReconciliation(input: {
     (program) =>
       program.program_metrics?.budget ===
         Number(specification.monthlyBudgetDollars) * 100 &&
-      matchesCategories(program.ad_categories, specification.categoryAliases),
+      matchesCategories(program.ad_categories, categoryAliases),
   );
 
   if (adoptionCandidates.length > 0) {
@@ -229,6 +246,7 @@ export function verifySeptemberCampaignReadBack(input: {
   layer: SeptemberCampaignLayer;
   upstreamProgramId: string;
   upstreamPrograms: UpstreamProgram[];
+  categoryAliases?: readonly string[];
 }) {
   const program = input.upstreamPrograms.find(
     (candidate) => candidate.program_id === input.upstreamProgramId,
@@ -241,7 +259,11 @@ export function verifySeptemberCampaignReadBack(input: {
   if (
     program.program_type !== "CPC" ||
     !isCurrentStatus(program.program_status) ||
-    !matchesExactSpecification(program, input.layer)
+    !matchesExactSpecification(
+      program,
+      input.layer,
+      input.categoryAliases ?? septemberCampaigns[input.layer].categoryAliases,
+    )
   ) {
     return {
       verified: false,

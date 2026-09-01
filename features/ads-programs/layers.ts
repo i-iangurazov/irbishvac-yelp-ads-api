@@ -40,7 +40,6 @@ export const septemberCampaigns = {
     startDate: "2026-09-01",
     endDate: "2026-09-30",
     requiresServiceTargeting: true,
-    applyEnabled: true,
   },
   SEPTEMBER_HVAC_REPAIR: {
     categoryAliases: ["hvac"],
@@ -48,7 +47,6 @@ export const septemberCampaigns = {
     startDate: "2026-09-01",
     endDate: "2026-09-30",
     requiresServiceTargeting: true,
-    applyEnabled: true,
   },
   SEPTEMBER_HVAC_MAINTENANCE: {
     categoryAliases: ["hvac"],
@@ -56,7 +54,6 @@ export const septemberCampaigns = {
     startDate: "2026-09-01",
     endDate: "2026-09-30",
     requiresServiceTargeting: true,
-    applyEnabled: true,
   },
   SEPTEMBER_COMMERCIAL_HVAC: {
     categoryAliases: ["hvac"],
@@ -64,7 +61,6 @@ export const septemberCampaigns = {
     startDate: "2026-09-01",
     endDate: "2026-09-30",
     requiresServiceTargeting: true,
-    applyEnabled: true,
   },
   SEPTEMBER_PLUMBING: {
     categoryAliases: ["plumbing"],
@@ -72,7 +68,6 @@ export const septemberCampaigns = {
     startDate: "2026-09-01",
     endDate: "2026-09-30",
     requiresServiceTargeting: false,
-    applyEnabled: true,
   },
   SEPTEMBER_END_OF_MONTH_BOOST: {
     categoryAliases: [],
@@ -80,13 +75,56 @@ export const septemberCampaigns = {
     startDate: "2026-09-25",
     endDate: "2026-09-30",
     requiresServiceTargeting: false,
-    applyEnabled: false,
-    blocker:
-      "Caitlyn must confirm the approved trade scope before this layer can be submitted.",
   },
 } as const;
 
 export type SeptemberCampaignLayer = keyof typeof septemberCampaigns;
+
+export const septemberBoostScopes = [
+  "HVAC_REPAIR",
+  "HVAC_INSTALLATION",
+  "HVAC_MAINTENANCE",
+  "PLUMBING",
+  "WATER_HEATER",
+] as const;
+
+export type SeptemberBoostScope = (typeof septemberBoostScopes)[number];
+
+const septemberBoostCategoryAliases: Record<SeptemberBoostScope, string> = {
+  HVAC_REPAIR: "hvac",
+  HVAC_INSTALLATION: "hvac",
+  HVAC_MAINTENANCE: "hvac",
+  PLUMBING: "plumbing",
+  WATER_HEATER: "waterheaterinstallrepair",
+};
+
+export const septemberBoostAllowedCategoryAliases = Array.from(
+  new Set(Object.values(septemberBoostCategoryAliases)),
+);
+
+export function resolveSeptemberCategoryAliases(
+  layer: SeptemberCampaignLayer,
+  boostScopes: readonly SeptemberBoostScope[] = [],
+) {
+  if (layer !== "SEPTEMBER_END_OF_MONTH_BOOST") {
+    return [...septemberCampaigns[layer].categoryAliases];
+  }
+
+  return Array.from(
+    new Set(boostScopes.map((scope) => septemberBoostCategoryAliases[scope])),
+  );
+}
+
+export function requiresSeptemberServiceTargeting(
+  layer: SeptemberCampaignLayer,
+  boostScopes: readonly SeptemberBoostScope[] = [],
+) {
+  return (
+    septemberCampaigns[layer].requiresServiceTargeting ||
+    (layer === "SEPTEMBER_END_OF_MONTH_BOOST" &&
+      boostScopes.some((scope) => scope.startsWith("HVAC_")))
+  );
+}
 
 export function isSeptemberCampaignLayer(
   value: unknown,

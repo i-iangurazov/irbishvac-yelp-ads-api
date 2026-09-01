@@ -110,7 +110,7 @@ describe("September campaign reconciliation", () => {
     ).toBe("CREATE");
   });
 
-  it("blocks the boost until its trade scope is approved", () => {
+  it("blocks the boost until at least one approved direction is selected", () => {
     expect(
       planSeptemberCampaignReconciliation({
         layer: "SEPTEMBER_END_OF_MONTH_BOOST",
@@ -118,6 +118,46 @@ describe("September campaign reconciliation", () => {
         upstreamPrograms: [],
       }),
     ).toMatchObject({ action: "BLOCKED" });
+  });
+
+  it("creates a boost with the resolved approved Yelp categories", () => {
+    expect(
+      planSeptemberCampaignReconciliation({
+        layer: "SEPTEMBER_END_OF_MONTH_BOOST",
+        localPrograms: [],
+        upstreamPrograms: [],
+        categoryAliases: ["hvac", "plumbing"],
+      }),
+    ).toMatchObject({ action: "CREATE" });
+  });
+
+  it("verifies the selected boost categories exactly", () => {
+    const boostProgram = {
+      program_id: "yelp_boost_5k",
+      program_type: "CPC",
+      program_status: "ACTIVE",
+      ad_categories: ["plumbing", "waterheaterinstallrepair"],
+      start_date: "2026-09-25",
+      end_date: "2026-09-30",
+      program_metrics: { budget: 500_000 },
+    };
+
+    expect(
+      verifySeptemberCampaignReadBack({
+        layer: "SEPTEMBER_END_OF_MONTH_BOOST",
+        upstreamProgramId: "yelp_boost_5k",
+        upstreamPrograms: [boostProgram],
+        categoryAliases: ["plumbing", "waterheaterinstallrepair"],
+      }).verified,
+    ).toBe(true);
+    expect(
+      verifySeptemberCampaignReadBack({
+        layer: "SEPTEMBER_END_OF_MONTH_BOOST",
+        upstreamProgramId: "yelp_boost_5k",
+        upstreamPrograms: [boostProgram],
+        categoryAliases: ["hvac"],
+      }).verified,
+    ).toBe(false);
   });
 
   it("verifies exact read-back values", () => {

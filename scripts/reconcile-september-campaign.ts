@@ -1,4 +1,8 @@
 import { reconcileSeptemberCampaignWorkflow } from "../features/ads-programs/service";
+import {
+  septemberBoostScopes,
+  type SeptemberBoostScope,
+} from "../features/ads-programs/layers";
 import { prisma } from "../lib/db/prisma";
 
 const allowedLayers = new Set([
@@ -26,6 +30,31 @@ function parseBlockedKeywords() {
   }
 
   return value;
+}
+
+function parseBoostScopes(): SeptemberBoostScope[] {
+  const raw = process.env.SEPTEMBER_BOOST_SCOPES_JSON;
+
+  if (!raw) {
+    return [];
+  }
+
+  const value: unknown = JSON.parse(raw);
+
+  if (
+    !Array.isArray(value) ||
+    value.some(
+      (item) =>
+        typeof item !== "string" ||
+        !septemberBoostScopes.includes(item as SeptemberBoostScope),
+    )
+  ) {
+    throw new Error(
+      `SEPTEMBER_BOOST_SCOPES_JSON must be a JSON array containing only: ${septemberBoostScopes.join(", ")}.`,
+    );
+  }
+
+  return Array.from(new Set(value)) as SeptemberBoostScope[];
 }
 
 async function main() {
@@ -80,6 +109,7 @@ async function main() {
       mainProgramId,
       adoptUpstreamProgramId,
       blockedKeywords: parseBlockedKeywords(),
+      boostScopes: parseBoostScopes(),
       serviceTargetingConfirmed:
         process.env.SEPTEMBER_SERVICE_TARGETING_CONFIRMED === "1",
       dryRun: !apply,

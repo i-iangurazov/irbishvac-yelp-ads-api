@@ -7,6 +7,10 @@ import {
   campaignLayers,
   isSeptemberCampaignLayer,
   isTemporaryAugustCampaignLayer,
+  requiresSeptemberServiceTargeting,
+  resolveSeptemberCategoryAliases,
+  septemberBoostAllowedCategoryAliases,
+  septemberBoostScopes,
   septemberCampaigns,
   temporaryAugustCampaigns,
 } from "@/features/ads-programs/layers";
@@ -150,24 +154,25 @@ function validateProgramForm(
 
   if (isSeptemberCampaignLayer(value.campaignLayer)) {
     const campaign = septemberCampaigns[value.campaignLayer];
+    const expectedCategoryAliases = resolveSeptemberCategoryAliases(
+      value.campaignLayer,
+    );
     const budgetCents = safeCurrencyToCents(value.monthlyBudgetDollars);
     const expectedBudgetCents = safeCurrencyToCents(
       campaign.monthlyBudgetDollars,
     );
 
-    if (!campaign.applyEnabled) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["campaignLayer"],
-        message: campaign.blocker,
-      });
-    }
-
     if (
-      value.adCategories.length !== campaign.categoryAliases.length ||
-      !campaign.categoryAliases.every((alias) =>
-        value.adCategories.includes(alias),
-      )
+      value.campaignLayer === "SEPTEMBER_END_OF_MONTH_BOOST"
+        ? value.adCategories.length === 0 ||
+          value.adCategories.some(
+            (alias) =>
+              !septemberBoostAllowedCategoryAliases.includes(alias),
+          )
+        : value.adCategories.length !== expectedCategoryAliases.length ||
+          !expectedCategoryAliases.every((alias) =>
+            value.adCategories.includes(alias),
+          )
     ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -285,12 +290,39 @@ export const septemberCampaignReconcileSchema = z
     mainProgramId: z.string().min(1),
     adoptUpstreamProgramId: z.string().min(1).optional(),
     blockedKeywords: z.array(z.string().min(1).max(80)).max(100).default([]),
+    boostScopes: z.array(z.enum(septemberBoostScopes)).default([]),
     serviceTargetingConfirmed: z.boolean().default(false),
     dryRun: z.boolean().default(true),
     confirmation: z.string().optional(),
   })
   .superRefine((value, ctx) => {
-    const campaign = septemberCampaigns[value.campaignLayer];
+    const requiresServiceTargeting = requiresSeptemberServiceTargeting(
+      value.campaignLayer,
+      value.boostScopes,
+    );
+
+    if (
+      value.campaignLayer === "SEPTEMBER_END_OF_MONTH_BOOST" &&
+      value.boostScopes.length === 0
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["boostScopes"],
+        message:
+          "Select at least one approved End-of-Month Boost service direction.",
+      });
+    }
+
+    if (
+      value.campaignLayer !== "SEPTEMBER_END_OF_MONTH_BOOST" &&
+      value.boostScopes.length > 0
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["boostScopes"],
+        message: "Boost service directions are valid only for the boost layer.",
+      });
+    }
 
     if (
       !value.dryRun &&
@@ -306,7 +338,7 @@ export const septemberCampaignReconcileSchema = z
 
     if (
       !value.dryRun &&
-      campaign.requiresServiceTargeting &&
+      requiresServiceTargeting &&
       (!value.serviceTargetingConfirmed || value.blockedKeywords.length === 0)
     ) {
       ctx.addIssue({

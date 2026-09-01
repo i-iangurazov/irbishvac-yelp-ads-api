@@ -16,6 +16,8 @@ import {
   getProgramCampaignLayer,
   isSeptemberCampaignLayer,
   isTemporaryAugustCampaignLayer,
+  requiresSeptemberServiceTargeting,
+  resolveSeptemberCategoryAliases,
   septemberCampaigns,
   temporaryAugustCampaigns,
   type CampaignLayer,
@@ -969,6 +971,14 @@ export async function reconcileSeptemberCampaignWorkflow(
   const values = septemberCampaignReconcileSchema.parse(input);
   const business = await getBusinessById(values.businessId, tenantId);
   const specification = septemberCampaigns[values.campaignLayer];
+  const categoryAliases = resolveSeptemberCategoryAliases(
+    values.campaignLayer,
+    values.boostScopes,
+  );
+  const requiresServiceTargeting = requiresSeptemberServiceTargeting(
+    values.campaignLayer,
+    values.boostScopes,
+  );
   const { credential } = await ensureYelpAccess({
     tenantId,
     capabilityKey: "adsApiEnabled",
@@ -1024,7 +1034,7 @@ export async function reconcileSeptemberCampaignWorkflow(
         ? "The manually managed main campaign must be active at exactly $10,000 before another September layer can be applied."
         : "The supplied main campaign ID is absent from the canonical Yelp inventory.",
   };
-  const providerTargeting = specification.requiresServiceTargeting
+  const providerTargeting = requiresServiceTargeting
     ? await inspectSeptemberServiceTargetingAccess(
         tenantId,
         values.mainProgramId,
@@ -1034,16 +1044,16 @@ export async function reconcileSeptemberCampaignWorkflow(
         message: "This layer does not require Yelp Program Features targeting.",
       };
   const serviceTargeting = {
-    required: specification.requiresServiceTargeting,
+    required: requiresServiceTargeting,
     ready:
-      !specification.requiresServiceTargeting ||
+      !requiresServiceTargeting ||
       (providerTargeting.ready &&
         values.serviceTargetingConfirmed &&
         values.blockedKeywords.length > 0),
     providerReady: providerTargeting.ready,
     confirmed: values.serviceTargetingConfirmed,
     blockedKeywordCount: values.blockedKeywords.length,
-    message: !specification.requiresServiceTargeting
+    message: !requiresServiceTargeting
       ? providerTargeting.message
       : !providerTargeting.ready
         ? providerTargeting.message
@@ -1057,6 +1067,7 @@ export async function reconcileSeptemberCampaignWorkflow(
     localPrograms: business.programs,
     upstreamPrograms,
     adoptUpstreamProgramId: values.adoptUpstreamProgramId,
+    categoryAliases,
   });
   const blockers = [
     ...(mainPrerequisite.ready ? [] : [mainPrerequisite.message]),
@@ -1079,6 +1090,8 @@ export async function reconcileSeptemberCampaignWorkflow(
       adoptUpstreamProgramId: values.adoptUpstreamProgramId ?? null,
       serviceTargetingConfirmed: values.serviceTargetingConfirmed,
       blockedKeywordCount: values.blockedKeywords.length,
+      boostScopes: values.boostScopes,
+      categoryAliases,
     }),
     responseSummary: toJsonValue({
       plan,
@@ -1109,6 +1122,8 @@ export async function reconcileSeptemberCampaignWorkflow(
       blockers,
       canonicalBusinessId: business.id,
       upstreamProgramCount: upstreamPrograms.length,
+      boostScopes: values.boostScopes,
+      categoryAliases,
     };
   }
 
@@ -1145,6 +1160,7 @@ export async function reconcileSeptemberCampaignWorkflow(
     localPrograms: liveLocalPrograms,
     upstreamPrograms,
     adoptUpstreamProgramId: values.adoptUpstreamProgramId,
+    categoryAliases,
   });
 
   if (livePlan.action === "BLOCKED") {
@@ -1170,7 +1186,7 @@ export async function reconcileSeptemberCampaignWorkflow(
   }
 
   if (
-    specification.requiresServiceTargeting &&
+    requiresServiceTargeting &&
     programId &&
     livePlan.action !== "CREATE"
   ) {
@@ -1201,7 +1217,7 @@ export async function reconcileSeptemberCampaignWorkflow(
         pacingMethod: "paced",
         feePeriod: "CALENDAR_MONTH",
         campaignLayer: values.campaignLayer,
-        adCategories: [...specification.categoryAliases],
+        adCategories: categoryAliases,
         notes: "Approved September 2026 Yelp campaign structure.",
       },
       { approvedSeptemberReconciliation: true },
@@ -1252,7 +1268,7 @@ export async function reconcileSeptemberCampaignWorkflow(
             ? "ROLLING_MONTH"
             : "CALENDAR_MONTH",
         campaignLayer: values.campaignLayer,
-        adCategories: [...specification.categoryAliases],
+        adCategories: categoryAliases,
         notes: "Approved September 2026 Yelp campaign structure.",
       },
       { approvedSeptemberReconciliation: true },
@@ -1278,7 +1294,7 @@ export async function reconcileSeptemberCampaignWorkflow(
     );
   }
 
-  if (specification.requiresServiceTargeting && livePlan.action === "CREATE") {
+  if (requiresServiceTargeting && livePlan.action === "CREATE") {
     try {
       await updateProgramFeatureWorkflow(
         tenantId,
@@ -1312,6 +1328,7 @@ export async function reconcileSeptemberCampaignWorkflow(
     layer: values.campaignLayer,
     upstreamProgramId,
     upstreamPrograms: refreshedPrograms,
+    categoryAliases,
   });
 
   if (!verification.verified) {
@@ -1338,6 +1355,7 @@ export async function reconcileSeptemberCampaignWorkflow(
         displayName: campaignLayerLabels[values.campaignLayer],
         septemberCampaignVerifiedAt: new Date().toISOString(),
         serviceTargetingConfirmed: values.serviceTargetingConfirmed,
+        boostScopes: values.boostScopes,
       }),
     ),
   });
@@ -1360,7 +1378,8 @@ export async function reconcileSeptemberCampaignWorkflow(
       budgetCents: Number(specification.monthlyBudgetDollars) * 100,
       startDate: specification.startDate,
       endDate: specification.endDate,
-      categoryAliases: specification.categoryAliases,
+      categoryAliases,
+      boostScopes: values.boostScopes,
     }),
   });
 
@@ -1372,6 +1391,8 @@ export async function reconcileSeptemberCampaignWorkflow(
     jobId,
     verified: true,
     verification: verification.reason,
+    boostScopes: values.boostScopes,
+    categoryAliases,
   };
 }
 
