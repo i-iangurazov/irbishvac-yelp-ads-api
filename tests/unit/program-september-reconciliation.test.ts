@@ -251,6 +251,22 @@ describe("September campaign reconciliation", () => {
     ).toBe(true);
   });
 
+  it("accepts an adopted campaign that started before September", () => {
+    expect(
+      verifySeptemberCampaignReadBack({
+        layer: "SEPTEMBER_HVAC_REPAIR",
+        upstreamProgramId: "existing_hvac_12k",
+        upstreamPrograms: [
+          {
+            ...installationProgram,
+            program_id: "existing_hvac_12k",
+            start_date: "2026-05-01",
+          },
+        ],
+      }).verified,
+    ).toBe(true);
+  });
+
   it("verifies exact read-back values", () => {
     expect(
       verifySeptemberCampaignReadBack({

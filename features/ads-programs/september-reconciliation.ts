@@ -81,11 +81,16 @@ function matchesExactSpecification(
     .categoryAliases,
 ) {
   const specification = septemberCampaigns[layer];
+  const matchesApprovedStartDate =
+    layer === "SEPTEMBER_END_OF_MONTH_BOOST"
+      ? program.start_date === specification.startDate
+      : typeof program.start_date === "string" &&
+        program.start_date <= specification.startDate;
 
   return (
     program.program_metrics?.budget ===
       Number(specification.monthlyBudgetDollars) * 100 &&
-    program.start_date === specification.startDate &&
+    matchesApprovedStartDate &&
     program.end_date === specification.endDate &&
     matchesCategories(program.ad_categories, categoryAliases)
   );
