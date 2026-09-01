@@ -16,6 +16,20 @@ describe("program sync helpers", () => {
     expect(resolveSynchronizedProgramType("UNKNOWN_TYPE")).toBeNull();
     expect(resolveSynchronizedProgramStatus("ACTIVE")).toBe("ACTIVE");
     expect(resolveSynchronizedProgramStatus("INACTIVE")).toBe("ENDED");
+    expect(
+      resolveSynchronizedProgramStatus(
+        "INACTIVE",
+        "2026-09-25",
+        new Date("2026-09-01T12:00:00.000Z"),
+      ),
+    ).toBe("SCHEDULED");
+    expect(
+      resolveSynchronizedProgramStatus(
+        "INACTIVE",
+        "2026-08-31",
+        new Date("2026-09-01T12:00:00.000Z"),
+      ),
+    ).toBe("ENDED");
     expect(resolveSynchronizedProgramStatus("NOT_A_REAL_STATUS")).toBe(
       "FAILED",
     );

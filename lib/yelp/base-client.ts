@@ -135,6 +135,7 @@ export async function requestYelp<TSchema extends z.ZodTypeAny>({
     method,
     headers: {
       Accept: "application/json",
+      "User-Agent": "IRBIS-Yelp-Ads-Console/1.0",
       "X-Correlation-Id": correlationId,
       ...(body === undefined ? {} : { "Content-Type": "application/json" }),
       ...buildAuthHeaders(authType, credential),

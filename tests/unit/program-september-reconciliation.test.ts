@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  isApprovedSeptemberMainProgram,
   planSeptemberCampaignReconciliation,
   verifySeptemberCampaignReadBack,
 } from "@/features/ads-programs/september-reconciliation";
+import { requiresSeptemberServiceTargeting } from "@/features/ads-programs/layers";
 
 const installationProgram = {
   program_id: "yelp_hvac_12k",
@@ -16,6 +18,54 @@ const installationProgram = {
 };
 
 describe("September campaign reconciliation", () => {
+  it("accepts the approved Yelp main read-back without relaxing other values", () => {
+    const mainProgram = {
+      program_id: "main",
+      program_type: "CPC",
+      program_status: "ACTIVE",
+      ad_categories: ["hvac", "plumbing"],
+      program_metrics: { budget: 990_000 },
+    };
+
+    expect(isApprovedSeptemberMainProgram(mainProgram)).toBe(true);
+    expect(
+      isApprovedSeptemberMainProgram({
+        ...mainProgram,
+        program_metrics: { budget: 1_000_000 },
+      }),
+    ).toBe(true);
+    expect(
+      isApprovedSeptemberMainProgram({
+        ...mainProgram,
+        program_metrics: { budget: 989_900 },
+      }),
+    ).toBe(false);
+    expect(
+      isApprovedSeptemberMainProgram({
+        ...mainProgram,
+        program_status: "INACTIVE",
+      }),
+    ).toBe(false);
+  });
+
+  it("requires feature targeting only for a partial HVAC boost scope", () => {
+    expect(
+      requiresSeptemberServiceTargeting("SEPTEMBER_END_OF_MONTH_BOOST", [
+        "HVAC_REPAIR",
+        "PLUMBING",
+      ]),
+    ).toBe(true);
+    expect(
+      requiresSeptemberServiceTargeting("SEPTEMBER_END_OF_MONTH_BOOST", [
+        "HVAC_REPAIR",
+        "HVAC_INSTALLATION",
+        "HVAC_MAINTENANCE",
+        "PLUMBING",
+        "WATER_HEATER",
+      ]),
+    ).toBe(false);
+  });
+
   it("is idempotent for a tagged campaign with exact values", () => {
     expect(
       planSeptemberCampaignReconciliation({
@@ -100,6 +150,26 @@ describe("September campaign reconciliation", () => {
     ).toBe("BLOCKED");
   });
 
+  it("creates a same-budget sibling after the existing program is assigned", () => {
+    expect(
+      planSeptemberCampaignReconciliation({
+        layer: "SEPTEMBER_HVAC_REPAIR",
+        localPrograms: [
+          {
+            id: "local_installation",
+            upstreamProgramId: "yelp_hvac_12k",
+            type: "CPC",
+            status: "ACTIVE",
+            configurationJson: {
+              campaignLayer: "SEPTEMBER_HVAC_INSTALLATION",
+            },
+          },
+        ],
+        upstreamPrograms: [installationProgram],
+      }).action,
+    ).toBe("CREATE");
+  });
+
   it("creates a missing Plumbing layer", () => {
     expect(
       planSeptemberCampaignReconciliation({
@@ -160,6 +230,27 @@ describe("September campaign reconciliation", () => {
     ).toBe(false);
   });
 
+  it("accepts Yelp's inactive status for an exact future-dated boost", () => {
+    expect(
+      verifySeptemberCampaignReadBack({
+        layer: "SEPTEMBER_END_OF_MONTH_BOOST",
+        upstreamProgramId: "future_boost",
+        upstreamPrograms: [
+          {
+            program_id: "future_boost",
+            program_type: "CPC",
+            program_status: "INACTIVE",
+            ad_categories: ["waterheaterinstallrepair", "plumbing", "hvac"],
+            start_date: "2026-09-25",
+            end_date: "2026-09-30",
+            program_metrics: { budget: 500_000 },
+          },
+        ],
+        categoryAliases: ["hvac", "plumbing", "waterheaterinstallrepair"],
+      }).verified,
+    ).toBe(true);
+  });
+
   it("verifies exact read-back values", () => {
     expect(
       verifySeptemberCampaignReadBack({
@@ -180,6 +271,18 @@ describe("September campaign reconciliation", () => {
           {
             ...installationProgram,
             program_metrics: { budget: 1_199_900 },
+          },
+        ],
+      }).verified,
+    ).toBe(false);
+    expect(
+      verifySeptemberCampaignReadBack({
+        layer: "SEPTEMBER_HVAC_INSTALLATION",
+        upstreamProgramId: "yelp_hvac_12k",
+        upstreamPrograms: [
+          {
+            ...installationProgram,
+            start_date: "2026-09-02",
           },
         ],
       }).verified,

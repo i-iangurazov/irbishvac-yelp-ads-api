@@ -33,7 +33,19 @@ export function resolveSynchronizedProgramType(programType: string) {
     : null;
 }
 
-export function resolveSynchronizedProgramStatus(programStatus: string) {
+export function resolveSynchronizedProgramStatus(
+  programStatus: string,
+  startDate?: string | null,
+  syncedAt = new Date(),
+) {
+  if (
+    programStatus === "INACTIVE" &&
+    startDate &&
+    startDate > syncedAt.toISOString().slice(0, 10)
+  ) {
+    return "SCHEDULED";
+  }
+
   return upstreamStatusMap.get(programStatus) ?? "FAILED";
 }
 

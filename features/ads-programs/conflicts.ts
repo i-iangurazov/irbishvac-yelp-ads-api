@@ -115,19 +115,7 @@ export function findConflictingCpcPrograms(
       return false;
     }
 
-    const existingAliases = normalizeProgramCategoryAliases(
-      program.adCategoriesJson,
-    );
-    const requestedAliases =
-      normalizeProgramCategoryAliases(requestedCategories);
-    const hvacOnlyOverlap =
-      existingAliases.length === 1 &&
-      requestedAliases.length === 1 &&
-      existingAliases[0] === "hvac" &&
-      requestedAliases[0] === "hvac";
-
     if (
-      hvacOnlyOverlap &&
       areCompatibleOverlappingLayers(
         getProgramCampaignLayer(program.configurationJson),
         options?.requestedCampaignLayer,

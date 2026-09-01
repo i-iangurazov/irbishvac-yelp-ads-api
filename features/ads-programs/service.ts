@@ -23,6 +23,7 @@ import {
   type CampaignLayer,
 } from "@/features/ads-programs/layers";
 import {
+  isApprovedSeptemberMainProgram,
   planSeptemberCampaignReconciliation,
   verifySeptemberCampaignReadBack,
 } from "@/features/ads-programs/september-reconciliation";
@@ -471,7 +472,11 @@ export async function syncBusinessProgramsFromYelpWorkflow(
     );
     const synchronizedProgramData = {
       type: programType,
-      status: resolveSynchronizedProgramStatus(upstreamProgram.program_status),
+      status: resolveSynchronizedProgramStatus(
+        upstreamProgram.program_status,
+        upstreamProgram.start_date,
+        syncedAt,
+      ),
       upstreamProgramId: upstreamProgram.program_id,
       currency:
         upstreamProgram.program_metrics?.currency ??
@@ -1019,19 +1024,18 @@ export async function reconcileSeptemberCampaignWorkflow(
     (program: YelpUpstreamProgramDto) =>
       program.program_id === values.mainProgramId,
   );
-  const mainReady =
-    mainProgram?.program_type === "CPC" &&
-    mainProgram.program_status === "ACTIVE" &&
-    mainProgram.program_metrics?.budget === 1_000_000;
+  const mainReady = isApprovedSeptemberMainProgram(mainProgram);
   const mainPrerequisite = {
     ready: mainReady,
     programId: values.mainProgramId,
     observedBudgetCents: mainProgram?.program_metrics?.budget ?? null,
     observedStatus: mainProgram?.program_status ?? null,
     message: mainReady
-      ? "The manually managed main campaign is active at the approved $10,000 monthly budget."
+      ? mainProgram?.program_metrics?.budget === 990_000
+        ? "The manually managed main campaign is active at Yelp's explicitly approved $9,900 read-back."
+        : "The manually managed main campaign is active at the approved $10,000 monthly budget."
       : mainProgram
-        ? "The manually managed main campaign must be active at exactly $10,000 before another September layer can be applied."
+        ? "The manually managed main campaign must be active at the approved $9,900 Yelp read-back or $10,000 cabinet budget before another September layer can be applied."
         : "The supplied main campaign ID is absent from the canonical Yelp inventory.",
   };
   const providerTargeting = requiresServiceTargeting
@@ -1185,11 +1189,7 @@ export async function reconcileSeptemberCampaignWorkflow(
     programId = synchronized.id;
   }
 
-  if (
-    requiresServiceTargeting &&
-    programId &&
-    livePlan.action !== "CREATE"
-  ) {
+  if (requiresServiceTargeting && programId && livePlan.action !== "CREATE") {
     await updateProgramFeatureWorkflow(
       tenantId,
       actorId,

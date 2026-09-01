@@ -119,10 +119,17 @@ export function requiresSeptemberServiceTargeting(
   layer: SeptemberCampaignLayer,
   boostScopes: readonly SeptemberBoostScope[] = [],
 ) {
+  const allHvacBoostScopesSelected = [
+    "HVAC_REPAIR",
+    "HVAC_INSTALLATION",
+    "HVAC_MAINTENANCE",
+  ].every((scope) => boostScopes.includes(scope as SeptemberBoostScope));
+
   return (
     septemberCampaigns[layer].requiresServiceTargeting ||
     (layer === "SEPTEMBER_END_OF_MONTH_BOOST" &&
-      boostScopes.some((scope) => scope.startsWith("HVAC_")))
+      boostScopes.some((scope) => scope.startsWith("HVAC_")) &&
+      !allHvacBoostScopesSelected)
   );
 }
 

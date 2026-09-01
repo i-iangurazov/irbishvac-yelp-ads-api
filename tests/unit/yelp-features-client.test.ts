@@ -54,7 +54,12 @@ describe("YelpFeaturesClient", () => {
       new URL(
         "https://partner-api.yelp.com/program/upstream-program-1/features/v1",
       ),
-      expect.objectContaining({ method: "GET" }),
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({
+          "User-Agent": "IRBIS-Yelp-Ads-Console/1.0",
+        }),
+      }),
     );
   });
 

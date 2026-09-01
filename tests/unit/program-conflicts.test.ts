@@ -147,6 +147,25 @@ describe("program conflict detection", () => {
     expect(result).toEqual([]);
   });
 
+  it("allows the scheduled managed boost to overlap the managed main campaign", () => {
+    const result = findConflictingCpcPrograms(
+      [
+        {
+          id: "main",
+          type: "CPC",
+          status: "ACTIVE",
+          adCategoriesJson: ["waterheaterinstallrepair", "plumbing", "hvac"],
+          configurationJson: { campaignLayer: "MAIN" },
+        },
+      ],
+      ["hvac", "plumbing", "waterheaterinstallrepair"],
+      undefined,
+      { requestedCampaignLayer: "SEPTEMBER_END_OF_MONTH_BOOST" },
+    );
+
+    expect(result).toEqual([]);
+  });
+
   it("still blocks duplicate programs within the same September layer", () => {
     const result = findConflictingCpcPrograms(
       [

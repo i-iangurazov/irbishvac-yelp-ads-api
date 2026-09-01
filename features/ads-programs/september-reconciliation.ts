@@ -23,6 +23,20 @@ type UpstreamProgram = {
   program_metrics?: { budget?: number | null };
 };
 
+const approvedSeptemberMainBudgetCents = new Set([990_000, 1_000_000]);
+
+export function isApprovedSeptemberMainProgram(
+  program: UpstreamProgram | null | undefined,
+) {
+  return (
+    program?.program_type === "CPC" &&
+    program.program_status === "ACTIVE" &&
+    approvedSeptemberMainBudgetCents.has(
+      program.program_metrics?.budget ?? Number.NaN,
+    )
+  );
+}
+
 export type SeptemberCampaignReconciliationPlan =
   | {
       action: "NOOP" | "UPDATE";
@@ -63,14 +77,15 @@ function matchesCategories(actual: unknown, expected: readonly string[]) {
 function matchesExactSpecification(
   program: UpstreamProgram,
   layer: SeptemberCampaignLayer,
-  categoryAliases: readonly string[] =
-    septemberCampaigns[layer].categoryAliases,
+  categoryAliases: readonly string[] = septemberCampaigns[layer]
+    .categoryAliases,
 ) {
   const specification = septemberCampaigns[layer];
 
   return (
     program.program_metrics?.budget ===
       Number(specification.monthlyBudgetDollars) * 100 &&
+    program.start_date === specification.startDate &&
     program.end_date === specification.endDate &&
     matchesCategories(program.ad_categories, categoryAliases)
   );
@@ -121,7 +136,10 @@ export function planSeptemberCampaignReconciliation(input: {
 
   const currentUpstream = input.upstreamPrograms.filter(
     (program) =>
-      program.program_type === "CPC" && isCurrentStatus(program.program_status),
+      program.program_type === "CPC" &&
+      (isCurrentStatus(program.program_status) ||
+        (program.program_status === "INACTIVE" &&
+          matchesExactSpecification(program, input.layer, categoryAliases))),
   );
   const taggedProgram = taggedLocal[0] ?? null;
 
@@ -174,9 +192,7 @@ export function planSeptemberCampaignReconciliation(input: {
       };
     }
 
-    if (
-      !matchesCategories(candidate.ad_categories, categoryAliases)
-    ) {
+    if (!matchesCategories(candidate.ad_categories, categoryAliases)) {
       return {
         action: "BLOCKED",
         layer: input.layer,
@@ -195,28 +211,30 @@ export function planSeptemberCampaignReconciliation(input: {
       null;
 
     return {
-      action: matchesExactSpecification(
-        candidate,
-        input.layer,
-        categoryAliases,
-      )
+      action: matchesExactSpecification(candidate, input.layer, categoryAliases)
         ? "NOOP"
         : "UPDATE",
       layer: input.layer,
       localProgramId: localMatch?.id ?? null,
       upstreamProgramId: candidate.program_id,
-      reason: matchesExactSpecification(
-        candidate,
-        input.layer,
-        categoryAliases,
-      )
+      reason: matchesExactSpecification(candidate, input.layer, categoryAliases)
         ? "The selected Yelp program already has the approved September values."
         : "The selected Yelp program exists but does not match the approved September values.",
     };
   }
 
+  const assignedUpstreamProgramIds = new Set(
+    currentLocal
+      .filter(
+        (program) =>
+          program.upstreamProgramId &&
+          getProgramCampaignLayer(program.configurationJson) !== "GENERAL",
+      )
+      .map((program) => program.upstreamProgramId),
+  );
   const adoptionCandidates = currentUpstream.filter(
     (program) =>
+      !assignedUpstreamProgramIds.has(program.program_id) &&
       program.program_metrics?.budget ===
         Number(specification.monthlyBudgetDollars) * 100 &&
       matchesCategories(program.ad_categories, categoryAliases),
@@ -258,7 +276,16 @@ export function verifySeptemberCampaignReadBack(input: {
 
   if (
     program.program_type !== "CPC" ||
-    !isCurrentStatus(program.program_status) ||
+    (!isCurrentStatus(program.program_status) &&
+      !(
+        program.program_status === "INACTIVE" &&
+        matchesExactSpecification(
+          program,
+          input.layer,
+          input.categoryAliases ??
+            septemberCampaigns[input.layer].categoryAliases,
+        )
+      )) ||
     !matchesExactSpecification(
       program,
       input.layer,
