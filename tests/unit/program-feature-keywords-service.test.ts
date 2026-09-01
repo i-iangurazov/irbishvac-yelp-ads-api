@@ -242,4 +242,38 @@ describe("negative-keyword provider workflow", () => {
 
     expect(mocks.createProgramFeatureSnapshot).toHaveBeenCalledTimes(1);
   });
+
+  it("locks managed September keyword changes to reconciliation", async () => {
+    mocks.getProgramById.mockResolvedValue({
+      id: "program-1",
+      tenantId: "tenant-a",
+      businessId: "business-1",
+      upstreamProgramId: "yelp-program-1",
+      status: "ACTIVE",
+      configurationJson: {
+        campaignLayer: "SEPTEMBER_HVAC_INSTALLATION",
+      },
+    });
+    const { deleteProgramFeatureWorkflow, updateProgramFeatureWorkflow } =
+      await import("@/features/program-features/service");
+
+    await expect(
+      updateProgramFeatureWorkflow("tenant-a", "actor-1", "program-1", {
+        type: "NEGATIVE_KEYWORD_TARGETING",
+        blockedKeywords: ["AC Repair"],
+      }),
+    ).rejects.toThrow("locked to the audited campaign plan");
+    await expect(
+      deleteProgramFeatureWorkflow(
+        "tenant-a",
+        "actor-1",
+        "program-1",
+        "NEGATIVE_KEYWORD_TARGETING",
+      ),
+    ).rejects.toThrow("cannot be cleared outside");
+
+    expect(mocks.getProgramFeatures).not.toHaveBeenCalled();
+    expect(mocks.updateNegativeKeywords).not.toHaveBeenCalled();
+    expect(mocks.deleteProgramFeatures).not.toHaveBeenCalled();
+  });
 });

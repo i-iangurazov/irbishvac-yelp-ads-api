@@ -5,7 +5,9 @@ import { parseCurrencyToCents } from "@/lib/utils/format";
 import { YELP_MONTHLY_BUDGET_CAP_CENTS } from "@/features/ads-programs/budget-policy";
 import {
   campaignLayers,
+  isSeptemberCampaignLayer,
   isTemporaryAugustCampaignLayer,
+  septemberCampaigns,
   temporaryAugustCampaigns,
 } from "@/features/ads-programs/layers";
 
@@ -146,6 +148,60 @@ function validateProgramForm(
     }
   }
 
+  if (isSeptemberCampaignLayer(value.campaignLayer)) {
+    const campaign = septemberCampaigns[value.campaignLayer];
+    const budgetCents = safeCurrencyToCents(value.monthlyBudgetDollars);
+    const expectedBudgetCents = safeCurrencyToCents(
+      campaign.monthlyBudgetDollars,
+    );
+
+    if (!campaign.applyEnabled) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["campaignLayer"],
+        message: campaign.blocker,
+      });
+    }
+
+    if (
+      value.adCategories.length !== campaign.categoryAliases.length ||
+      !campaign.categoryAliases.every((alias) =>
+        value.adCategories.includes(alias),
+      )
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["adCategories"],
+        message:
+          "This September layer must use its approved Yelp category scope.",
+      });
+    }
+
+    if (budgetCents !== expectedBudgetCents) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["monthlyBudgetDollars"],
+        message: `This September layer has a locked $${Number(campaign.monthlyBudgetDollars).toLocaleString("en-US")} monthly budget.`,
+      });
+    }
+
+    const invalidStartDate =
+      mode === "create"
+        ? value.startDate !== campaign.startDate
+        : !value.startDate || value.startDate > campaign.startDate;
+
+    if (invalidStartDate || value.endDate !== campaign.endDate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [invalidStartDate ? "startDate" : "endDate"],
+        message:
+          mode === "create"
+            ? `This September layer must run from ${campaign.startDate} through ${campaign.endDate}.`
+            : `An adopted campaign must already be running by ${campaign.startDate} and end on ${campaign.endDate}.`,
+      });
+    }
+  }
+
   if (value.startDate && value.endDate && value.startDate > value.endDate) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
@@ -211,6 +267,53 @@ export const temporaryAugustCampaignReconcileSchema = z
         path: ["confirmation"],
         message:
           "Live reconciliation requires the exact approved confirmation phrase.",
+      });
+    }
+  });
+
+export const septemberCampaignReconcileSchema = z
+  .object({
+    businessId: z.string().min(1),
+    campaignLayer: z.enum([
+      "SEPTEMBER_HVAC_INSTALLATION",
+      "SEPTEMBER_HVAC_REPAIR",
+      "SEPTEMBER_HVAC_MAINTENANCE",
+      "SEPTEMBER_COMMERCIAL_HVAC",
+      "SEPTEMBER_PLUMBING",
+      "SEPTEMBER_END_OF_MONTH_BOOST",
+    ]),
+    mainProgramId: z.string().min(1),
+    adoptUpstreamProgramId: z.string().min(1).optional(),
+    blockedKeywords: z.array(z.string().min(1).max(80)).max(100).default([]),
+    serviceTargetingConfirmed: z.boolean().default(false),
+    dryRun: z.boolean().default(true),
+    confirmation: z.string().optional(),
+  })
+  .superRefine((value, ctx) => {
+    const campaign = septemberCampaigns[value.campaignLayer];
+
+    if (
+      !value.dryRun &&
+      value.confirmation !== "APPLY_APPROVED_SEPTEMBER_CAMPAIGN"
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["confirmation"],
+        message:
+          "Live reconciliation requires the exact approved September confirmation phrase.",
+      });
+    }
+
+    if (
+      !value.dryRun &&
+      campaign.requiresServiceTargeting &&
+      (!value.serviceTargetingConfirmed || value.blockedKeywords.length === 0)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["blockedKeywords"],
+        message:
+          "Live HVAC reconciliation requires an approved non-empty negative-keyword policy and explicit service-targeting confirmation.",
       });
     }
   });

@@ -1,5 +1,9 @@
 import "server-only";
 
+import {
+  getProgramCampaignLayer,
+  isSeptemberCampaignLayer,
+} from "@/features/ads-programs/layers";
 import { featureCatalog } from "@/features/program-features/schemas";
 import {
   keywordSetsMatch,
@@ -238,9 +242,22 @@ export async function updateProgramFeatureWorkflow(
   actorId: string,
   programId: string,
   input: unknown,
+  context?: { approvedSeptemberReconciliation?: boolean },
 ) {
   const value = negativeKeywordUpdateSchema.parse(input);
   const program = await getProgramById(programId, tenantId);
+
+  if (
+    isSeptemberCampaignLayer(
+      getProgramCampaignLayer(program.configurationJson),
+    ) &&
+    !context?.approvedSeptemberReconciliation
+  ) {
+    throw new YelpValidationError(
+      "September layer keyword targeting is locked to the audited campaign plan.",
+    );
+  }
+
   const currentSnapshots = await listProgramFeatures(programId, tenantId);
   const localBefore = readKeywordSnapshot(currentSnapshots);
   let beforeBlockedKeywords = localBefore.blockedKeywords;
@@ -359,6 +376,7 @@ export async function deleteProgramFeatureWorkflow(
   actorId: string,
   programId: string,
   featureType: string,
+  context?: { approvedSeptemberReconciliation?: boolean },
 ) {
   if (featureType !== NEGATIVE_KEYWORD_TYPE) {
     throw new YelpValidationError(
@@ -367,6 +385,18 @@ export async function deleteProgramFeatureWorkflow(
   }
 
   const program = await getProgramById(programId, tenantId);
+
+  if (
+    isSeptemberCampaignLayer(
+      getProgramCampaignLayer(program.configurationJson),
+    ) &&
+    !context?.approvedSeptemberReconciliation
+  ) {
+    throw new YelpValidationError(
+      "September layer keyword targeting cannot be cleared outside the audited campaign workflow.",
+    );
+  }
+
   const currentSnapshots = await listProgramFeatures(programId, tenantId);
   const localBefore = readKeywordSnapshot(currentSnapshots);
   let beforeBlockedKeywords = localBefore.blockedKeywords;

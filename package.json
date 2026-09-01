@@ -17,6 +17,7 @@
     "format:check": "node scripts/check-format-changed.mjs",
     "load:webhooks": "node scripts/simulate-webhook-burst.mjs",
     "yelp:inventory": "node --conditions=react-server --env-file=.env --import tsx scripts/read-only-yelp-campaign-inventory.ts",
+    "yelp:reconcile:september": "node --conditions=react-server --env-file=.env --import tsx scripts/reconcile-september-campaign.ts",
     "yelp:reconcile:temporary": "node --conditions=react-server --env-file=.env --import tsx scripts/reconcile-temporary-august-campaign.ts",
     "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",

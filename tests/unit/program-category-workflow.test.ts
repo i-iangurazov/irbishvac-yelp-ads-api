@@ -164,4 +164,38 @@ describe("program category-targeting workflow", () => {
     expect(mocks.createProgramJob).not.toHaveBeenCalled();
     expect(mocks.editProgram).not.toHaveBeenCalled();
   });
+
+  it("locks managed September category and budget changes to reconciliation", async () => {
+    mocks.getProgramById.mockResolvedValue({
+      ...(await mocks.getProgramById()),
+      configurationJson: {
+        campaignLayer: "SEPTEMBER_HVAC_INSTALLATION",
+      },
+    });
+    const {
+      updateProgramBudgetWorkflow,
+      updateProgramCategoryTargetingWorkflow,
+    } = await import("@/features/ads-programs/service");
+
+    await expect(
+      updateProgramCategoryTargetingWorkflow(
+        "tenant_1",
+        "actor_1",
+        "program-main",
+        {
+          campaignLayer: "SEPTEMBER_HVAC_INSTALLATION",
+          adCategories: ["hvac"],
+        },
+      ),
+    ).rejects.toThrow("locked to the audited campaign plan");
+    await expect(
+      updateProgramBudgetWorkflow("tenant_1", "actor_1", "program-main", {
+        operation: "CURRENT_BUDGET",
+        currentBudgetDollars: "12000",
+      }),
+    ).rejects.toThrow("locked to the audited campaign plan");
+
+    expect(mocks.createProgramJob).not.toHaveBeenCalled();
+    expect(mocks.editProgram).not.toHaveBeenCalled();
+  });
 });

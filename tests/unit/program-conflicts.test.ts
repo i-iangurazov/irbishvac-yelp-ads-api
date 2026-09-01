@@ -125,4 +125,46 @@ describe("program conflict detection", () => {
 
     expect(result).toEqual([]);
   });
+
+  it("allows distinct managed September HVAC layers to overlap", () => {
+    const result = findConflictingCpcPrograms(
+      [
+        {
+          id: "installation",
+          type: "CPC",
+          status: "ACTIVE",
+          adCategoriesJson: ["hvac"],
+          configurationJson: {
+            campaignLayer: "SEPTEMBER_HVAC_INSTALLATION",
+          },
+        },
+      ],
+      ["hvac"],
+      undefined,
+      { requestedCampaignLayer: "SEPTEMBER_HVAC_REPAIR" },
+    );
+
+    expect(result).toEqual([]);
+  });
+
+  it("still blocks duplicate programs within the same September layer", () => {
+    const result = findConflictingCpcPrograms(
+      [
+        {
+          id: "installation",
+          type: "CPC",
+          status: "ACTIVE",
+          adCategoriesJson: ["hvac"],
+          configurationJson: {
+            campaignLayer: "SEPTEMBER_HVAC_INSTALLATION",
+          },
+        },
+      ],
+      ["hvac"],
+      undefined,
+      { requestedCampaignLayer: "SEPTEMBER_HVAC_INSTALLATION" },
+    );
+
+    expect(result).toHaveLength(1);
+  });
 });

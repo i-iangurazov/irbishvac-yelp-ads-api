@@ -35,8 +35,9 @@ import {
 } from "@/features/ads-programs/schemas";
 import {
   campaignLayerLabels,
-  campaignLayers,
+  isSeptemberCampaignLayer,
   isTemporaryAugustCampaignLayer,
+  selectableCampaignLayers,
   temporaryAugustCampaigns,
   type CampaignLayer,
 } from "@/features/ads-programs/layers";
@@ -168,6 +169,10 @@ export function ProgramForm(props: ProgramFormProps) {
   );
   const programType = watch("programType");
   const campaignLayer = watch("campaignLayer");
+  const isManagedSeptemberLayer = isSeptemberCampaignLayer(campaignLayer);
+  const campaignLayerOptions = isManagedSeptemberLayer
+    ? [campaignLayer]
+    : selectableCampaignLayers;
   const isAutobid = watch("isAutobid");
   const currency = watch("currency");
   const monthlyBudgetDollars = watch("monthlyBudgetDollars");
@@ -391,6 +396,7 @@ export function ProgramForm(props: ProgramFormProps) {
           <div className="space-y-2">
             <Label>Campaign layer</Label>
             <Select
+              disabled={isManagedSeptemberLayer}
               value={campaignLayer}
               onValueChange={(value) => {
                 const nextLayer = value as CampaignLayer;
@@ -426,7 +432,7 @@ export function ProgramForm(props: ProgramFormProps) {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {campaignLayers.map((layer) => (
+                {campaignLayerOptions.map((layer) => (
                   <SelectItem key={layer} value={layer}>
                     {campaignLayerLabels[layer]}
                   </SelectItem>
@@ -434,9 +440,9 @@ export function ProgramForm(props: ProgramFormProps) {
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              Only the approved temporary Plumbing and Commercial HVAC layers
-              are available through August 31. The permanent HVAC split remains
-              on hold.
+              {isManagedSeptemberLayer
+                ? "This layer is managed by the audited September reconciliation workflow."
+                : "September service layers are created only after the protected main budget, duplicate inventory, and targeting checks pass."}
             </p>
           </div>
 

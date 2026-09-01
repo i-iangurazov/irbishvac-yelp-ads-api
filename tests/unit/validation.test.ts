@@ -5,6 +5,7 @@ import {
   currentBudgetOperationSchema,
   programCategoryTargetingOperationSchema,
   scheduledBudgetOperationSchema,
+  septemberCampaignReconcileSchema,
 } from "@/features/ads-programs/schemas";
 import { deleteBusinessFormSchema } from "@/features/businesses/schemas";
 import { reportRequestFormSchema } from "@/features/reporting/schemas";
@@ -98,6 +99,38 @@ describe("validation", () => {
       programCategoryTargetingOperationSchema.safeParse({
         adCategories: ["hvac", "plumbing", "waterheaterinstallrepair"],
         internalNote: "Restore listing-wide targeting.",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("requires approved service targeting for live September HVAC changes", () => {
+    const base = {
+      businessId: "business_1",
+      campaignLayer: "SEPTEMBER_HVAC_INSTALLATION",
+      mainProgramId: "main_program",
+      dryRun: false,
+      confirmation: "APPLY_APPROVED_SEPTEMBER_CAMPAIGN",
+    };
+
+    expect(septemberCampaignReconcileSchema.safeParse(base).success).toBe(
+      false,
+    );
+    expect(
+      septemberCampaignReconcileSchema.safeParse({
+        ...base,
+        serviceTargetingConfirmed: true,
+        blockedKeywords: ["AC Repair"],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("allows a read-only September dry run without targeting approval", () => {
+    expect(
+      septemberCampaignReconcileSchema.safeParse({
+        businessId: "business_1",
+        campaignLayer: "SEPTEMBER_HVAC_REPAIR",
+        mainProgramId: "main_program",
+        dryRun: true,
       }).success,
     ).toBe(true);
   });

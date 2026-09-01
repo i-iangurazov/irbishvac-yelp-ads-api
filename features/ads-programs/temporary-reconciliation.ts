@@ -1,14 +1,11 @@
 import {
   getProgramCampaignLayer,
   temporaryAugustCampaigns,
-  type CampaignLayer,
 } from "@/features/ads-programs/layers";
 import { normalizeProgramCategoryAliases } from "@/features/ads-programs/conflicts";
 
-export type TemporaryAugustCampaignLayer = Exclude<
-  CampaignLayer,
-  "GENERAL" | "MAIN"
->;
+export type TemporaryAugustCampaignLayer =
+  keyof typeof temporaryAugustCampaigns;
 
 type LocalProgram = {
   id: string;
