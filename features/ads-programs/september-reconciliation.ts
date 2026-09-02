@@ -79,13 +79,14 @@ function matchesExactSpecification(
   layer: SeptemberCampaignLayer,
   categoryAliases: readonly string[] = septemberCampaigns[layer]
     .categoryAliases,
+  latestApprovedStartDate: string = septemberCampaigns[layer].startDate,
 ) {
   const specification = septemberCampaigns[layer];
   const matchesApprovedStartDate =
     layer === "SEPTEMBER_END_OF_MONTH_BOOST"
       ? program.start_date === specification.startDate
       : typeof program.start_date === "string" &&
-        program.start_date <= specification.startDate;
+        program.start_date <= latestApprovedStartDate;
 
   return (
     program.program_metrics?.budget ===
@@ -102,10 +103,13 @@ export function planSeptemberCampaignReconciliation(input: {
   upstreamPrograms: UpstreamProgram[];
   adoptUpstreamProgramId?: string;
   categoryAliases?: readonly string[];
+  latestApprovedStartDate?: string;
 }): SeptemberCampaignReconciliationPlan {
   const specification = septemberCampaigns[input.layer];
   const categoryAliases =
     input.categoryAliases ?? specification.categoryAliases;
+  const latestApprovedStartDate =
+    input.latestApprovedStartDate ?? specification.startDate;
 
   if (
     input.layer === "SEPTEMBER_END_OF_MONTH_BOOST" &&
@@ -144,7 +148,12 @@ export function planSeptemberCampaignReconciliation(input: {
       program.program_type === "CPC" &&
       (isCurrentStatus(program.program_status) ||
         (program.program_status === "INACTIVE" &&
-          matchesExactSpecification(program, input.layer, categoryAliases))),
+          matchesExactSpecification(
+            program,
+            input.layer,
+            categoryAliases,
+            latestApprovedStartDate,
+          ))),
   );
   const taggedProgram = taggedLocal[0] ?? null;
 
@@ -216,13 +225,23 @@ export function planSeptemberCampaignReconciliation(input: {
       null;
 
     return {
-      action: matchesExactSpecification(candidate, input.layer, categoryAliases)
+      action: matchesExactSpecification(
+        candidate,
+        input.layer,
+        categoryAliases,
+        latestApprovedStartDate,
+      )
         ? "NOOP"
         : "UPDATE",
       layer: input.layer,
       localProgramId: localMatch?.id ?? null,
       upstreamProgramId: candidate.program_id,
-      reason: matchesExactSpecification(candidate, input.layer, categoryAliases)
+      reason: matchesExactSpecification(
+        candidate,
+        input.layer,
+        categoryAliases,
+        latestApprovedStartDate,
+      )
         ? "The selected Yelp program already has the approved September values."
         : "The selected Yelp program exists but does not match the approved September values.",
     };
@@ -270,6 +289,7 @@ export function verifySeptemberCampaignReadBack(input: {
   upstreamProgramId: string;
   upstreamPrograms: UpstreamProgram[];
   categoryAliases?: readonly string[];
+  latestApprovedStartDate?: string;
 }) {
   const program = input.upstreamPrograms.find(
     (candidate) => candidate.program_id === input.upstreamProgramId,
@@ -289,12 +309,14 @@ export function verifySeptemberCampaignReadBack(input: {
           input.layer,
           input.categoryAliases ??
             septemberCampaigns[input.layer].categoryAliases,
+          input.latestApprovedStartDate,
         )
       )) ||
     !matchesExactSpecification(
       program,
       input.layer,
       input.categoryAliases ?? septemberCampaigns[input.layer].categoryAliases,
+      input.latestApprovedStartDate,
     )
   ) {
     return {

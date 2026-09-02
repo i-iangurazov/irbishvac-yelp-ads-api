@@ -90,6 +90,40 @@ describe("September campaign reconciliation", () => {
     });
   });
 
+  it("accepts a new layer started after September 1 when explicitly approved", () => {
+    expect(
+      verifySeptemberCampaignReadBack({
+        layer: "SEPTEMBER_HVAC_INSTALLATION",
+        upstreamProgramId: "late_start_installation",
+        upstreamPrograms: [
+          {
+            ...installationProgram,
+            program_id: "late_start_installation",
+            start_date: "2026-09-02",
+          },
+        ],
+        latestApprovedStartDate: "2026-09-02",
+      }).verified,
+    ).toBe(true);
+  });
+
+  it("rejects a layer starting after the approved effective start date", () => {
+    expect(
+      verifySeptemberCampaignReadBack({
+        layer: "SEPTEMBER_HVAC_INSTALLATION",
+        upstreamProgramId: "future_installation",
+        upstreamPrograms: [
+          {
+            ...installationProgram,
+            program_id: "future_installation",
+            start_date: "2026-09-03",
+          },
+        ],
+        latestApprovedStartDate: "2026-09-02",
+      }).verified,
+    ).toBe(false);
+  });
+
   it("requires explicit adoption of an exact untagged Yelp program", () => {
     expect(
       planSeptemberCampaignReconciliation({

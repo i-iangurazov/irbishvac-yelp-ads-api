@@ -57,6 +57,7 @@ import {
 } from "@/features/ads-programs/schemas";
 import { updateProgramFeatureWorkflow } from "@/features/program-features/service";
 import { resolveSeptemberBoostBlockedKeywords } from "@/features/ads-programs/september-targeting";
+import { getPacificDateKey } from "@/features/ads-programs/spend-snapshots";
 import { recordAuditEvent } from "@/features/audit/service";
 import {
   findBusinessByEncryptedYelpBusinessId,
@@ -978,6 +979,12 @@ export async function reconcileSeptemberCampaignWorkflow(
   const values = septemberCampaignReconcileSchema.parse(input);
   const business = await getBusinessById(values.businessId, tenantId);
   const specification = septemberCampaigns[values.campaignLayer];
+  const currentPacificDate = getPacificDateKey(new Date());
+  const effectiveStartDate =
+    currentPacificDate > specification.startDate &&
+    currentPacificDate <= specification.endDate
+      ? currentPacificDate
+      : specification.startDate;
   const categoryAliases = resolveSeptemberCategoryAliases(
     values.campaignLayer,
     values.boostScopes,
@@ -1081,6 +1088,7 @@ export async function reconcileSeptemberCampaignWorkflow(
     upstreamPrograms,
     adoptUpstreamProgramId: values.adoptUpstreamProgramId,
     categoryAliases,
+    latestApprovedStartDate: effectiveStartDate,
   });
   const blockers = [
     ...(mainPrerequisite.ready ? [] : [mainPrerequisite.message]),
@@ -1175,6 +1183,7 @@ export async function reconcileSeptemberCampaignWorkflow(
     upstreamPrograms,
     adoptUpstreamProgramId: values.adoptUpstreamProgramId,
     categoryAliases,
+    latestApprovedStartDate: effectiveStartDate,
   });
 
   if (livePlan.action === "BLOCKED") {
@@ -1225,7 +1234,7 @@ export async function reconcileSeptemberCampaignWorkflow(
         businessId: business.id,
         programType: "CPC",
         currency: "USD",
-        startDate: specification.startDate,
+        startDate: effectiveStartDate,
         endDate: specification.endDate,
         monthlyBudgetDollars: specification.monthlyBudgetDollars,
         isAutobid: true,
@@ -1348,6 +1357,7 @@ export async function reconcileSeptemberCampaignWorkflow(
     upstreamProgramId,
     upstreamPrograms: refreshedPrograms,
     categoryAliases,
+    latestApprovedStartDate: effectiveStartDate,
   });
 
   if (!verification.verified) {
@@ -1403,7 +1413,7 @@ export async function reconcileSeptemberCampaignWorkflow(
     responseSummary: toJsonValue({
       verification,
       budgetCents: Number(specification.monthlyBudgetDollars) * 100,
-      startDate: specification.startDate,
+      startDate: effectiveStartDate,
       endDate: specification.endDate,
       categoryAliases,
       boostScopes: values.boostScopes,
