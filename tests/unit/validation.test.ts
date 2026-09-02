@@ -44,6 +44,30 @@ describe("validation", () => {
     expect(result.success).toBe(true);
   });
 
+  it("allows an approved September layer to start after September 1", () => {
+    const base = {
+      businessId: "business_1",
+      programType: "CPC" as const,
+      currency: "USD",
+      startDate: "2026-09-02",
+      endDate: "2026-09-30",
+      monthlyBudgetDollars: "12000",
+      isAutobid: true,
+      pacingMethod: "paced" as const,
+      feePeriod: "CALENDAR_MONTH" as const,
+      campaignLayer: "SEPTEMBER_HVAC_INSTALLATION" as const,
+      adCategories: ["hvac"],
+    };
+
+    expect(createProgramFormSchema.safeParse(base).success).toBe(true);
+    expect(
+      createProgramFormSchema.safeParse({
+        ...base,
+        startDate: "2026-10-01",
+      }).success,
+    ).toBe(false);
+  });
+
   it("rejects daily reports longer than 31 days", () => {
     const result = reportRequestFormSchema.safeParse({
       granularity: "DAILY",

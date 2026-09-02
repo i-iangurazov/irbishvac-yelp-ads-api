@@ -189,10 +189,13 @@ function validateProgramForm(
       });
     }
 
-    const invalidStartDate =
-      mode === "create"
-        ? value.startDate !== campaign.startDate
-        : !value.startDate || value.startDate > campaign.startDate;
+    const isBoostLayer =
+      value.campaignLayer === "SEPTEMBER_END_OF_MONTH_BOOST";
+    const invalidStartDate = isBoostLayer
+      ? value.startDate !== campaign.startDate
+      : !value.startDate ||
+        value.startDate > campaign.endDate ||
+        (mode === "create" && value.startDate < campaign.startDate);
 
     if (invalidStartDate || value.endDate !== campaign.endDate) {
       ctx.addIssue({
@@ -200,8 +203,8 @@ function validateProgramForm(
         path: [invalidStartDate ? "startDate" : "endDate"],
         message:
           mode === "create"
-            ? `This September layer must run from ${campaign.startDate} through ${campaign.endDate}.`
-            : `An adopted campaign must already be running by ${campaign.startDate} and end on ${campaign.endDate}.`,
+            ? `This September layer must start between ${campaign.startDate} and ${campaign.endDate}, then end on ${campaign.endDate}.`
+            : `An adopted campaign must start no later than ${campaign.endDate} and end on ${campaign.endDate}.`,
       });
     }
   }
