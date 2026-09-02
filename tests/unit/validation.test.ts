@@ -122,6 +122,16 @@ describe("validation", () => {
         blockedKeywords: ["AC Repair"],
       }).success,
     ).toBe(true);
+    const deferred = septemberCampaignReconcileSchema.safeParse({
+      ...base,
+      serviceTargetingConfirmed: true,
+      deferServiceTargeting: true,
+      blockedKeywords: ["AC Repair"],
+    });
+    expect(deferred.success).toBe(true);
+    if (deferred.success) {
+      expect(deferred.data.deferServiceTargeting).toBe(true);
+    }
   });
 
   it("allows a read-only September dry run without targeting approval", () => {

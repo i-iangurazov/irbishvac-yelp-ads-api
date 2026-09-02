@@ -112,6 +112,8 @@ async function main() {
       boostScopes: parseBoostScopes(),
       serviceTargetingConfirmed:
         process.env.SEPTEMBER_SERVICE_TARGETING_CONFIRMED === "1",
+      deferServiceTargeting:
+        process.env.SEPTEMBER_DEFER_SERVICE_TARGETING === "1",
       dryRun: !apply,
       confirmation: apply ? "APPLY_APPROVED_SEPTEMBER_CAMPAIGN" : undefined,
     },

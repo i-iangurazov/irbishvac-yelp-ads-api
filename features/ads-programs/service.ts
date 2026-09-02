@@ -986,6 +986,8 @@ export async function reconcileSeptemberCampaignWorkflow(
     values.campaignLayer,
     values.boostScopes,
   );
+  const serviceTargetingDeferred =
+    requiresServiceTargeting && values.deferServiceTargeting;
   const managesBoostKeywordPolicy =
     values.campaignLayer === "SEPTEMBER_END_OF_MONTH_BOOST";
   const { credential } = await ensureYelpAccess({
@@ -1060,6 +1062,7 @@ export async function reconcileSeptemberCampaignWorkflow(
         values.blockedKeywords.length > 0),
     providerReady: providerTargeting.ready,
     confirmed: values.serviceTargetingConfirmed,
+    deferred: serviceTargetingDeferred,
     blockedKeywordCount: values.blockedKeywords.length,
     message: !requiresServiceTargeting
       ? providerTargeting.message
@@ -1068,7 +1071,9 @@ export async function reconcileSeptemberCampaignWorkflow(
         : !values.serviceTargetingConfirmed ||
             values.blockedKeywords.length === 0
           ? "An operator-approved non-empty negative-keyword policy is required for this service-specific HVAC layer."
-          : "The service-targeting access and approved negative-keyword policy are ready.",
+          : serviceTargetingDeferred
+            ? "The approved negative-keyword policy is recorded, but its provider write is intentionally deferred."
+            : "The service-targeting access and approved negative-keyword policy are ready.",
   };
   const plan = planSeptemberCampaignReconciliation({
     layer: values.campaignLayer,
@@ -1097,6 +1102,7 @@ export async function reconcileSeptemberCampaignWorkflow(
       mainProgramId: values.mainProgramId,
       adoptUpstreamProgramId: values.adoptUpstreamProgramId ?? null,
       serviceTargetingConfirmed: values.serviceTargetingConfirmed,
+      serviceTargetingDeferred,
       blockedKeywordCount: values.blockedKeywords.length,
       boostScopes: values.boostScopes,
       categoryAliases,
@@ -1195,6 +1201,7 @@ export async function reconcileSeptemberCampaignWorkflow(
 
   if (
     (requiresServiceTargeting || managesBoostKeywordPolicy) &&
+    !serviceTargetingDeferred &&
     programId &&
     livePlan.action !== "CREATE"
   ) {
@@ -1304,6 +1311,7 @@ export async function reconcileSeptemberCampaignWorkflow(
 
   if (
     (requiresServiceTargeting || managesBoostKeywordPolicy) &&
+    !serviceTargetingDeferred &&
     livePlan.action === "CREATE"
   ) {
     try {
@@ -1365,7 +1373,14 @@ export async function reconcileSeptemberCampaignWorkflow(
         campaignLayer: values.campaignLayer,
         displayName: campaignLayerLabels[values.campaignLayer],
         septemberCampaignVerifiedAt: new Date().toISOString(),
-        serviceTargetingConfirmed: values.serviceTargetingConfirmed,
+        serviceTargetingConfirmed:
+          values.serviceTargetingConfirmed && !serviceTargetingDeferred,
+        serviceTargetingDeferred,
+        serviceTargetingStatus: requiresServiceTargeting
+          ? serviceTargetingDeferred
+            ? "PENDING_PROVIDER_WRITE"
+            : "VERIFIED"
+          : "NOT_REQUIRED",
         boostScopes: values.boostScopes,
       }),
     ),
@@ -1383,6 +1398,7 @@ export async function reconcileSeptemberCampaignWorkflow(
     requestSummary: toJsonValue({
       campaignLayer: values.campaignLayer,
       blockedKeywordCount: values.blockedKeywords.length,
+      serviceTargetingDeferred,
     }),
     responseSummary: toJsonValue({
       verification,
@@ -1404,6 +1420,7 @@ export async function reconcileSeptemberCampaignWorkflow(
     verification: verification.reason,
     boostScopes: values.boostScopes,
     categoryAliases,
+    serviceTargetingDeferred,
   };
 }
 

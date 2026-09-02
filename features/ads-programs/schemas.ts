@@ -291,6 +291,7 @@ export const septemberCampaignReconcileSchema = z
     blockedKeywords: z.array(z.string().min(1).max(80)).max(100).default([]),
     boostScopes: z.array(z.enum(septemberBoostScopes)).default([]),
     serviceTargetingConfirmed: z.boolean().default(false),
+    deferServiceTargeting: z.boolean().default(false),
     dryRun: z.boolean().default(true),
     confirmation: z.string().optional(),
   })
