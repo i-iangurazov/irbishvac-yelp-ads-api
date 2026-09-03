@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { reconcilePendingProgramJobs } from "@/features/ads-programs/service";
+import { reconcileDueTemporaryBudgetRestores } from "@/features/ads-programs/temporary-budget-restores";
 import { runLeadAutomationFollowUpWorker } from "@/features/autoresponder/service";
 import { reconcileDueServiceTitanLifecycleSyncs } from "@/features/crm-connector/lifecycle-service";
 import {
@@ -221,6 +222,7 @@ export async function GET(request: Request) {
             Awaited<ReturnType<typeof reconcileDueServiceTitanLifecycleSyncs>>
           >("internal-reconcile:servicetitan-lifecycle");
     const programJobs = programJobsOutcome.result ?? [];
+    const temporaryBudgetRestores = await reconcileDueTemporaryBudgetRestores();
     const leadWebhooks = leadWebhooksOutcome.result ?? [];
     const leadPolling = leadPollingOutcome.result ?? {
       tenantCount: 0,
@@ -272,12 +274,19 @@ export async function GET(request: Request) {
       leadPolling.failedCount > 0 ||
       leadPolling.accessFailureCount > 0 ||
       connectorLifecycle.failedCount > 0;
-    const isHealthy = !hasWorkerFailure && !hasApplicationFailure;
+    const hasTemporaryBudgetRestoreFailure = temporaryBudgetRestores.some(
+      (result) => result.status === "FAILED" || result.status === "BLOCKED",
+    );
+    const isHealthy =
+      !hasWorkerFailure &&
+      !hasApplicationFailure &&
+      !hasTemporaryBudgetRestoreFailure;
 
     logInfo("internal.reconcile.completed", {
       durationMs: Date.now() - startedAt,
       limits,
       programJobs: programJobs.length,
+      temporaryBudgetRestores,
       leadWebhooks: leadWebhooks.length,
       leadPollingBusinesses: leadPolling.businessCount,
       leadPollingLeads: leadPolling.processedLeadCount,
@@ -295,6 +304,7 @@ export async function GET(request: Request) {
         processedAt: new Date().toISOString(),
         limits,
         programJobs,
+        temporaryBudgetRestores,
         leadWebhooks,
         leadPolling,
         scheduledReports,

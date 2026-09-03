@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   updateProgramJob: vi.fn(),
   editProgram: vi.fn(),
   recordAuditEvent: vi.fn(),
+  getCapabilityFlags: vi.fn(),
 }));
 
 vi.mock("@/lib/db/programs-repository", () => ({
@@ -39,7 +40,7 @@ vi.mock("@/lib/yelp/runtime", () => ({
       secret: "secret",
     },
   })),
-  getCapabilityFlags: vi.fn(),
+  getCapabilityFlags: mocks.getCapabilityFlags,
 }));
 
 vi.mock("@/lib/yelp/ads-client", () => ({
@@ -92,6 +93,10 @@ describe("program category-targeting workflow", () => {
     mocks.editProgram.mockResolvedValue({
       correlationId: "correlation_1",
       data: { job_id: "yelp_job_1" },
+    });
+    mocks.getCapabilityFlags.mockResolvedValue({
+      demoModeEnabled: false,
+      adsApiEnabled: true,
     });
   });
 
@@ -197,5 +202,47 @@ describe("program category-targeting workflow", () => {
 
     expect(mocks.createProgramJob).not.toHaveBeenCalled();
     expect(mocks.editProgram).not.toHaveBeenCalled();
+  });
+
+  it("allows only an exact server-approved temporary September budget override", async () => {
+    mocks.getProgramById.mockResolvedValue({
+      ...(await mocks.getProgramById()),
+      configurationJson: {
+        campaignLayer: "SEPTEMBER_HVAC_INSTALLATION",
+      },
+    });
+    const { updateProgramBudgetWorkflow } =
+      await import("@/features/ads-programs/service");
+
+    await updateProgramBudgetWorkflow(
+      "tenant_1",
+      "actor_1",
+      "program-main",
+      {
+        operation: "CURRENT_BUDGET",
+        currentBudgetDollars: "16500",
+        internalNote: "Emil temporary daily budget request.",
+      },
+      {
+        approvedSeptemberOverride: {
+          campaignLayer: "SEPTEMBER_HVAC_INSTALLATION",
+          monthlyBudgetDollars: "16500",
+          approvalReference: "Emil 2026-09-03",
+        },
+      },
+    );
+
+    expect(mocks.editProgram).toHaveBeenCalledWith("yelp-main", {
+      budget: 1_650_000,
+    });
+    expect(mocks.createProgramJob).toHaveBeenCalledWith(
+      "tenant_1",
+      "business_1",
+      expect.objectContaining({
+        requestJson: expect.objectContaining({
+          _approvalReference: "Emil 2026-09-03",
+        }),
+      }),
+    );
   });
 });

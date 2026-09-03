@@ -21,6 +21,7 @@ import {
   septemberCampaigns,
   temporaryAugustCampaigns,
   type CampaignLayer,
+  type SeptemberCampaignLayer,
 } from "@/features/ads-programs/layers";
 import {
   isApprovedSeptemberMainProgram,
@@ -1969,21 +1970,50 @@ export async function terminateProgramWorkflow(
   }
 }
 
+type ApprovedSeptemberBudgetOverride = {
+  campaignLayer: SeptemberCampaignLayer;
+  monthlyBudgetDollars: string;
+  effectiveDate?: string;
+  approvalReference: string;
+};
+
 export async function updateProgramBudgetWorkflow(
   tenantId: string,
   actorId: string,
   programId: string,
   input: unknown,
+  options?: {
+    approvedSeptemberOverride?: ApprovedSeptemberBudgetOverride;
+  },
 ) {
   const values = programBudgetOperationSchema.parse(input);
   const program = await getProgramById(programId, tenantId);
+  const campaignLayer = getProgramCampaignLayer(program.configurationJson);
 
-  if (
-    isSeptemberCampaignLayer(getProgramCampaignLayer(program.configurationJson))
-  ) {
-    throw new YelpValidationError(
-      "September layer budgets are locked to the audited campaign plan.",
-    );
+  if (isSeptemberCampaignLayer(campaignLayer)) {
+    const approval = options?.approvedSeptemberOverride;
+    const requestedBudgetDollars =
+      values.operation === "CURRENT_BUDGET"
+        ? values.currentBudgetDollars
+        : values.operation === "SCHEDULED_BUDGET"
+          ? values.scheduledBudgetDollars
+          : null;
+    const requestedEffectiveDate =
+      values.operation === "SCHEDULED_BUDGET"
+        ? values.scheduledBudgetEffectiveDate
+        : undefined;
+    const approved =
+      approval?.campaignLayer === campaignLayer &&
+      requestedBudgetDollars !== null &&
+      parseCurrencyToCents(approval.monthlyBudgetDollars) ===
+        parseCurrencyToCents(requestedBudgetDollars) &&
+      approval.effectiveDate === requestedEffectiveDate;
+
+    if (!approved) {
+      throw new YelpValidationError(
+        "September layer budgets are locked to the audited campaign plan.",
+      );
+    }
   }
 
   if (program.type !== "CPC") {
@@ -2063,6 +2093,12 @@ export async function updateProgramBudgetWorkflow(
       ...requestPayload,
       _operation: values.operation,
       _internalNote: values.internalNote,
+      ...(options?.approvedSeptemberOverride
+        ? {
+            _approvalReference:
+              options.approvedSeptemberOverride.approvalReference,
+          }
+        : {}),
     }),
   });
 
@@ -2142,6 +2178,8 @@ export async function updateProgramBudgetWorkflow(
         operation: values.operation,
         payload: requestPayload,
         internalNote: values.internalNote,
+        approvalReference:
+          options?.approvedSeptemberOverride?.approvalReference ?? null,
       }),
       responseSummary: toJsonValue(response.data),
       before: program.configurationJson as never,

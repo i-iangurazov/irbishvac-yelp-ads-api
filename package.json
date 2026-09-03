@@ -20,6 +20,7 @@
     "yelp:configure:program-features": "node --conditions=react-server --env-file=.env --import tsx scripts/configure-yelp-program-features-credential.ts",
     "yelp:reconcile:september": "node --conditions=react-server --env-file=.env --import tsx scripts/reconcile-september-campaign.ts",
     "yelp:reconcile:temporary": "node --conditions=react-server --env-file=.env --import tsx scripts/reconcile-temporary-august-campaign.ts",
+    "yelp:budget:weekend": "node --conditions=react-server --env-file=.env --import tsx scripts/apply-yelp-weekend-budget.ts",
     "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
     "prisma:migrate:dev": "prisma migrate dev",
