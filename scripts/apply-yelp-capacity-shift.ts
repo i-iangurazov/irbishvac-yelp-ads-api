@@ -213,12 +213,13 @@ async function main() {
   const plumbingUpstream = await readProgram(client, PLUMBING_PROGRAM_ID);
   const hvacUpstream = new Map<string, YelpUpstreamProgramDto>();
 
-  if (
-    plumbingUpstream.program_status !== "ACTIVE" ||
-    !["PAUSED", "NOT_PAUSED"].includes(
-      plumbingUpstream.program_pause_status ?? "",
-    )
-  ) {
+  const plumbingPauseStatus = plumbingUpstream.program_pause_status;
+  const plumbingStatusIsValid =
+    (plumbingPauseStatus === "NOT_PAUSED" &&
+      plumbingUpstream.program_status === "ACTIVE") ||
+    (plumbingPauseStatus === "PAUSED" &&
+      ["ACTIVE", "INACTIVE"].includes(plumbingUpstream.program_status));
+  if (plumbingUpstream.program_type !== "CPC" || !plumbingStatusIsValid) {
     throw new Error("Plumbing is not an active pausable Yelp CPC program.");
   }
 
