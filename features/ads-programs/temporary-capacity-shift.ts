@@ -75,7 +75,7 @@ function hasApprovedShift(program: {
       String(target.temporaryBudgetCents / 100) &&
     override.restoreMonthlyBudgetDollars ===
       String(target.restoreBudgetCents / 100) &&
-    override.restoreMode === "YELP_SCHEDULED_WITH_INTERNAL_FALLBACK"
+    override.restoreMode === "INTERNAL_SCHEDULER"
   );
 }
 

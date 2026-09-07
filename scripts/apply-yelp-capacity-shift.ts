@@ -334,8 +334,8 @@ async function main() {
             },
           },
         );
-        await waitForTerminalJob(business.tenantId, result.jobId);
         changedHvac.add(target.upstreamProgramId);
+        await waitForTerminalJob(business.tenantId, result.jobId);
       }
 
       upstream = await readProgram(client, target.upstreamProgramId);
@@ -343,46 +343,9 @@ async function main() {
         throw new Error(`${target.label} budget failed Yelp read-back.`);
       }
 
-      if (
-        !hasScheduledRestore(
-          upstream.future_budget_changes,
-          target.restoreBudgetCents,
-        )
-      ) {
-        if (upstream.future_budget_changes.length > 0) {
-          throw new Error(
-            `${target.label} has a conflicting future budget change.`,
-          );
-        }
-        const result = await updateProgramBudgetWorkflow(
-          business.tenantId,
-          actorId,
-          localProgram.id,
-          {
-            operation: "SCHEDULED_BUDGET",
-            scheduledBudgetDollars: String(target.restoreBudgetCents / 100),
-            scheduledBudgetEffectiveDate: CAPACITY_SHIFT_RESTORE_DATE,
-            internalNote: `${CAPACITY_SHIFT_APPROVAL_REFERENCE}; automatic Thursday restoration.`,
-          },
-          {
-            approvedSeptemberOverride: {
-              campaignLayer: target.campaignLayer,
-              monthlyBudgetDollars: String(target.restoreBudgetCents / 100),
-              effectiveDate: CAPACITY_SHIFT_RESTORE_DATE,
-              approvalReference: CAPACITY_SHIFT_APPROVAL_REFERENCE,
-            },
-          },
-        );
-        await waitForTerminalJob(business.tenantId, result.jobId);
-      }
-
       const finalReadBack = await readProgram(client, target.upstreamProgramId);
       if (
-        finalReadBack.program_metrics?.budget !== HVAC_TEMPORARY_BUDGET_CENTS ||
-        !hasScheduledRestore(
-          finalReadBack.future_budget_changes,
-          target.restoreBudgetCents,
-        )
+        finalReadBack.program_metrics?.budget !== HVAC_TEMPORARY_BUDGET_CENTS
       ) {
         throw new Error(`${target.label} failed final Yelp verification.`);
       }
@@ -411,8 +374,8 @@ async function main() {
               restoreMonthlyBudgetDollars: String(
                 target.restoreBudgetCents / 100,
               ),
-              restoreMode: "YELP_SCHEDULED_WITH_INTERNAL_FALLBACK",
-              status: "PROVIDER_SCHEDULED",
+              restoreMode: "INTERNAL_SCHEDULER",
+              status: "INTERNAL_SCHEDULED",
             },
           }),
         },

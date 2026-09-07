@@ -62,8 +62,8 @@ function budgetProgram(
         monthlyBudgetDollars: "19500",
         restoreDate,
         restoreMonthlyBudgetDollars: "12000",
-        restoreMode: "YELP_SCHEDULED_WITH_INTERNAL_FALLBACK",
-        status: "PROVIDER_SCHEDULED",
+        restoreMode: "INTERNAL_SCHEDULER",
+        status: "INTERNAL_SCHEDULED",
       },
     },
   };
