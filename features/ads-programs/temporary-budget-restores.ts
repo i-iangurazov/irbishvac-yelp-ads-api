@@ -116,6 +116,19 @@ export async function reconcileDueTemporaryBudgetRestores(now = new Date()) {
       continue;
     }
 
+    if (
+      override.status === "COMPLETED" ||
+      override.status === "SUPERSEDED_BY_CAPACITY_SHIFT"
+    ) {
+      results.push({
+        upstreamProgramId: target.upstreamProgramId,
+        label: target.label,
+        status: "COMPLETED",
+        restoreBudgetCents: target.restoreBudgetCents,
+      });
+      continue;
+    }
+
     if (dateKey < target.restoreDate) {
       results.push({
         upstreamProgramId: target.upstreamProgramId,

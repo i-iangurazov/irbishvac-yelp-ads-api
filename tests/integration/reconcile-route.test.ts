@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const reconcilePendingProgramJobs = vi.fn();
 const reconcileDueTemporaryBudgetRestores = vi.fn();
+const reconcileDueTemporaryCapacityShiftRestores = vi.fn();
 const reconcilePendingLeadWebhooks = vi.fn();
 const reconcileRecentYelpLeadsForAutomation = vi.fn();
 const reconcileDueReportSchedules = vi.fn();
@@ -39,6 +40,10 @@ vi.mock("@/features/ads-programs/temporary-budget-restores", () => ({
   reconcileDueTemporaryBudgetRestores,
 }));
 
+vi.mock("@/features/ads-programs/temporary-capacity-shift", () => ({
+  reconcileDueTemporaryCapacityShiftRestores,
+}));
+
 vi.mock("@/features/leads/service", () => ({
   reconcilePendingLeadWebhooks,
   reconcileRecentYelpLeadsForAutomation,
@@ -70,6 +75,7 @@ describe("internal reconcile route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     reconcileDueTemporaryBudgetRestores.mockResolvedValue([]);
+    reconcileDueTemporaryCapacityShiftRestores.mockResolvedValue([]);
     runDurableWorkerTask.mockImplementation(
       async ({ task }: { task: () => Promise<unknown> }) => ({
         status: "SUCCEEDED",

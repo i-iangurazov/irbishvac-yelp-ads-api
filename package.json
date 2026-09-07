@@ -21,6 +21,7 @@
     "yelp:reconcile:september": "node --conditions=react-server --env-file=.env --import tsx scripts/reconcile-september-campaign.ts",
     "yelp:reconcile:temporary": "node --conditions=react-server --env-file=.env --import tsx scripts/reconcile-temporary-august-campaign.ts",
     "yelp:budget:weekend": "node --conditions=react-server --env-file=.env --import tsx scripts/apply-yelp-weekend-budget.ts",
+    "yelp:capacity-shift": "node --conditions=react-server --env-file=.env --import tsx scripts/apply-yelp-capacity-shift.ts",
     "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
     "prisma:migrate:dev": "prisma migrate dev",

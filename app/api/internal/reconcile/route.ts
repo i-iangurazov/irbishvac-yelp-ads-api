@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { reconcilePendingProgramJobs } from "@/features/ads-programs/service";
 import { reconcileDueTemporaryBudgetRestores } from "@/features/ads-programs/temporary-budget-restores";
+import { reconcileDueTemporaryCapacityShiftRestores } from "@/features/ads-programs/temporary-capacity-shift";
 import { runLeadAutomationFollowUpWorker } from "@/features/autoresponder/service";
 import { reconcileDueServiceTitanLifecycleSyncs } from "@/features/crm-connector/lifecycle-service";
 import {
@@ -223,6 +224,8 @@ export async function GET(request: Request) {
           >("internal-reconcile:servicetitan-lifecycle");
     const programJobs = programJobsOutcome.result ?? [];
     const temporaryBudgetRestores = await reconcileDueTemporaryBudgetRestores();
+    const temporaryCapacityShiftRestores =
+      await reconcileDueTemporaryCapacityShiftRestores();
     const leadWebhooks = leadWebhooksOutcome.result ?? [];
     const leadPolling = leadPollingOutcome.result ?? {
       tenantCount: 0,
@@ -277,16 +280,22 @@ export async function GET(request: Request) {
     const hasTemporaryBudgetRestoreFailure = temporaryBudgetRestores.some(
       (result) => result.status === "FAILED" || result.status === "BLOCKED",
     );
+    const hasTemporaryCapacityShiftRestoreFailure =
+      temporaryCapacityShiftRestores.some(
+        (result) => result.status === "FAILED" || result.status === "BLOCKED",
+      );
     const isHealthy =
       !hasWorkerFailure &&
       !hasApplicationFailure &&
-      !hasTemporaryBudgetRestoreFailure;
+      !hasTemporaryBudgetRestoreFailure &&
+      !hasTemporaryCapacityShiftRestoreFailure;
 
     logInfo("internal.reconcile.completed", {
       durationMs: Date.now() - startedAt,
       limits,
       programJobs: programJobs.length,
       temporaryBudgetRestores,
+      temporaryCapacityShiftRestores,
       leadWebhooks: leadWebhooks.length,
       leadPollingBusinesses: leadPolling.businessCount,
       leadPollingLeads: leadPolling.processedLeadCount,
@@ -305,6 +314,7 @@ export async function GET(request: Request) {
         limits,
         programJobs,
         temporaryBudgetRestores,
+        temporaryCapacityShiftRestores,
         leadWebhooks,
         leadPolling,
         scheduledReports,

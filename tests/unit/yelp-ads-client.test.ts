@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/yelp/base-client", () => ({
-  requestYelp: vi.fn()
+  requestYelp: vi.fn(),
 }));
 
 import { YelpAdsClient } from "@/lib/yelp/ads-client";
@@ -33,12 +33,12 @@ describe("YelpAdsClient.listPrograms", () => {
                 active_features: [],
                 available_features: [],
                 ad_categories: [],
-                future_budget_changes: []
-              }))
-            }
+                future_budget_changes: [],
+              })),
+            },
           ],
-          errors: []
-        }
+          errors: [],
+        },
       })
       .mockResolvedValueOnce({
         correlationId: "corr-2",
@@ -58,13 +58,13 @@ describe("YelpAdsClient.listPrograms", () => {
                   active_features: ["AD_GOAL"],
                   available_features: ["AD_GOAL"],
                   ad_categories: ["plumbing"],
-                  future_budget_changes: []
-                }
-              ]
-            }
+                  future_budget_changes: [],
+                },
+              ],
+            },
           ],
-          errors: []
-        }
+          errors: [],
+        },
       });
 
     const client = new YelpAdsClient({
@@ -72,7 +72,7 @@ describe("YelpAdsClient.listPrograms", () => {
       baseUrl: "https://partner-api.yelp.com",
       isEnabled: true,
       username: "user",
-      secret: "secret"
+      secret: "secret",
     });
     const response = await client.listPrograms("biz-1");
 
@@ -82,23 +82,25 @@ describe("YelpAdsClient.listPrograms", () => {
       expect.objectContaining({
         query: {
           start: 0,
-          limit: 40
-        }
-      })
+          limit: 40,
+        },
+      }),
     );
     expect(mockedRequestYelp).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
         query: {
           start: 40,
-          limit: 40
-        }
-      })
+          limit: 40,
+        },
+      }),
     );
     expect(response.correlationId).toBe("corr-2");
     expect(response.data.businesses).toHaveLength(1);
     expect(response.data.businesses[0]?.programs).toHaveLength(41);
-    expect(response.data.businesses[0]?.programs.at(-1)?.program_id).toBe("program-41");
+    expect(response.data.businesses[0]?.programs.at(-1)?.program_id).toBe(
+      "program-41",
+    );
   });
 
   it("stops after the first page when Yelp returns fewer than the max page size", async () => {
@@ -120,13 +122,13 @@ describe("YelpAdsClient.listPrograms", () => {
                 active_features: [],
                 available_features: [],
                 ad_categories: [],
-                future_budget_changes: []
-              }
-            ]
-          }
+                future_budget_changes: [],
+              },
+            ],
+          },
         ],
-        errors: []
-      }
+        errors: [],
+      },
     });
 
     const client = new YelpAdsClient({
@@ -134,12 +136,54 @@ describe("YelpAdsClient.listPrograms", () => {
       baseUrl: "https://partner-api.yelp.com",
       isEnabled: true,
       username: "user",
-      secret: "secret"
+      secret: "secret",
     });
     const response = await client.listPrograms("biz-2");
 
     expect(mockedRequestYelp).toHaveBeenCalledTimes(1);
     expect(response.correlationId).toBe("corr-single");
     expect(response.data.businesses[0]?.programs).toHaveLength(1);
+  });
+});
+
+describe("YelpAdsClient pause controls", () => {
+  beforeEach(() => {
+    mockedRequestYelp.mockReset();
+    mockedRequestYelp.mockResolvedValue({
+      correlationId: "corr-pause",
+      data: null,
+    });
+  });
+
+  const credential = {
+    label: "Test ads",
+    baseUrl: "https://partner-api.yelp.com",
+    isEnabled: true,
+    username: "user",
+    secret: "secret",
+  };
+
+  it("uses the dedicated program pause endpoint", async () => {
+    await new YelpAdsClient(credential).pauseProgram("program-1");
+
+    expect(mockedRequestYelp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        authType: "basic",
+        method: "POST",
+        path: "/program/program-1/pause/v1",
+      }),
+    );
+  });
+
+  it("uses the dedicated program resume endpoint", async () => {
+    await new YelpAdsClient(credential).resumeProgram("program-1");
+
+    expect(mockedRequestYelp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        authType: "basic",
+        method: "POST",
+        path: "/program/program-1/resume/v1",
+      }),
+    );
   });
 });

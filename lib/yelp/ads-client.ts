@@ -11,7 +11,7 @@ import {
   yelpTerminateProgramRequestSchema,
   type YelpCreateProgramRequestDto,
   type YelpEditProgramRequestDto,
-  type YelpTerminateProgramRequestDto
+  type YelpTerminateProgramRequestDto,
 } from "@/lib/yelp/schemas";
 import { requestYelp } from "@/lib/yelp/base-client";
 import type { YelpCredentialConfig } from "@/lib/yelp/runtime";
@@ -30,7 +30,7 @@ export class YelpAdsClient {
       method: "POST",
       path: DEFAULT_YELP_ENDPOINTS.ads.createProgram,
       query,
-      schema: yelpJobSubmissionResponseSchema
+      schema: yelpJobSubmissionResponseSchema,
     });
   }
 
@@ -40,9 +40,11 @@ export class YelpAdsClient {
       credential: this.credential,
       authType: "basic",
       method: "POST",
-      path: resolveEndpoint(DEFAULT_YELP_ENDPOINTS.ads.editProgram, { programId }),
+      path: resolveEndpoint(DEFAULT_YELP_ENDPOINTS.ads.editProgram, {
+        programId,
+      }),
       query,
-      schema: yelpJobSubmissionResponseSchema
+      schema: yelpJobSubmissionResponseSchema,
     });
   }
 
@@ -52,8 +54,32 @@ export class YelpAdsClient {
       credential: this.credential,
       authType: "basic",
       method: "POST",
-      path: resolveEndpoint(DEFAULT_YELP_ENDPOINTS.ads.endProgram, { programId }),
-      schema: yelpJobSubmissionResponseSchema
+      path: resolveEndpoint(DEFAULT_YELP_ENDPOINTS.ads.endProgram, {
+        programId,
+      }),
+      schema: yelpJobSubmissionResponseSchema,
+    });
+  }
+
+  async pauseProgram(programId: string) {
+    return requestYelp({
+      credential: this.credential,
+      authType: "basic",
+      method: "POST",
+      path: resolveEndpoint(DEFAULT_YELP_ENDPOINTS.ads.pauseProgram, {
+        programId,
+      }),
+    });
+  }
+
+  async resumeProgram(programId: string) {
+    return requestYelp({
+      credential: this.credential,
+      authType: "basic",
+      method: "POST",
+      path: resolveEndpoint(DEFAULT_YELP_ENDPOINTS.ads.resumeProgram, {
+        programId,
+      }),
     });
   }
 
@@ -63,21 +89,26 @@ export class YelpAdsClient {
       authType: "basic",
       method: "GET",
       path: resolveEndpoint(DEFAULT_YELP_ENDPOINTS.ads.jobStatus, { jobId }),
-      schema: yelpJobStatusResponseSchema
+      schema: yelpJobStatusResponseSchema,
     });
   }
 
-  private async listProgramsPage(businessId: string, options?: { start?: number; limit?: number }) {
+  private async listProgramsPage(
+    businessId: string,
+    options?: { start?: number; limit?: number },
+  ) {
     return requestYelp({
       credential: this.credential,
       authType: "basic",
       method: "GET",
-      path: resolveEndpoint(DEFAULT_YELP_ENDPOINTS.ads.listPrograms, { businessId }),
+      path: resolveEndpoint(DEFAULT_YELP_ENDPOINTS.ads.listPrograms, {
+        businessId,
+      }),
       query: {
         start: options?.start ?? 0,
-        limit: options?.limit ?? YELP_PROGRAM_LIST_PAGE_SIZE
+        limit: options?.limit ?? YELP_PROGRAM_LIST_PAGE_SIZE,
       },
-      schema: yelpProgramListResponseSchema
+      schema: yelpProgramListResponseSchema,
     });
   }
 
@@ -86,23 +117,39 @@ export class YelpAdsClient {
     options?: {
       pageSize?: number;
       maxPages?: number;
-    }
+    },
   ) {
-    const pageSize = Math.min(Math.max(options?.pageSize ?? YELP_PROGRAM_LIST_PAGE_SIZE, 1), YELP_PROGRAM_LIST_PAGE_SIZE);
-    const maxPages = Math.max(options?.maxPages ?? YELP_PROGRAM_LIST_MAX_PAGES, 1);
-    const aggregatedBusinesses = new Map<string, NonNullable<Awaited<ReturnType<typeof this.listProgramsPage>>["data"]["businesses"][number]>>();
-    const aggregatedErrors: Awaited<ReturnType<typeof this.listProgramsPage>>["data"]["errors"] = [];
+    const pageSize = Math.min(
+      Math.max(options?.pageSize ?? YELP_PROGRAM_LIST_PAGE_SIZE, 1),
+      YELP_PROGRAM_LIST_PAGE_SIZE,
+    );
+    const maxPages = Math.max(
+      options?.maxPages ?? YELP_PROGRAM_LIST_MAX_PAGES,
+      1,
+    );
+    const aggregatedBusinesses = new Map<
+      string,
+      NonNullable<
+        Awaited<
+          ReturnType<typeof this.listProgramsPage>
+        >["data"]["businesses"][number]
+      >
+    >();
+    const aggregatedErrors: Awaited<
+      ReturnType<typeof this.listProgramsPage>
+    >["data"]["errors"] = [];
     let correlationId = "";
 
     for (let pageIndex = 0; pageIndex < maxPages; pageIndex += 1) {
       const start = pageIndex * pageSize;
       const response = await this.listProgramsPage(businessId, {
         start,
-        limit: pageSize
+        limit: pageSize,
       });
       const pageBusinesses = response.data.businesses;
       const currentBusiness = pageBusinesses.find(
-        (entry: (typeof pageBusinesses)[number]) => entry.yelp_business_id === businessId
+        (entry: (typeof pageBusinesses)[number]) =>
+          entry.yelp_business_id === businessId,
       );
       const pagePrograms = currentBusiness?.programs ?? [];
 
@@ -115,7 +162,7 @@ export class YelpAdsClient {
         if (!existing) {
           aggregatedBusinesses.set(business.yelp_business_id, {
             ...business,
-            programs: [...business.programs]
+            programs: [...business.programs],
           });
           continue;
         }
@@ -132,8 +179,8 @@ export class YelpAdsClient {
       correlationId,
       data: {
         businesses: [...aggregatedBusinesses.values()],
-        errors: aggregatedErrors
-      }
+        errors: aggregatedErrors,
+      },
     } as const;
   }
 
@@ -142,8 +189,10 @@ export class YelpAdsClient {
       credential: this.credential,
       authType: "basic",
       method: "GET",
-      path: resolveEndpoint(DEFAULT_YELP_ENDPOINTS.ads.getProgramInfo, { programId }),
-      schema: yelpProgramInfoResponseSchema
+      path: resolveEndpoint(DEFAULT_YELP_ENDPOINTS.ads.getProgramInfo, {
+        programId,
+      }),
+      schema: yelpProgramInfoResponseSchema,
     });
   }
 
@@ -152,7 +201,7 @@ export class YelpAdsClient {
       credential: this.credential,
       authType: "basic",
       method: "GET",
-      path: path ?? DEFAULT_YELP_ENDPOINTS.ads.testConnection
+      path: path ?? DEFAULT_YELP_ENDPOINTS.ads.testConnection,
     });
   }
 }

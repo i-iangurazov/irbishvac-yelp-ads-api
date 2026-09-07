@@ -3,6 +3,8 @@ export const DEFAULT_YELP_ENDPOINTS = {
     createProgram: "/v1/reseller/program/create",
     editProgram: "/v1/reseller/program/{programId}/edit",
     endProgram: "/v1/reseller/program/{programId}/end",
+    pauseProgram: "/program/{programId}/pause/v1",
+    resumeProgram: "/program/{programId}/resume/v1",
     jobStatus: "/v1/reseller/status/{jobId}",
     listPrograms: "/v1/programs/list/{businessId}",
     getProgramInfo: "/v1/programs/info/{programId}",

@@ -93,4 +93,31 @@ describe("temporary Yelp budget restore worker", () => {
       }),
     );
   });
+
+  it("does not re-run a completed override after a later approved change", async () => {
+    const completed = [
+      program("DLJGvx-T0QQt8IXx8xUCCA", "SEPTEMBER_HVAC_INSTALLATION"),
+      program("chZwdNae5UHK2asYXSiizg", "SEPTEMBER_HVAC_REPAIR"),
+    ].map((entry) => ({
+      ...entry,
+      budgetCents: 1_950_000,
+      configurationJson: {
+        ...entry.configurationJson,
+        temporaryBudgetOverride: {
+          ...entry.configurationJson.temporaryBudgetOverride,
+          status: "SUPERSEDED_BY_CAPACITY_SHIFT",
+        },
+      },
+    }));
+    mocks.findMany.mockResolvedValue(completed);
+
+    const { reconcileDueTemporaryBudgetRestores } =
+      await import("@/features/ads-programs/temporary-budget-restores");
+    const results = await reconcileDueTemporaryBudgetRestores(
+      new Date("2026-09-07T12:00:00Z"),
+    );
+
+    expect(results.every((result) => result.status === "COMPLETED")).toBe(true);
+    expect(mocks.updateProgramBudgetWorkflow).not.toHaveBeenCalled();
+  });
 });
