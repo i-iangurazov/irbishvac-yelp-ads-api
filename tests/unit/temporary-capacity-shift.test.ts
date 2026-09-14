@@ -39,13 +39,15 @@ vi.mock("@/lib/yelp/ads-client", () => ({
   },
 }));
 
-const approvalReference = "Emil no-work capacity shift, 2026-09-07";
-const restoreDate = "2026-09-10";
+const approvalReference =
+  "Emil 70/30 Plumbing-to-HVAC capacity shift, 2026-09-14";
+const restoreDate = "2026-09-17";
 
 function budgetProgram(
   upstreamProgramId: string,
   campaignLayer: string,
-  budgetCents = 1_950_000,
+  budgetCents: number,
+  dailyBudgetDollars: string,
 ) {
   return {
     id: `local-${upstreamProgramId}`,
@@ -58,8 +60,8 @@ function budgetProgram(
       campaignLayer,
       temporaryCapacityShift: {
         approvalReference,
-        dailyBudgetDollars: "650",
-        monthlyBudgetDollars: "19500",
+        dailyBudgetDollars,
+        monthlyBudgetDollars: String(budgetCents / 100),
         restoreDate,
         restoreMonthlyBudgetDollars: "12000",
         restoreMode: "INTERNAL_SCHEDULER",
@@ -91,8 +93,18 @@ function plumbingProgram() {
 
 function programs() {
   return [
-    budgetProgram("DLJGvx-T0QQt8IXx8xUCCA", "SEPTEMBER_HVAC_INSTALLATION"),
-    budgetProgram("chZwdNae5UHK2asYXSiizg", "SEPTEMBER_HVAC_REPAIR"),
+    budgetProgram(
+      "DLJGvx-T0QQt8IXx8xUCCA",
+      "SEPTEMBER_HVAC_INSTALLATION",
+      2_250_000,
+      "750",
+    ),
+    budgetProgram(
+      "chZwdNae5UHK2asYXSiizg",
+      "SEPTEMBER_HVAC_REPAIR",
+      1_650_000,
+      "550",
+    ),
     plumbingProgram(),
   ];
 }
@@ -128,7 +140,7 @@ describe("temporary Yelp capacity-shift restore worker", () => {
       await import("@/features/ads-programs/temporary-capacity-shift");
 
     const results = await reconcileDueTemporaryCapacityShiftRestores(
-      new Date("2026-09-09T12:00:00Z"),
+      new Date("2026-09-16T12:00:00Z"),
     );
 
     expect(results).toHaveLength(3);
@@ -153,7 +165,9 @@ describe("temporary Yelp capacity-shift restore worker", () => {
                 budget:
                   programId === "ZKnDBk9eS2jJa7Xi3a3Cjg"
                     ? 1_500_000
-                    : 1_950_000,
+                    : programId === "DLJGvx-T0QQt8IXx8xUCCA"
+                      ? 2_250_000
+                      : 1_650_000,
               },
             },
           ],
@@ -165,7 +179,7 @@ describe("temporary Yelp capacity-shift restore worker", () => {
     const { reconcileDueTemporaryCapacityShiftRestores } =
       await import("@/features/ads-programs/temporary-capacity-shift");
     const results = await reconcileDueTemporaryCapacityShiftRestores(
-      new Date("2026-09-10T12:00:00Z"),
+      new Date("2026-09-17T12:00:00Z"),
     );
 
     expect(mocks.updateProgramBudgetWorkflow).toHaveBeenCalledTimes(2);
@@ -215,7 +229,7 @@ describe("temporary Yelp capacity-shift restore worker", () => {
     const { reconcileDueTemporaryCapacityShiftRestores } =
       await import("@/features/ads-programs/temporary-capacity-shift");
     const results = await reconcileDueTemporaryCapacityShiftRestores(
-      new Date("2026-09-10T12:00:00Z"),
+      new Date("2026-09-17T12:00:00Z"),
     );
 
     expect(results.every((result) => result.status === "COMPLETED")).toBe(true);
@@ -235,7 +249,7 @@ describe("temporary Yelp capacity-shift restore worker", () => {
     const { reconcileDueTemporaryCapacityShiftRestores } =
       await import("@/features/ads-programs/temporary-capacity-shift");
     const results = await reconcileDueTemporaryCapacityShiftRestores(
-      new Date("2026-09-10T12:00:00Z"),
+      new Date("2026-09-17T12:00:00Z"),
     );
 
     expect(results.every((result) => result.status === "SKIPPED")).toBe(true);

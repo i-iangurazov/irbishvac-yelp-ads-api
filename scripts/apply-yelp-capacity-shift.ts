@@ -10,29 +10,27 @@ import {
 import { toJsonValue } from "../lib/db/json";
 import { prisma } from "../lib/db/prisma";
 import { YelpAdsClient } from "../lib/yelp/ads-client";
-import { dailyBudgetDollarsToMonthlyBudgetCents } from "../lib/yelp/budget";
 import { ensureYelpAccess } from "../lib/yelp/runtime";
 import type { YelpUpstreamProgramDto } from "../lib/yelp/schemas";
 
 const TERMINAL_JOB_STATUSES = new Set(["COMPLETED", "FAILED", "PARTIAL"]);
 const PLUMBING_PROGRAM_ID = "ZKnDBk9eS2jJa7Xi3a3Cjg";
 const PLUMBING_LAYER = "SEPTEMBER_PLUMBING";
-const HVAC_DAILY_BUDGET_DOLLARS = "650";
-const HVAC_TEMPORARY_BUDGET_CENTS = dailyBudgetDollarsToMonthlyBudgetCents(
-  HVAC_DAILY_BUDGET_DOLLARS,
-);
-
 const hvacTargets = [
   {
     label: "HVAC Installation",
     campaignLayer: "SEPTEMBER_HVAC_INSTALLATION",
     upstreamProgramId: "DLJGvx-T0QQt8IXx8xUCCA",
+    temporaryDailyBudgetDollars: "750",
+    temporaryBudgetCents: 2_250_000,
     restoreBudgetCents: 1_200_000,
   },
   {
     label: "HVAC Service / Repair",
     campaignLayer: "SEPTEMBER_HVAC_REPAIR",
     upstreamProgramId: "chZwdNae5UHK2asYXSiizg",
+    temporaryDailyBudgetDollars: "550",
+    temporaryBudgetCents: 1_650_000,
     restoreBudgetCents: 1_200_000,
   },
 ] as const;
@@ -233,7 +231,7 @@ async function main() {
     }
     if (
       upstream.program_metrics?.budget !== target.restoreBudgetCents &&
-      upstream.program_metrics?.budget !== HVAC_TEMPORARY_BUDGET_CENTS
+      upstream.program_metrics?.budget !== target.temporaryBudgetCents
     ) {
       throw new Error(`${target.label} has an unexpected current budget.`);
     }
@@ -269,8 +267,8 @@ async function main() {
       currentBudgetCents:
         hvacUpstream.get(target.upstreamProgramId)?.program_metrics?.budget ??
         null,
-      targetDailyBudgetDollars: HVAC_DAILY_BUDGET_DOLLARS,
-      targetMonthlyBudgetCents: HVAC_TEMPORARY_BUDGET_CENTS,
+      targetDailyBudgetDollars: target.temporaryDailyBudgetDollars,
+      targetMonthlyBudgetCents: target.temporaryBudgetCents,
       restoreMonthlyBudgetCents: target.restoreBudgetCents,
       scheduledRestoreExists: hasScheduledRestore(
         hvacUpstream.get(target.upstreamProgramId)?.future_budget_changes ?? [],
@@ -317,20 +315,20 @@ async function main() {
       await reconcilePendingJobs(business.tenantId, localProgram.id);
       let upstream = await readProgram(client, target.upstreamProgramId);
 
-      if (upstream.program_metrics?.budget !== HVAC_TEMPORARY_BUDGET_CENTS) {
+      if (upstream.program_metrics?.budget !== target.temporaryBudgetCents) {
         const result = await updateProgramBudgetWorkflow(
           business.tenantId,
           actorId,
           localProgram.id,
           {
             operation: "CURRENT_BUDGET",
-            currentBudgetDollars: String(HVAC_TEMPORARY_BUDGET_CENTS / 100),
-            internalNote: `${CAPACITY_SHIFT_APPROVAL_REFERENCE}; $650/day while Plumbing is paused.`,
+            currentBudgetDollars: String(target.temporaryBudgetCents / 100),
+            internalNote: `${CAPACITY_SHIFT_APPROVAL_REFERENCE}; $${target.temporaryDailyBudgetDollars}/day while Plumbing is paused.`,
           },
           {
             approvedSeptemberOverride: {
               campaignLayer: target.campaignLayer,
-              monthlyBudgetDollars: String(HVAC_TEMPORARY_BUDGET_CENTS / 100),
+              monthlyBudgetDollars: String(target.temporaryBudgetCents / 100),
               approvalReference: CAPACITY_SHIFT_APPROVAL_REFERENCE,
             },
           },
@@ -340,13 +338,13 @@ async function main() {
       }
 
       upstream = await readProgram(client, target.upstreamProgramId);
-      if (upstream.program_metrics?.budget !== HVAC_TEMPORARY_BUDGET_CENTS) {
+      if (upstream.program_metrics?.budget !== target.temporaryBudgetCents) {
         throw new Error(`${target.label} budget failed Yelp read-back.`);
       }
 
       const finalReadBack = await readProgram(client, target.upstreamProgramId);
       if (
-        finalReadBack.program_metrics?.budget !== HVAC_TEMPORARY_BUDGET_CENTS
+        finalReadBack.program_metrics?.budget !== target.temporaryBudgetCents
       ) {
         throw new Error(`${target.label} failed final Yelp verification.`);
       }
@@ -369,8 +367,8 @@ async function main() {
             },
             temporaryCapacityShift: {
               approvalReference: CAPACITY_SHIFT_APPROVAL_REFERENCE,
-              dailyBudgetDollars: HVAC_DAILY_BUDGET_DOLLARS,
-              monthlyBudgetDollars: String(HVAC_TEMPORARY_BUDGET_CENTS / 100),
+              dailyBudgetDollars: target.temporaryDailyBudgetDollars,
+              monthlyBudgetDollars: String(target.temporaryBudgetCents / 100),
               restoreDate: CAPACITY_SHIFT_RESTORE_DATE,
               restoreMonthlyBudgetDollars: String(
                 target.restoreBudgetCents / 100,
@@ -410,8 +408,11 @@ async function main() {
             plumbingPauseStatus: (
               await readProgram(client, PLUMBING_PROGRAM_ID)
             ).program_pause_status,
-            hvacMonthlyBudgetCents: HVAC_TEMPORARY_BUDGET_CENTS,
-            hvacDailyBudgetDollars: HVAC_DAILY_BUDGET_DOLLARS,
+            hvac: hvacTargets.map((target) => ({
+              label: target.label,
+              monthlyBudgetCents: target.temporaryBudgetCents,
+              dailyBudgetDollars: target.temporaryDailyBudgetDollars,
+            })),
             restoreDate: CAPACITY_SHIFT_RESTORE_DATE,
           },
         },

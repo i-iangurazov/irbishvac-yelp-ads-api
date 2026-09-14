@@ -10,8 +10,8 @@ import { ensureYelpAccess } from "@/lib/yelp/runtime";
 import type { YelpUpstreamProgramDto } from "@/lib/yelp/schemas";
 
 export const CAPACITY_SHIFT_APPROVAL_REFERENCE =
-  "Emil no-work capacity shift, 2026-09-07";
-export const CAPACITY_SHIFT_RESTORE_DATE = "2026-09-10";
+  "Emil 70/30 Plumbing-to-HVAC capacity shift, 2026-09-14";
+export const CAPACITY_SHIFT_RESTORE_DATE = "2026-09-17";
 
 const targets = [
   {
@@ -19,7 +19,8 @@ const targets = [
     label: "HVAC Installation",
     campaignLayer: "SEPTEMBER_HVAC_INSTALLATION",
     upstreamProgramId: "DLJGvx-T0QQt8IXx8xUCCA",
-    temporaryBudgetCents: 1_950_000,
+    temporaryDailyBudgetDollars: "750",
+    temporaryBudgetCents: 2_250_000,
     restoreBudgetCents: 1_200_000,
   },
   {
@@ -27,7 +28,8 @@ const targets = [
     label: "HVAC Service / Repair",
     campaignLayer: "SEPTEMBER_HVAC_REPAIR",
     upstreamProgramId: "chZwdNae5UHK2asYXSiizg",
-    temporaryBudgetCents: 1_950_000,
+    temporaryDailyBudgetDollars: "550",
+    temporaryBudgetCents: 1_650_000,
     restoreBudgetCents: 1_200_000,
   },
   {
@@ -70,7 +72,7 @@ function hasApprovedShift(program: {
   }
 
   return (
-    override.dailyBudgetDollars === "650" &&
+    override.dailyBudgetDollars === target.temporaryDailyBudgetDollars &&
     override.monthlyBudgetDollars ===
       String(target.temporaryBudgetCents / 100) &&
     override.restoreMonthlyBudgetDollars ===
