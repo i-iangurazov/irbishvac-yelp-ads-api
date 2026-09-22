@@ -10,8 +10,8 @@ import { ensureYelpAccess } from "@/lib/yelp/runtime";
 import type { YelpUpstreamProgramDto } from "@/lib/yelp/schemas";
 
 export const CAPACITY_SHIFT_APPROVAL_REFERENCE =
-  "Emil 70/30 Plumbing-to-HVAC capacity shift, 2026-09-14";
-export const CAPACITY_SHIFT_RESTORE_DATE = "2026-09-17";
+  "Emil pause Plumbing and add $125/day per HVAC, 2026-09-22";
+export const CAPACITY_SHIFT_RESTORE_DATE = "2026-09-23";
 
 const targets = [
   {
@@ -19,8 +19,8 @@ const targets = [
     label: "HVAC Installation",
     campaignLayer: "SEPTEMBER_HVAC_INSTALLATION",
     upstreamProgramId: "DLJGvx-T0QQt8IXx8xUCCA",
-    temporaryDailyBudgetDollars: "750",
-    temporaryBudgetCents: 2_250_000,
+    temporaryDailyBudgetDollars: "525",
+    temporaryBudgetCents: 1_575_000,
     restoreBudgetCents: 1_200_000,
   },
   {
@@ -28,8 +28,8 @@ const targets = [
     label: "HVAC Service / Repair",
     campaignLayer: "SEPTEMBER_HVAC_REPAIR",
     upstreamProgramId: "chZwdNae5UHK2asYXSiizg",
-    temporaryDailyBudgetDollars: "550",
-    temporaryBudgetCents: 1_650_000,
+    temporaryDailyBudgetDollars: "525",
+    temporaryBudgetCents: 1_575_000,
     restoreBudgetCents: 1_200_000,
   },
   {
@@ -295,7 +295,7 @@ export async function reconcileDueTemporaryCapacityShiftRestores(
         {
           operation: "CURRENT_BUDGET",
           currentBudgetDollars: String(target.restoreBudgetCents / 100),
-          internalNote: `${CAPACITY_SHIFT_APPROVAL_REFERENCE}; automatic Thursday restoration.`,
+          internalNote: `${CAPACITY_SHIFT_APPROVAL_REFERENCE}; automatic Wednesday restoration.`,
         },
         {
           approvedSeptemberOverride: {

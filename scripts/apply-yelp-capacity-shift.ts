@@ -21,16 +21,16 @@ const hvacTargets = [
     label: "HVAC Installation",
     campaignLayer: "SEPTEMBER_HVAC_INSTALLATION",
     upstreamProgramId: "DLJGvx-T0QQt8IXx8xUCCA",
-    temporaryDailyBudgetDollars: "750",
-    temporaryBudgetCents: 2_250_000,
+    temporaryDailyBudgetDollars: "525",
+    temporaryBudgetCents: 1_575_000,
     restoreBudgetCents: 1_200_000,
   },
   {
     label: "HVAC Service / Repair",
     campaignLayer: "SEPTEMBER_HVAC_REPAIR",
     upstreamProgramId: "chZwdNae5UHK2asYXSiizg",
-    temporaryDailyBudgetDollars: "550",
-    temporaryBudgetCents: 1_650_000,
+    temporaryDailyBudgetDollars: "525",
+    temporaryBudgetCents: 1_575_000,
     restoreBudgetCents: 1_200_000,
   },
 ] as const;
@@ -181,6 +181,15 @@ async function main() {
   if (localPrograms.length !== upstreamIds.length) {
     throw new Error("The exact three approved local programs were not found.");
   }
+  const originalLocalState = new Map(
+    localPrograms.map((program) => [
+      program.id,
+      {
+        budgetCents: program.budgetCents,
+        configurationJson: program.configurationJson,
+      },
+    ]),
+  );
 
   const plumbing = localPrograms.find(
     (program) => program.upstreamProgramId === PLUMBING_PROGRAM_ID,
@@ -464,6 +473,21 @@ async function main() {
           `Plumbing: ${rollbackError instanceof Error ? rollbackError.message : "unknown rollback failure"}`,
         );
       }
+    }
+
+    if (rollbackErrors.length === 0) {
+      await prisma.$transaction(
+        localPrograms.map((program) => {
+          const original = originalLocalState.get(program.id)!;
+          return prisma.program.update({
+            where: { id: program.id },
+            data: {
+              budgetCents: original.budgetCents,
+              configurationJson: toJsonValue(original.configurationJson),
+            },
+          });
+        }),
+      );
     }
 
     throw new Error(
