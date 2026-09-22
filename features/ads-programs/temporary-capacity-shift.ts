@@ -10,8 +10,8 @@ import { ensureYelpAccess } from "@/lib/yelp/runtime";
 import type { YelpUpstreamProgramDto } from "@/lib/yelp/schemas";
 
 export const CAPACITY_SHIFT_APPROVAL_REFERENCE =
-  "Emil $250/day Plumbing and $125/day per HVAC shift, 2026-09-22";
-export const CAPACITY_SHIFT_RESTORE_DATE = "2026-09-23";
+  "Emil 70/30 Plumbing-to-HVAC capacity shift, 2026-09-14";
+export const CAPACITY_SHIFT_RESTORE_DATE = "2026-09-17";
 
 const targets = [
   {
@@ -19,8 +19,8 @@ const targets = [
     label: "HVAC Installation",
     campaignLayer: "SEPTEMBER_HVAC_INSTALLATION",
     upstreamProgramId: "DLJGvx-T0QQt8IXx8xUCCA",
-    temporaryDailyBudgetDollars: "525",
-    temporaryBudgetCents: 1_575_000,
+    temporaryDailyBudgetDollars: "750",
+    temporaryBudgetCents: 2_250_000,
     restoreBudgetCents: 1_200_000,
   },
   {
@@ -28,18 +28,15 @@ const targets = [
     label: "HVAC Service / Repair",
     campaignLayer: "SEPTEMBER_HVAC_REPAIR",
     upstreamProgramId: "chZwdNae5UHK2asYXSiizg",
-    temporaryDailyBudgetDollars: "525",
-    temporaryBudgetCents: 1_575_000,
+    temporaryDailyBudgetDollars: "550",
+    temporaryBudgetCents: 1_650_000,
     restoreBudgetCents: 1_200_000,
   },
   {
-    kind: "BUDGET" as const,
+    kind: "RESUME" as const,
     label: "Plumbing",
     campaignLayer: "SEPTEMBER_PLUMBING",
     upstreamProgramId: "ZKnDBk9eS2jJa7Xi3a3Cjg",
-    temporaryDailyBudgetDollars: "250",
-    temporaryBudgetCents: 750_000,
-    restoreBudgetCents: 1_500_000,
   },
 ] as const;
 
@@ -68,6 +65,10 @@ function hasApprovedShift(program: {
     override.restoreDate !== CAPACITY_SHIFT_RESTORE_DATE
   ) {
     return false;
+  }
+
+  if (target.kind === "RESUME") {
+    return override.restoreMode === "INTERNAL_RESUME";
   }
 
   return (
@@ -212,6 +213,44 @@ export async function reconcileDueTemporaryCapacityShiftRestores(
         target.upstreamProgramId,
       );
 
+      if (target.kind === "RESUME") {
+        if (upstream.program_pause_status !== "PAUSED") {
+          await updateShiftStatus(program, "COMPLETED");
+          results.push({ label: target.label, status: "COMPLETED" });
+          continue;
+        }
+
+        const actor = await findAuditActor(program.tenantId);
+        if (!actor) {
+          results.push({
+            label: target.label,
+            status: "BLOCKED",
+            reason:
+              "No active administrator is available for audit attribution.",
+          });
+          continue;
+        }
+
+        await client.resumeProgram(target.upstreamProgramId);
+        await updateShiftStatus(program, "RESUME_SUBMITTED");
+        await prisma.auditEvent.create({
+          data: {
+            tenantId: program.tenantId,
+            actorId: actor.id,
+            businessId: program.businessId,
+            programId: program.id,
+            actionType: "program.capacity-shift.resume",
+            status: "SUCCESS",
+            requestSummaryJson: toJsonValue({
+              approvalReference: CAPACITY_SHIFT_APPROVAL_REFERENCE,
+              restoreDate: CAPACITY_SHIFT_RESTORE_DATE,
+            }),
+          },
+        });
+        results.push({ label: target.label, status: "RESUME_SUBMITTED" });
+        continue;
+      }
+
       if (upstream.program_metrics?.budget === target.restoreBudgetCents) {
         await prisma.program.update({
           where: { id: program.id },
@@ -256,7 +295,7 @@ export async function reconcileDueTemporaryCapacityShiftRestores(
         {
           operation: "CURRENT_BUDGET",
           currentBudgetDollars: String(target.restoreBudgetCents / 100),
-          internalNote: `${CAPACITY_SHIFT_APPROVAL_REFERENCE}; automatic Wednesday restoration.`,
+          internalNote: `${CAPACITY_SHIFT_APPROVAL_REFERENCE}; automatic Thursday restoration.`,
         },
         {
           approvedSeptemberOverride: {
